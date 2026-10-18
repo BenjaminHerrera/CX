@@ -1,0 +1,5 @@
+# Only these three files may enter the build context.
+*
+!Dockerfile
+!cx-entrypoint
+!cx-env

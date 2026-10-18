@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly environment_root="${MAMBA_ROOT_PREFIX:-/cx-env}"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  cx-env active
+  cx-env list
+  cx-env path [NAME]
+  cx-env use NAME
+  cx-env run [--] COMMAND [ARG...]
+
+The CX_ENV_NAME environment variable overrides the persistent selection for
+the current container session.
+EOF
+}
+
+die() {
+    printf 'cx-env: %s\n' "$*" >&2
+    exit 1
+}
+
+valid_environment_name() {
+    local name="$1"
+    [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$name" != "base" ]]
+}
+
+validate_environment_name() {
+    local name="$1"
+    valid_environment_name "$name" ||
+        die "invalid environment name '$name' (use 1-64 ASCII letters, digits, '.', '_', or '-'; 'base' is reserved)"
+}
+
+persistent_environment() {
+    local name=""
+    local -a active_lines=()
+
+    if [[ -f "${environment_root}/active" ]]; then
+        mapfile -t active_lines <"${environment_root}/active"
+        if ((${#active_lines[@]} == 1)); then
+            name="${active_lines[0]}"
+        else
+            name="<malformed>"
+        fi
+    fi
+
+    if [[ -z "$name" ]]; then
+        name="default"
+    elif ! valid_environment_name "$name"; then
+        printf 'cx-env: ignoring invalid environment name in %s/active: %s\n' \
+            "$environment_root" "$name" >&2
+        name="default"
+    fi
+
+    printf '%s\n' "$name"
+}
+
+effective_environment() {
+    local name=""
+
+    if [[ "${CX_ENV_SESSION_OVERRIDE:-}" == "true" ||
+          ( -z "${CX_ENV_SESSION_OVERRIDE:-}" && -n "${CX_ENV_NAME:-}" ) ]]; then
+        name="$CX_ENV_NAME"
+        validate_environment_name "$name"
+        printf '%s\n' "$name"
+        return
+    fi
+
+    persistent_environment
+}
+
+environment_path() {
+    local name="$1"
+    printf '%s/envs/%s\n' "$environment_root" "$name"
+}
+
+command="${1:-}"
+[[ -n "$command" ]] || {
+    usage >&2
+    exit 2
+}
+shift
+
+case "$command" in
+    active)
+        (($# == 0)) || die "active does not accept arguments"
+        effective_environment
+        ;;
+    list)
+        (($# == 0)) || die "list does not accept arguments"
+        active_name="$(effective_environment)"
+        printf '%-24s %-8s %s\n' NAME ACTIVE PATH
+        found=false
+        for prefix in "${environment_root}"/envs/*; do
+            [[ -d "${prefix}/conda-meta" ]] || continue
+            found=true
+            name="${prefix##*/}"
+            marker=""
+            [[ "$name" != "$active_name" ]] || marker="*"
+            printf '%-24s %-8s %s\n' "$name" "$marker" "$prefix"
+        done
+        if [[ "$found" == false ]]; then
+            printf '%s\n' '(no named environments)'
+        fi
+        ;;
+    path)
+        (($# <= 1)) || die "path accepts at most one environment name"
+        name="${1:-$(effective_environment)}"
+        validate_environment_name "$name"
+        environment_path "$name"
+        ;;
+    use)
+        (($# == 1)) || die "use requires exactly one environment name"
+        name="$1"
+        validate_environment_name "$name"
+        prefix="$(environment_path "$name")"
+        [[ -d "${prefix}/conda-meta" ]] || die "environment does not exist: $name"
+
+        temporary_file="${environment_root}/.active.$$"
+        cleanup() {
+            rm -f -- "$temporary_file"
+        }
+        trap cleanup EXIT INT TERM
+        printf '%s\n' "$name" >"$temporary_file"
+        chmod 0600 "$temporary_file"
+        mv -f -- "$temporary_file" "${environment_root}/active"
+        trap - EXIT INT TERM
+
+        printf 'cx-env: active environment set to %s for future sessions\n' "$name"
+        if [[ "${CX_ENV_SESSION_OVERRIDE:-}" == "true" ||
+              ( -z "${CX_ENV_SESSION_OVERRIDE:-}" && -n "${CX_ENV_NAME:-}" ) ]]; then
+            printf 'cx-env: CX_ENV_NAME=%s remains the override for this session\n' "$CX_ENV_NAME"
+        else
+            printf 'cx-env: use `cx-env run -- COMMAND` in this session\n'
+        fi
+        ;;
+    run)
+        if [[ "${1:-}" == "--" ]]; then
+            shift
+        fi
+        (($# > 0)) || die "run requires a command"
+        name="$(effective_environment)"
+        prefix="$(environment_path "$name")"
+        [[ -d "${prefix}/conda-meta" ]] || die "environment does not exist: $name"
+        exec micromamba run -n "$name" "$@"
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        usage >&2
+        die "unknown command: $command"
+        ;;
+esac

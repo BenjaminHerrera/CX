@@ -1,0 +1,626 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Resolve the real executable so installed symlinks and moved portable folders work.
+readonly CX_ROOT="$(cd -- "$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+readonly CONFIG_DIRECTORY="${CX_CONFIG_DIR:-$CX_ROOT/config}"
+readonly BUILD_DIRECTORY="$CX_ROOT/container"
+readonly VERSION="$(cat "$CX_ROOT/VERSION")"
+DOCKER_TERMINAL_ARGS=(-i)
+if [[ -t 0 && -t 1 ]]; then DOCKER_TERMINAL_ARGS+=(-t); fi
+
+readonly IMAGE="${CX_IMAGE:-local/codex-isolated:latest}"
+readonly HOST_CODEX_HOME="${CX_CODEX_HOME:-$HOME/.codex}"
+readonly HOST_ENV_HOME="${CX_ENV_HOME:-$HOME/.local/share/cx/environments}"
+readonly REQUESTED_ENV_NAME="${CX_ENV_NAME:-}"
+readonly CONTAINER_MEMORY="${CX_MEMORY:-8g}"
+readonly CONTAINER_CPUS="${CX_CPUS:-4}"
+readonly CONTAINER_PIDS="${CX_PIDS:-1024}"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  cx [directory] [codex arguments...]
+
+Examples:
+  cx .
+  cx ~/projects/my-app
+  cx . --add-dir ../shared --add-dir /path/to/data
+  cx . --model YOUR_MODEL
+  cx . exec "Run the test suite and fix failures"
+  cx --login
+  cx --auth-status
+  cx --logout
+  cx --shell [--add-dir DIR ...]
+  cx --build                 Build the image (cached layers allowed)
+  cx --rebuild               Rebuild with fresh layers
+  cx --doctor                Check local prerequisites and paths
+  cx --version
+
+Codex configuration:
+  -c, --enable, --disable, and --search are per-run overrides. Codex runs
+  those sessions in embedded mode. For persistent settings, edit
+  CX_CODEX_HOME/config.toml (default: ~/.codex/config.toml).
+
+Environment:
+  CX_CONFIG_DIR    System config folder, default: package/config
+  CX_CODEX_VERSION Codex npm version used by --build/--rebuild, default: latest
+  CX_IMAGE         Container image name
+  CX_CODEX_HOME    Host Codex directory, default: ~/.codex
+  CX_ENV_HOME      Persistent environment storage, default: ~/.local/share/cx/environments
+  CX_ENV_NAME      Named environment override for this session
+  CX_MEMORY        Container memory limit, default: 8g
+  CX_CPUS          Container CPU limit, default: 4
+  CX_PIDS          Container process limit, default: 1024
+
+Workspace filtering:
+  If the workspace contains .codexignore, each listed workspace-relative path
+  is replaced by an empty, read-only mount in the container. Path names remain
+  visible, but their host contents do not. The .codexignore file is also masked.
+  Blank lines and lines beginning with # are ignored.
+
+Additional directories:
+  Repeat --add-dir DIR to expose other writable directories. Relative paths are
+  resolved from the primary workspace. External directories appear beneath
+  /cx-external using their directory names. Each may have .codexignore.
+  --shell also accepts --add-dir, using the current directory as its workspace.
+
+Persistent environments:
+  Each primary workspace receives a private Micromamba root at /cx-env. Use
+  cx-env to inspect or select named environments. Environments are created only
+  when needed; CX_ENV_NAME temporarily overrides the persistent selection.
+EOF
+}
+
+die() {
+    printf 'cx: %s\n' "$*" >&2
+    exit 1
+}
+
+require_docker() {
+    command -v docker >/dev/null 2>&1 ||
+        die "Docker is not installed or is not in PATH."
+
+    docker info >/dev/null 2>&1 ||
+        die "Docker is not running or your user cannot access it."
+}
+
+ensure_image() {
+    docker image inspect "$IMAGE" >/dev/null 2>&1 ||
+        die "Image '$IMAGE' does not exist. Run cx --build (portable: /path/to/cx/cx --build)."
+}
+
+ensure_codex_home() {
+    mkdir -p "$HOST_CODEX_HOME"
+    chmod 700 "$HOST_CODEX_HOME"
+
+    [[ -d "$HOST_CODEX_HOME" ]] ||
+        die "Codex home is not a directory: $HOST_CODEX_HOME"
+
+    [[ -r "$HOST_CODEX_HOME" ]] ||
+        die "Codex home is not readable: $HOST_CODEX_HOME"
+
+    [[ -w "$HOST_CODEX_HOME" ]] ||
+        die "Codex home is not writable: $HOST_CODEX_HOME"
+}
+
+canonical_directory() {
+    local target="$1"
+
+    [[ -d "$target" ]] || die "Not a directory: $target"
+
+    (
+        cd -- "$target"
+        pwd -P
+    )
+}
+
+valid_environment_name() {
+    local name="$1"
+    [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$name" != "base" ]]
+}
+
+validate_environment_name() {
+    local name="$1"
+    valid_environment_name "$name" ||
+        die "Invalid CX_ENV_NAME '$name'. Use 1-64 ASCII letters, digits, '.', '_', or '-'; 'base' is reserved."
+}
+
+ENVIRONMENT_DOCKER_ARGS=()
+HOST_WORKSPACE_ENV=""
+
+prepare_environment_mount() {
+    local workspace="$1"
+    local environment_home codex_home_path workspace_name workspace_hash metadata_file
+
+    [[ -z "$REQUESTED_ENV_NAME" ]] || validate_environment_name "$REQUESTED_ENV_NAME"
+    command -v sha256sum >/dev/null 2>&1 ||
+        die "sha256sum is required to identify workspace environments."
+    command -v realpath >/dev/null 2>&1 ||
+        die "realpath is required to validate CX_ENV_HOME."
+
+    environment_home="$(realpath -m -- "$HOST_ENV_HOME")"
+    codex_home_path="$(canonical_directory "$HOST_CODEX_HOME")"
+
+    [[ "$environment_home" != "/" ]] ||
+        die "Refusing to use the host root for CX_ENV_HOME."
+    [[ "$environment_home" != *,* ]] ||
+        die "CX_ENV_HOME contains a comma, which Docker cannot mount safely: $environment_home"
+
+    if [[ "$environment_home" == "$workspace" ||
+          "$environment_home" == "$workspace/"* ||
+          "$workspace" == "$environment_home/"* ]]; then
+        die "CX_ENV_HOME cannot overlap the primary workspace: $environment_home"
+    fi
+
+    if [[ "$environment_home" == "$codex_home_path" ||
+          "$environment_home" == "$codex_home_path/"* ||
+          "$codex_home_path" == "$environment_home/"* ]]; then
+        die "CX_ENV_HOME cannot overlap the Codex credential directory: $environment_home"
+    fi
+
+    mkdir -p -- "$environment_home"
+    chmod 700 -- "$environment_home"
+    environment_home="$(canonical_directory "$environment_home")"
+
+    workspace_name="${workspace##*/}"
+    workspace_name="$(printf '%s' "$workspace_name" | sed 's/[^[:alnum:]_.-]/_/g')"
+    [[ -n "$workspace_name" && "$workspace_name" != "." && "$workspace_name" != ".." ]] ||
+        workspace_name="workspace"
+    workspace_hash="$(printf '%s' "$workspace" | sha256sum)"
+    workspace_hash="${workspace_hash%% *}"
+
+    HOST_WORKSPACE_ENV="${environment_home}/${workspace_name}-${workspace_hash:0:16}"
+    mkdir -p -- "$HOST_WORKSPACE_ENV"
+    chmod 700 -- "$HOST_WORKSPACE_ENV"
+
+    metadata_file="${HOST_WORKSPACE_ENV}/workspace-path"
+    if [[ ! -f "$metadata_file" ]] || [[ "$(<"$metadata_file")" != "$workspace" ]]; then
+        printf '%s\n' "$workspace" >"$metadata_file"
+        chmod 600 -- "$metadata_file"
+    fi
+
+    ENVIRONMENT_DOCKER_ARGS=(
+        --mount "type=bind,src=${HOST_WORKSPACE_ENV},dst=/cx-env"
+        --env MAMBA_ROOT_PREFIX=/cx-env
+    )
+    if [[ -n "$REQUESTED_ENV_NAME" ]]; then
+        ENVIRONMENT_DOCKER_ARGS+=(--env "CX_ENV_NAME=${REQUESTED_ENV_NAME}")
+    fi
+}
+
+IGNORE_MOUNT_ARGS=()
+CODEXIGNORE_PATHS=()
+ADDITIONAL_MOUNT_ARGS=()
+CODEX_ARGS=()
+ADDED_HOST_PATHS=()
+ADDED_CONTAINER_PATHS=()
+
+read_codexignore() {
+    local workspace="$1"
+    local ignore_file="${workspace}/.codexignore"
+    local relative line seen duplicate
+
+    CODEXIGNORE_PATHS=()
+
+    [[ -f "$ignore_file" ]] || return 0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ -n "$line" && "$line" != \#* ]] || continue
+
+        relative="$line"
+        while [[ "$relative" == ./* ]]; do
+            relative="${relative#./}"
+        done
+        relative="${relative%/}"
+
+        [[ -n "$relative" && "$relative" != "." ]] || continue
+
+        if [[ "$relative" == /* || "$relative" == ".." || "$relative" == ../* || "$relative" == */../* || "$relative" == */.. ]]; then
+            die "Invalid path in $ignore_file: $line"
+        fi
+
+        duplicate=false
+        for seen in "${CODEXIGNORE_PATHS[@]}"; do
+            if [[ "$relative" == "$seen" ]]; then
+                duplicate=true
+                break
+            fi
+        done
+        [[ "$duplicate" == false ]] || continue
+
+        CODEXIGNORE_PATHS+=("$relative")
+    done <"$ignore_file"
+}
+
+collect_ignore_mounts() {
+    local workspace="$1"
+    local container_root="$2"
+    local ignore_file="${workspace}/.codexignore"
+    local relative target covered masked seen
+    local -a paths_to_mask=()
+    local -a masked_directories=()
+    local -a masked_paths=()
+
+    [[ -f "$ignore_file" ]] || return 0
+
+    read_codexignore "$workspace"
+    paths_to_mask=(".codexignore" "${CODEXIGNORE_PATHS[@]}")
+
+    for relative in "${paths_to_mask[@]}"; do
+        [[ -e "${workspace}/${relative}" || -L "${workspace}/${relative}" ]] || continue
+
+        covered=false
+        for seen in "${masked_paths[@]}"; do
+            if [[ "$relative" == "$seen" ]]; then
+                covered=true
+                break
+            fi
+        done
+        [[ "$covered" == false ]] || continue
+
+        for masked in "${masked_directories[@]}"; do
+            if [[ "$relative" == "$masked" || "$relative" == "$masked/"* ]]; then
+                covered=true
+                break
+            fi
+        done
+        [[ "$covered" == false ]] || continue
+
+        target="${container_root%/}/${relative}"
+        [[ "$target" != *,* ]] ||
+            die "An ignored path contains a comma, which Docker cannot mount safely: $relative"
+
+        if [[ -d "${workspace}/${relative}" && ! -L "${workspace}/${relative}" ]]; then
+            IGNORE_MOUNT_ARGS+=(
+                --mount "type=tmpfs,dst=${target},tmpfs-mode=0555,readonly"
+            )
+            masked_directories+=("$relative")
+        else
+            IGNORE_MOUNT_ARGS+=(
+                --mount "type=bind,src=/dev/null,dst=${target},readonly"
+            )
+        fi
+        masked_paths+=("$relative")
+    done
+}
+
+register_additional_directory() {
+    local workspace="$1"
+    local requested="$2"
+    local host_path container_path codex_home_path seen
+    local base_name candidate suffix collision
+
+    if [[ "$requested" == /* ]]; then
+        host_path="$(canonical_directory "$requested")"
+    else
+        host_path="$(canonical_directory "${workspace}/${requested}")"
+    fi
+
+    [[ "$host_path" != "/" ]] ||
+        die "Refusing to add the host root directory."
+
+    codex_home_path="$(canonical_directory "$HOST_CODEX_HOME")"
+    if [[ "$host_path" == "$codex_home_path" ||
+          "$host_path" == "$codex_home_path/"* ||
+          "$codex_home_path" == "$host_path/"* ]]; then
+        die "Refusing to expose the Codex credential directory through --add-dir: $host_path"
+    fi
+
+    for seen in "${ADDED_HOST_PATHS[@]}"; do
+        [[ "$host_path" != "$seen" ]] || return 0
+    done
+
+    if [[ "$host_path" == "$workspace" ]]; then
+        container_path="/workspace"
+    elif [[ "$host_path" == "$workspace/"* ]]; then
+        container_path="/workspace/${host_path#"$workspace/"}"
+    elif [[ "$workspace" == "$host_path/"* ]]; then
+        die "An --add-dir path cannot contain the primary workspace: $host_path"
+    else
+        [[ "$host_path" != *,* ]] ||
+            die "An --add-dir path contains a comma, which Docker cannot mount safely: $host_path"
+
+        base_name="${host_path##*/}"
+        base_name="$(printf '%s' "$base_name" | sed 's/[^[:alnum:]_.-]/_/g')"
+        [[ -n "$base_name" && "$base_name" != "." && "$base_name" != ".." ]] ||
+            base_name="directory"
+
+        candidate="$base_name"
+        suffix=2
+        while true; do
+            collision=false
+            container_path="/cx-external/${candidate}"
+            for seen in "${ADDED_CONTAINER_PATHS[@]}"; do
+                if [[ "$container_path" == "$seen" ]]; then
+                    collision=true
+                    break
+                fi
+            done
+            if [[ "$collision" == false ]]; then
+                break
+            fi
+            candidate="${base_name}-${suffix}"
+            ((suffix += 1))
+        done
+
+        ADDITIONAL_MOUNT_ARGS+=(
+            --mount "type=bind,src=${host_path},dst=${container_path}"
+        )
+        collect_ignore_mounts "$host_path" "$container_path"
+        ADDED_CONTAINER_PATHS+=("$container_path")
+    fi
+
+    ADDED_HOST_PATHS+=("$host_path")
+    CODEX_ARGS+=(--add-dir "$container_path")
+}
+
+prepare_workspace_mounts() {
+    local workspace="$1"
+    local parse_options=true requested
+    shift
+
+    IGNORE_MOUNT_ARGS=()
+    ADDITIONAL_MOUNT_ARGS=()
+    CODEX_ARGS=()
+    ADDED_HOST_PATHS=()
+    ADDED_CONTAINER_PATHS=()
+
+    collect_ignore_mounts "$workspace" /workspace
+
+    while (($# > 0)); do
+        if [[ "$parse_options" == true ]]; then
+            case "$1" in
+                --)
+                    parse_options=false
+                    CODEX_ARGS+=("$1")
+                    shift
+                    continue
+                    ;;
+                --add-dir)
+                    (($# > 1)) || die "--add-dir requires a directory."
+                    requested="$2"
+                    register_additional_directory "$workspace" "$requested"
+                    shift 2
+                    continue
+                    ;;
+                --add-dir=*)
+                    requested="${1#--add-dir=}"
+                    [[ -n "$requested" ]] || die "--add-dir requires a directory."
+                    register_additional_directory "$workspace" "$requested"
+                    shift
+                    continue
+                    ;;
+            esac
+        fi
+
+        CODEX_ARGS+=("$1")
+        shift
+    done
+}
+
+run_container() {
+    local workspace="$1"
+    shift
+
+    local uid gid docker_status config_directory
+    uid="$(id -u)"
+    gid="$(id -g)"
+    config_directory="$(canonical_directory "$CONFIG_DIRECTORY")"
+    [[ -f "${config_directory}/config.toml" ]] ||
+        die "Missing cx system configuration: ${config_directory}/config.toml"
+    [[ "$config_directory" != *,* ]] ||
+        die "The cx path contains a comma, which Docker cannot mount safely: $config_directory"
+
+    prepare_environment_mount "$workspace"
+    prepare_workspace_mounts "$workspace" "$@"
+
+    # --cx-shell performs the image's environment setup without adding a -c
+    # override to Codex; the mounted system config supplies those instructions.
+    if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
+        --name "cx-$(date +%s)-$$" \
+        --hostname codex-sandbox \
+        --user "${uid}:${gid}" \
+        --workdir /workspace \
+        --mount "type=bind,src=${workspace},dst=/workspace" \
+        "${ADDITIONAL_MOUNT_ARGS[@]}" \
+        "${IGNORE_MOUNT_ARGS[@]}" \
+        "${ENVIRONMENT_DOCKER_ARGS[@]}" \
+        --mount "type=bind,src=${HOST_CODEX_HOME},dst=/codex-home" \
+        --mount "type=bind,src=${config_directory},dst=/etc/codex,readonly" \
+        --tmpfs "/tmp:rw,nosuid,nodev,noexec,size=1g,mode=1777" \
+        --tmpfs "/home/codex:rw,nosuid,nodev,size=512m,mode=700,uid=${uid},gid=${gid}" \
+        --read-only \
+        --cap-drop ALL \
+        --security-opt no-new-privileges=true \
+        --pids-limit "$CONTAINER_PIDS" \
+        --memory "$CONTAINER_MEMORY" \
+        --cpus "$CONTAINER_CPUS" \
+        --ulimit nofile=4096:4096 \
+        --env HOME=/home/codex \
+        --env CODEX_HOME=/codex-home \
+        --env TERM="${TERM:-xterm-256color}" \
+        "$IMAGE" \
+        --cx-shell -c 'exec codex --sandbox danger-full-access "$@"' cx \
+        "${CODEX_ARGS[@]}"; then
+        docker_status=0
+    else
+        docker_status=$?
+    fi
+
+    return "$docker_status"
+}
+
+run_codex_utility() {
+    local uid gid
+    uid="$(id -u)"
+    gid="$(id -g)"
+
+    docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
+        --user "${uid}:${gid}" \
+        --mount "type=bind,src=${HOST_CODEX_HOME},dst=/codex-home" \
+        --tmpfs "/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777" \
+        --tmpfs "/home/codex:rw,nosuid,nodev,size=128m,mode=700,uid=${uid},gid=${gid}" \
+        --read-only \
+        --cap-drop ALL \
+        --security-opt no-new-privileges=true \
+        --env HOME=/home/codex \
+        --env CODEX_HOME=/codex-home \
+        --env TERM="${TERM:-xterm-256color}" \
+        "$IMAGE" \
+        "$@"
+}
+
+run_shell() {
+    local workspace="$1"
+    shift
+    local uid gid
+    uid="$(id -u)"
+    gid="$(id -g)"
+
+    IGNORE_MOUNT_ARGS=()
+    ADDITIONAL_MOUNT_ARGS=()
+    CODEX_ARGS=()
+    ADDED_HOST_PATHS=()
+    ADDED_CONTAINER_PATHS=()
+    validate_workspace "$workspace"
+    collect_ignore_mounts "$workspace" /workspace
+    prepare_environment_mount "$workspace"
+
+    local requested
+    while (($# > 0)); do
+        case "$1" in
+            --add-dir)
+                (($# > 1)) || die "--add-dir requires a directory."
+                requested="$2"
+                register_additional_directory "$workspace" "$requested"
+                shift 2
+                ;;
+            --add-dir=*)
+                requested="${1#--add-dir=}"
+                [[ -n "$requested" ]] || die "--add-dir requires a directory."
+                register_additional_directory "$workspace" "$requested"
+                shift
+                ;;
+            *)
+                die "Unsupported argument with --shell: $1"
+                ;;
+        esac
+    done
+
+    local docker_status
+    if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
+        --user "${uid}:${gid}" \
+        --workdir /workspace \
+        --mount "type=bind,src=${workspace},dst=/workspace" \
+        "${ADDITIONAL_MOUNT_ARGS[@]}" \
+        "${IGNORE_MOUNT_ARGS[@]}" \
+        "${ENVIRONMENT_DOCKER_ARGS[@]}" \
+        --mount "type=bind,src=${HOST_CODEX_HOME},dst=/codex-home" \
+        --tmpfs "/tmp:rw,nosuid,nodev,size=256m,mode=1777" \
+        --tmpfs "/home/codex:rw,nosuid,nodev,size=128m,mode=700,uid=${uid},gid=${gid}" \
+        --read-only \
+        --cap-drop ALL \
+        --security-opt no-new-privileges=true \
+        --env HOME=/home/codex \
+        --env CODEX_HOME=/codex-home \
+        --env TERM="${TERM:-xterm-256color}" \
+        "$IMAGE" \
+        --cx-shell; then
+        docker_status=0
+    else
+        docker_status=$?
+    fi
+
+    return "$docker_status"
+}
+
+validate_workspace() {
+    local workspace="$1" codex_home_path
+    codex_home_path="$(canonical_directory "$HOST_CODEX_HOME")"
+    [[ "$workspace" != "/" ]] || die "Refusing to expose the host root directory."
+    if [[ "$workspace" == "$codex_home_path" ||
+          "$workspace" == "$codex_home_path/"* ||
+          "$codex_home_path" == "$workspace/"* ]]; then
+        die "The workspace cannot overlap the Codex credential directory: $workspace"
+    fi
+    [[ "$workspace" != *,* && "$codex_home_path" != *,* ]] ||
+        die "Workspace and Codex home paths cannot contain commas."
+}
+
+build_image() {
+    local -a build_args=(--pull)
+    [[ "${1:-}" != "fresh" ]] || build_args+=(--no-cache)
+    docker build "${build_args[@]}" \
+        --build-arg "CODEX_VERSION=${CX_CODEX_VERSION:-latest}" \
+        -t "$IMAGE" "$BUILD_DIRECTORY"
+    docker run --rm "$IMAGE" --version
+    docker run --rm --entrypoint bwrap "$IMAGE" --version
+    printf 'cx: built %s\n' "$IMAGE"
+}
+
+doctor() {
+    local failed=0 tool
+    printf 'cx %s\nPackage: %s\nConfig: %s\nImage: %s\nCodex home: %s\nEnvironments: %s\n' \
+        "$VERSION" "$CX_ROOT" "$CONFIG_DIRECTORY" "$IMAGE" "$HOST_CODEX_HOME" "$HOST_ENV_HOME"
+    for tool in docker realpath sha256sum sed; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            printf 'OK: %s\n' "$tool"
+        else
+            printf 'MISSING: %s\n' "$tool"
+            failed=1
+        fi
+    done
+    if [[ -f "$CONFIG_DIRECTORY/config.toml" ]]; then
+        printf 'OK: system config\n'
+    else
+        printf 'MISSING: system config\n'; failed=1
+    fi
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        printf 'OK: Docker daemon reachable (use a local daemon)\n'
+        if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+            printf 'OK: image exists\n'
+        else
+            printf 'MISSING: image; run cx --build (portable: ./cx --build)\n'; failed=1
+        fi
+    else
+        printf 'MISSING: Docker daemon access\n'; failed=1
+    fi
+    return "$failed"
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help) usage; return ;;
+        --version) printf 'cx %s\n' "$VERSION"; return ;;
+        --doctor) doctor; return ;;
+    esac
+    require_docker
+    case "${1:-}" in
+        --build) build_image; return ;;
+        --rebuild) build_image fresh; return ;;
+    esac
+    ensure_image
+    ensure_codex_home
+    case "${1:-}" in
+        --login) run_codex_utility login --device-auth; return ;;
+        --auth-status) run_codex_utility login status; return ;;
+        --logout) run_codex_utility logout; return ;;
+        --shell)
+            local shell_workspace
+            shell_workspace="$(canonical_directory ".")"
+            shift
+            run_shell "$shell_workspace" "$@"
+            return
+            ;;
+    esac
+    local target="."
+    if [[ $# -gt 0 && -d "$1" ]]; then target="$1"; shift; fi
+    local workspace
+    workspace="$(canonical_directory "$target")"
+    validate_workspace "$workspace"
+    run_container "$workspace" "$@"
+}
+
+main "$@"

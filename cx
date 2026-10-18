@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Portable entry point. bin/cx is the installed entry point.
+set -Eeuo pipefail
+bundle_root="$(cd -- "$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")" && pwd -P)"
+export CX_CODEX_HOME="${CX_CODEX_HOME:-$bundle_root/data/codex}"
+export CX_ENV_HOME="${CX_ENV_HOME:-$bundle_root/data/environments}"
+exec "$bundle_root/bin/cx" "$@"

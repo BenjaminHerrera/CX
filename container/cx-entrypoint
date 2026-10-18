@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly environment_root="${MAMBA_ROOT_PREFIX:-/cx-env}"
+
+valid_environment_name() {
+    local name="$1"
+    [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$name" != "base" ]]
+}
+
+selected_environment="${CX_ENV_NAME:-}"
+session_override=false
+selection_source="CX_ENV_NAME"
+active_lines=()
+
+if [[ -n "$selected_environment" ]]; then
+    session_override=true
+fi
+
+if [[ -z "$selected_environment" ]]; then
+    selection_source="${environment_root}/active"
+    if [[ -f "${environment_root}/active" ]]; then
+        mapfile -t active_lines <"${environment_root}/active"
+        if ((${#active_lines[@]} == 1)); then
+            selected_environment="${active_lines[0]}"
+        else
+            selected_environment="<malformed>"
+        fi
+    fi
+fi
+
+if [[ -z "$selected_environment" ]]; then
+    selected_environment="default"
+    selection_source="default"
+fi
+
+if ! valid_environment_name "$selected_environment"; then
+    printf 'cx: ignoring invalid environment name from %s: %s\n' \
+        "$selection_source" "$selected_environment" >&2
+    selected_environment="default"
+fi
+
+environment_prefix="${environment_root}/envs/${selected_environment}"
+environment_available=false
+
+if [[ -d "${environment_prefix}/conda-meta" ]]; then
+    environment_available=true
+    export CONDA_PREFIX="$environment_prefix"
+    export PATH="${environment_prefix}/bin:${PATH}"
+else
+    unset CONDA_PREFIX || true
+fi
+
+export MAMBA_ROOT_PREFIX="$environment_root"
+export CX_ENV_NAME="$selected_environment"
+export CX_ENV_PREFIX="$environment_prefix"
+export CX_ENV_AVAILABLE="$environment_available"
+export CX_ENV_SESSION_OVERRIDE="$session_override"
+
+if [[ "${1:-}" == "--cx-shell" ]]; then
+    shift
+    exec /usr/bin/tini -- /bin/bash "$@"
+fi
+
+readonly environment_instructions="You are running inside the cx container. Persistent Conda-compatible environments are stored under /cx-env. The effective environment is named ${selected_environment}, its prefix is ${environment_prefix}, and CX_ENV_AVAILABLE is ${environment_available}. Prefer its executables when it exists. Use cx-env active, cx-env list, cx-env path, cx-env use, and cx-env run to inspect, select, or run in environments. Do not install packages into Micromamba's base prefix; create named environments with micromamba create -n NAME -c conda-forge and use cx-env use NAME. Before creating an environment or installing, updating, or removing packages with micromamba, conda, pip, or another package manager, explain the persistent change and ask the user for confirmation unless the user explicitly requested that exact change. Do not edit a project's AGENTS.md merely to remember cx environment state."
+
+exec /usr/bin/tini -- codex \
+    -c "developer_instructions=${environment_instructions}" \
+    "$@"

@@ -1,0 +1,5 @@
+/data/
+/dist/
+*.log
+/.cx-test-*/
+/.cx-live-*/
