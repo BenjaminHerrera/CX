@@ -14,17 +14,46 @@ cx . exec "Explain the test failures"
 printf '%s\n' 'Summarize this repository' | cx . exec -
 ```
 
-The optional first directory selects the primary workspace. Other arguments
-are passed to Codex, except the launcher-specific commands in `cx --help` and
-`--add-dir`, which cx processes. Use the explicit directory argument if a
-Codex argument could also be the name of a directory in your current folder.
-Host directories supplied as prompts or other Codex path arguments are not
-translated automatically: use `/workspace` paths inside the session.
+The optional first directory selects the local project. cx handles its own
+commands, `--add-dir`, `--add-file`, and SSH options; other arguments pass to
+Codex. Use an explicit project directory if a Codex argument could also name
+an existing directory. Paths in prompts and other Codex arguments are not
+translated automatically: use the appropriate `/workspace/main`,
+`/workspace/cx-external`, or `/workspace/remote` container path.
 
 Docker gets a terminal only when stdin and stdout are terminals. Redirected
 `exec` commands work without `-t`. The container's exit status is returned to
 your shell. Container files outside the mounts and persistent environment store
 are discarded when the process exits.
+
+## Workspace directory layout
+
+Both Codex sessions and `cx --shell` start at `/workspace`:
+
+```text
+/workspace/
+├── main/          # the local directory selected by cx
+├── cx-external/   # extra local directories and files
+└── remote/        # optional SSHFS view from --ssh-mount
+```
+
+For `cx ~/projects/app`, the contents of `~/projects/app` appear directly
+inside `/workspace/main`. These are container mount locations; cx does not
+create these three folders inside your local project. `ls -al` at startup
+shows all three. `cx-external` and `remote` remain empty when unused.
+
+Use `cd main` for local project commands, `cd cx-external/NAME` for an added
+directory, or `cd remote` to browse a mounted SSH project. The `/workspace`
+parent and unused placeholders are read-only; create project files in the
+mounted directories. Remote command execution continues to use server paths.
+`cx ... exec` automatically adds `--skip-git-repo-check`, because the browser
+parent is above the selected project repository.
+
+After upgrading, rebuild the image to create this layout. Update scripts that
+previously used `/workspace/FILE`, `/cx-external/NAME`, or `/remote/FILE` to
+`/workspace/main/FILE`, `/workspace/cx-external/NAME`, or
+`/workspace/remote/FILE`, respectively. Host paths and CLI directory arguments
+are unchanged.
 
 ## Extra directories
 
@@ -35,16 +64,58 @@ cx --shell --add-dir ../shared
 ```
 
 Relative paths resolve from the primary workspace. A subdirectory of that
-workspace stays at `/workspace/subdirectory`. An external directory becomes
-`/cx-external/BASENAME`; name collisions get `-2`, `-3`, etc. These mounts are
-writable and changes affect the host immediately. `--add-dir` cannot expose
+workspace stays at `/workspace/main/subdirectory`. An external directory
+becomes `/workspace/cx-external/BASENAME`; name collisions get `-2`, `-3`, etc.
+These mounts are writable and changes affect the host immediately. `--add-dir` cannot expose
 `/`, an ancestor of the workspace, or the credential directory and its
 ancestors/children.
 
-`cx --shell` uses the current directory as its workspace and only accepts
-`--add-dir` options. It starts Bash after environment setup. `exit` leaves it.
+`cx --shell` uses the current directory as its workspace and accepts
+`--add-dir` and `--add-file` options. It starts Bash after environment setup.
+`exit` leaves it.
 The shell has the same project, credentials, and environment mounts; it does
 not run Codex or load the Codex system instructions.
+
+## Add individual files
+
+Use repeatable `--add-file FILE` options to share existing regular local files
+read/write without exposing the rest of their parent directory:
+
+```bash
+cx ~/projects/app --add-file ~/notes.md --add-file ../settings.json
+cx ~/projects/app --add-file=/path/to/report.txt
+cd ~/projects/app
+cx --shell --add-file ~/notes.md
+```
+
+Relative paths resolve from the selected local project, just like `--add-dir`.
+Files outside the project appear at `/workspace/cx-external/FILENAME`, with
+spaces and other unsupported filename characters replaced by underscores.
+File and directory name collisions share the same `-2`, `-3`, etc. suffixes.
+Repeated references to the same canonical file are mounted once. Symbolic
+links resolve to their target file, including its target filename. Files
+already inside the project remain at `/workspace/main/...`; their existing
+`.codexignore` masks are retained.
+
+The source must already exist and be a readable, writable regular file.
+Create a new file on the host first if necessary. Missing files, directories,
+special files, and files in the Codex credential directory (including through
+symlinks) are rejected. Docker mount paths cannot contain commas.
+
+Edits affect the host file immediately. Because an individual file is a Docker
+bind mount, edit its contents **in place**. Tools that save by renaming a
+replacement over the mounted file, or that delete it, can fail with a busy
+mountpoint error. If that happens, write the new contents into the existing
+file instead. To support ordinary rename-based saves or creating sibling files,
+share the containing directory with `--add-dir` instead. Replacing the host
+file by rename during a running session can leave the mount attached to the
+old file; restart cx to pick up the replacement.
+
+Standalone external file mounts are explicit grants: `.codexignore` overlays
+from other directory mounts do not mask these additional file aliases.
+`--add-file` always refers to a local host file, including during SSH sessions;
+remote files remain accessible through the optional remote mount or
+`cx-remote exec`.
 
 ## Hide specific project paths
 
@@ -173,6 +244,143 @@ login through `cx --login`; custom providers that need environment variables
 require an intentional launcher change. Git can use HTTPS or credentials
 available in shared folders; your host `~/.ssh` is not mounted by default.
 
+## Work through SSH
+
+SSH mode requires Python 3.11 or newer and OpenSSH **on the host**, a local
+interactive terminal, and a remote Bash shell. Rebuild the cx image after
+upgrading to get the `cx-remote` client. No Python packages are required.
+
+```bash
+cx . --ssh delta --remote-dir /remote/path/to/project
+```
+
+`delta` is the same host alias you would give your host's `ssh` command. The
+host SSH process uses your existing configuration, keys, agent, ProxyJump,
+and known hosts. cx does not copy those credentials into the container or
+change your SSH configuration. `--remote-dir` is optional and is a literal
+remote path (use an absolute path rather than `~`). Wrapper options precede
+any `--` argument separator. Supply each of `--ssh`, `--remote-dir`, and
+`--ssh-mount` at most once; `--add-dir` and `--add-file` are repeatable.
+
+First, complete the SSH login directly in the terminal, including password,
+key passphrase, MFA, or host-key confirmation. Once you see a Bash prompt,
+press **Ctrl-]**, release it, then **c** to start Codex. If your login shell is
+not Bash, enter `bash` first. Configurations with RemoteCommand must reach a
+Bash shell before handoff.
+
+While Codex runs:
+
+- **Ctrl-] r** switches to the remote terminal for authentication or interaction.
+- **Ctrl-] c** returns to Codex once that interaction is complete.
+- **Ctrl-] Ctrl-]** sends a literal Ctrl-] to the selected terminal.
+- To interrupt a remote command, switch to SSH and press Ctrl-C. Return only
+  after reaching a shell prompt. The command is reported as interrupted;
+  its effects may be incomplete.
+
+The container helper provides remote execution:
+
+```bash
+cx-remote status
+cx-remote exec 'pwd; hostname'
+cx-remote exec 'module load python; export PROJECT_MODE=analysis'
+cx-remote exec 'printf "%s\n" "$PROJECT_MODE"'
+```
+
+Commands run serially in the same shell: `cd`, loaded modules, variables, and
+activated environments persist. Output combines stdout and stderr through a
+terminal and may contain terminal control sequences. Requesting another command
+while the shell is busy or in user control returns an error. Direct terminal
+interaction is not included in command output returned to Codex; output produced
+while you control the remote terminal is shown there instead.
+
+Without `--ssh-mount`, local file tools access the local project and any added
+local files/directories; use
+`cx-remote` to read or edit remote files. Optional filesystem access at
+`/workspace/remote` is described below.
+
+SSH mode combines the installed system developer instructions with remote
+instructions through a session CLI override, including for preserved older
+configs. As with other CLI overrides, Codex UI behavior depends on its version.
+
+If SSH disconnects, cx reports an unknown command outcome and never retries
+that command automatically. Press Ctrl-] r to reconnect, log in again, then
+Ctrl-] c to resume. A new shell loses previous state and reapplies the initial
+`--remote-dir`. Confirm earlier command effects before repeating work.
+
+For Delta, log in normally and use the usual Slurm commands explicitly. You can
+switch to the remote terminal to enter an interactive allocation, then return
+once a Bash prompt is available on the allocated node. cx does not automatically
+request, track, or cancel allocations. A command that exits or replaces the
+shell, or changes its input/prompt behavior, can prevent completion detection;
+use terminal handoff to recover. Closing cx terminates its local SSH process;
+remote job cleanup follows the remote system's normal policies.
+
+Headless SSH mode and attaching unrelated existing SSH terminals are not
+supported. Real Delta MFA and live Docker integration require validation on
+your host; offline tests use a fake SSH endpoint and real pseudo-terminals.
+
+### Browse remote files inside the container
+
+Keep the SSH shell and remote execution, and optionally mount the selected
+remote directory at `/workspace/remote`:
+
+```bash
+cx /local/project --ssh delta --remote-dir /remote/project --ssh-mount
+cx /local/project --ssh delta --remote-dir /remote/project --ssh-mount=rw
+```
+
+`--ssh-mount` and `--ssh-mount=ro` provide read-only file browsing.
+`--ssh-mount=rw` allows edits that immediately affect the server. These options
+require `--ssh` and an explicit absolute `--remote-dir`. Without them, cx
+keeps its existing local-only or SSH-command-only behavior.
+
+The host needs `sshfs`, working FUSE, and `fusermount3` (or `fusermount`).
+The server must support SFTP. The mount uses `allow_other,default_permissions`
+so Docker can access it; non-root hosts normally need `user_allow_other`
+enabled in `/etc/fuse.conf`. cx does not install packages or change that
+file. The temporary parent directory is private to your user. See the
+[SSHFS manual](https://github.com/libfuse/sshfs/blob/master/sshfs.rst) for
+FUSE permissions and setup. Rootless or UID-remapped Docker may require
+additional host permission configuration.
+
+Complete the normal SSH login/MFA and press Ctrl-] c. cx starts SSHFS over
+the authenticated SSH control connection, then starts Codex with `/workspace/remote`
+added to its available directories. Mount failure stops session startup with
+a diagnostic; it does not silently switch to an empty local directory.
+
+Codex receives the host alias, initial remote directory, container mount path,
+and read/write mode in its session instructions. `cx-remote status` reports
+the initial directory, mount path/mode, and whether the SSHFS process is alive.
+That process status is not a guarantee of server reachability. Ordinary file
+tools can browse `/workspace/remote`; local project files remain at `/workspace/main`.
+Remote programs still run through `cx-remote exec` using server paths:
+
+```bash
+# Container-side file access, read-only unless --ssh-mount=rw:
+ls /workspace/remote
+cat /workspace/remote/README.md
+# Execution on the remote machine:
+cx-remote exec 'pwd; hostname; ./run-tests'
+```
+
+The mount always points to the initial directory on the configured SSH host.
+It does not follow `cd` in the persistent shell or move to a Slurm compute
+node. SFTP and the interactive shell must see the same server path. This is
+a live filesystem view, not a synchronized copy; network latency, SSHFS
+semantics, and remote permission checks apply. `.codexignore` overlays for
+local workspaces do not mask files in this optional remote mount.
+
+If the SSH transport or filesystem connection fails, file operations may
+error or wait for the SSH keepalive timeout. Restart cx to recreate the mount;
+reconnecting only the command shell does not repair the existing Docker bind
+mount. The read-only option affects the filesystem view, not the SSH account's
+ability to modify files through commands. cx unmounts its owned SSHFS mount
+on normal exit and attempts a lazy detach if it is busy. If unmounting fails,
+it reports and retains the temporary directory for manual recovery.
+
+Live SSHFS/FUSE and Docker mount behavior must be validated on a host with
+those facilities; offline tests mock mount lifecycle operations.
+
 ## Troubleshooting
 
 | Symptom | What to do |
@@ -189,6 +397,11 @@ available in shared folders; your host `~/.ssh` is not mounted by default.
 | Program tries writing under `/usr` or `/tmp` execution fails | Install tools into a named environment in `/cx-env`; the root is read-only and Codex `/tmp` is `noexec`. |
 | Connection to a private service fails | Host network/proxy variables are not automatically forwarded; the container has its own network context. |
 | A new build still has an old Codex version | Use `cx --rebuild` to bypass cached npm layers. |
+| File save fails with a busy mountpoint | For `--add-file`, write in place or share its parent using `--add-dir`. |
+| SSH login needs MFA or interaction | Press Ctrl-] r, complete it directly at the terminal, then Ctrl-] c. |
+| SSHFS mount fails at startup | Check host SSHFS/FUSE, server SFTP, and `user_allow_other` in `/etc/fuse.conf`. |
+| Remote mount fails after a disconnect | Restart cx to recreate the filesystem view; shell reconnection alone is insufficient. |
+| `/workspace/main` or the remote client is missing | Rebuild the image after upgrading and restart the session. |
 | A mount path contains a comma | Move it to a path without commas. Spaces are supported. |
 
 `cx --doctor` prints paths and prerequisite status without creating data or

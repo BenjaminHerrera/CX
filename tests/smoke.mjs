@@ -65,13 +65,53 @@ check('build uses bundle-relative context and requested version',()=>{
 check('portable run mounts private data, writable project, and system configuration',()=>{
   reset(); bash('cx',[project,'exec','a task with spaces']);
   const args=lastRun();
-  contains(args,`src=${project},dst=/workspace`);
+  contains(args,`src=${project},dst=/workspace/main`);
+  assert.equal(args[args.indexOf('--workdir')+1],'/workspace');
+  assert.equal(args.includes(`type=bind,src=${project},dst=/workspace`),false);
   contains(args,`src=${fixture}/data/codex,dst=/codex-home`);
   contains(args,`src=${fixture}/config,dst=/etc/codex,readonly`);
   contains(args,`src=${fixture}/data/environments/project_with_spaces-`);
+  assert.equal(args.some(x=>x.includes('/cx-ssh')),false);
   assert.equal(args.includes('-t'),false);
   assert.ok(args.includes('-i'));
   assert.equal(args.at(-1),'a task with spaces');
+});
+check('exec works from the workspace browser without changing prompt arguments',()=>{
+  for (const args of [['exec','task'], ['exec','--skip-git-repo-check','task'], ['--model','chosen','exec','task'], ['-c','developer_instructions="test"','exec','task']]) {
+    reset(); bash('cx',[project,...args]); const invoked=lastRun();
+    assert.equal(invoked[invoked.indexOf('exec')+1],'--skip-git-repo-check');
+    assert.equal(invoked.filter(x=>x==='--skip-git-repo-check').length,1);
+    assert.equal(invoked.at(-1),'task');
+  }
+  for (const args of [['--model','exec','task'], ['--','exec']]) {
+    reset(); bash('cx',[project,...args]);
+    assert.equal(lastRun().includes('--skip-git-repo-check'),false);
+  }
+});
+check('SSH bridge mount is explicit and remote options are validated',()=>{
+  const bridge=path.join(temp,'bridge'); fs.mkdirSync(bridge);
+  reset(); bash('cx',[project],{env:{...env,CX_SSH_BRIDGE_DIR:bridge,CX_SSH_HOST:'delta'}});
+  const args=lastRun();
+  contains(args,`src=${bridge},dst=/cx-ssh,readonly`);
+  contains(args,'CX_SSH_SOCKET=/cx-ssh/bridge.sock'); contains(args,'CX_SSH_HOST=delta');
+  for (const options of [['--remote-dir','/remote'], ['--ssh'], ['--ssh','-bad'], ['--ssh','a','--ssh','b']]) {
+    reset(); const result=bash('cx',[project,...options],{ok:false});
+    assert.notEqual(result.status,0); assert.equal(lastRun(),undefined);
+  }
+});
+check('remote filesystem mounts are optional, read-only by default, and can be writable',()=>{
+  const mount=path.join(temp,'remote files'); fs.mkdirSync(mount);
+  for (const mode of ['ro','rw']) {
+    reset(); bash('cx',[project],{env:{...env,CX_SSH_BRIDGE_DIR:temp,CX_SSH_HOST:'delta',CX_SSH_MOUNT_PATH:mount,CX_SSH_MOUNT_MODE:mode}});
+    const args=lastRun();
+    assert.ok(args.includes(`type=bind,src=${mount},dst=/workspace/remote${mode==='ro'?',readonly':''}`));
+    contains(args,'CX_SSH_REMOTE_ROOT=/workspace/remote'); contains(args,`CX_SSH_MOUNT_MODE=${mode}`);
+    assert.ok(args.includes('/workspace/remote'));
+  }
+  for (const options of [['--ssh-mount'], ['--ssh-mount=bad'], ['--ssh','delta','--ssh-mount'], ['--ssh','delta','--remote-dir','relative','--ssh-mount'], ['--ssh','delta','--remote-dir','/path','--ssh-mount','--ssh-mount']]) {
+    reset(); assert.notEqual(bash('cx',[project,...options],{ok:false}).status,0);
+    assert.equal(lastRun(),undefined);
+  }
 });
 check('piped commands preserve arguments and return container failures',()=>{
   const result=bash('cx',[project,'exec','-'],{input:'example task',ok:false,env:{...env,MOCK_DOCKER_FAIL:'run'}});
@@ -83,10 +123,59 @@ check('extra directories and literal ignore paths produce expected mounts',()=>{
   fs.writeFileSync(path.join(project,'.env'),'test-value');
   fs.mkdirSync(path.join(project,'secrets'));
   reset(); bash('cx',[project,'--add-dir',extra]);
-  const args=lastRun(); contains(args,`src=${extra},dst=/cx-external/shared_files`);
-  contains(args,'src=/dev/null,dst=/workspace/.env,readonly');
-  contains(args,'dst=/workspace/secrets,tmpfs-mode=0555,readonly');
-  assert.ok(args.includes('/cx-external/shared_files'));
+  const args=lastRun(); contains(args,`src=${extra},dst=/workspace/cx-external/shared_files`);
+  contains(args,'src=/dev/null,dst=/workspace/main/.env,readonly');
+  contains(args,'dst=/workspace/main/secrets,tmpfs-mode=0555,readonly');
+  assert.ok(args.includes('/workspace/cx-external/shared_files'));
+});
+check('nested added directories and shell mounts use main within the workspace browser',()=>{
+  const nested=path.join(project,'nested'); fs.mkdirSync(nested);
+  reset(); bash('cx',[project,'--add-dir','nested']);
+  let args=lastRun();
+  assert.ok(args.includes('/workspace/main/nested'));
+  assert.equal(args.some(x=>x.includes('dst=/workspace/cx-external/nested')),false);
+  reset(); bash('cx',['--shell','--add-dir','nested'],{cwd:project});
+  args=lastRun();
+  assert.equal(args[args.indexOf('--workdir')+1],'/workspace');
+  assert.ok(args.includes(`type=bind,src=${project},dst=/workspace/main`));
+  contains(args,'dst=/workspace/main/secrets,tmpfs-mode=0555,readonly');
+});
+check('individual files mount read/write without exposing parent directories or forwarding file options',()=>{
+  const folder=path.join(temp,'standalone files'); fs.mkdirSync(folder);
+  const file=path.join(folder,'notes file.md'); fs.writeFileSync(file,'notes');
+  reset(); bash('cx',[project,'--add-file',file,'--add-file',file]);
+  let args=lastRun(); const mount=`type=bind,src=${file},dst=/workspace/cx-external/notes_file.md`;
+  assert.equal(args.filter(x=>x===mount).length,1);
+  assert.equal(args.some(x=>x.startsWith(`type=bind,src=${folder},`)),false);
+  assert.equal(args.includes('--add-file'),false);
+  assert.equal(args.includes('/workspace/cx-external/notes_file.md'),false);
+  reset(); bash('cx',['--shell',`--add-file=${path.relative(project,file)}`],{cwd:project});
+  assert.ok(lastRun().includes(mount));
+  reset(); bash('cx',[project,'--add-file','.env']); args=lastRun();
+  contains(args,'src=/dev/null,dst=/workspace/main/.env,readonly');
+  assert.equal(args.some(x=>x.includes('dst=/workspace/cx-external/.env')),false);
+});
+check('file and directory name collisions use a shared namespace',()=>{
+  const first=path.join(temp,'files-first'); const second=path.join(temp,'files-second');
+  fs.mkdirSync(first); fs.mkdirSync(second);
+  const file=path.join(first,'same'); const directory=path.join(second,'same');
+  fs.writeFileSync(file,'file'); fs.mkdirSync(directory);
+  reset(); bash('cx',[project,'--add-file',file,'--add-dir',directory]);
+  contains(lastRun(),`src=${file},dst=/workspace/cx-external/same`);
+  contains(lastRun(),`src=${directory},dst=/workspace/cx-external/same-2`);
+  reset(); bash('cx',[project,'--add-dir',directory,'--add-file',file]);
+  assert.ok(lastRun().includes(`type=bind,src=${file},dst=/workspace/cx-external/same-2`));
+});
+check('invalid and credential files are rejected, including symlink aliases',()=>{
+  const credentials=path.join(fixture,'data/codex/auth.json'); fs.writeFileSync(credentials,'private');
+  const link=path.join(temp,'credential-link'); fs.symlinkSync(credentials,link);
+  const comma=path.join(temp,'comma,file'); fs.writeFileSync(comma,'test');
+  for (const options of [['--add-file'], ['--add-file='], ['--add-file',project], ['--add-file',path.join(temp,'missing')], ['--add-file',credentials], ['--add-file',link], ['--add-file',comma]]) {
+    reset(); assert.notEqual(bash('cx',[project,...options],{ok:false}).status,0);
+    assert.equal(lastRun(),undefined);
+  }
+  reset(); bash('cx',[project,'--','--add-file','literal']);
+  assert.deepEqual(lastRun().slice(-3),['--','--add-file','literal']);
 });
 check('invalid ignore traversal fails before running Docker',()=>{
   fs.writeFileSync(path.join(project,'.codexignore'),'../outside\n');

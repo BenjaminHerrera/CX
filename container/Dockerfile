@@ -39,11 +39,11 @@ RUN apt-get update \
     && rm -f /tmp/micromamba /tmp/micromamba.sha256 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY cx-entrypoint cx-env /usr/local/bin/
+COPY cx-entrypoint cx-env cx-remote /usr/local/bin/
 
 # The actual UID/GID is supplied by `docker run`.
-RUN chmod 0755 /usr/local/bin/cx-entrypoint /usr/local/bin/cx-env \
-    && mkdir -p /workspace /cx-env /codex-home /home/codex \
+RUN chmod 0755 /usr/local/bin/cx-entrypoint /usr/local/bin/cx-env /usr/local/bin/cx-remote \
+    && mkdir -p /workspace/main /workspace/cx-external /workspace/remote /cx-env /codex-home /home/codex \
     && chmod 1777 /workspace /cx-env /codex-home /home/codex
 
 ENV HOME=/home/codex

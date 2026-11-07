@@ -21,17 +21,35 @@ The image supports Linux amd64 and arm64. Native macOS and PowerShell are not
 supported by these GNU/Linux host scripts. Inside WSL2, keep projects in the
 Linux filesystem for normal Linux permissions.
 
+## Optional SSH prerequisites
+
+Local sessions do not require Python or host SSH setup. For `--ssh`, install
+Python 3.11+ and OpenSSH on the host and use an interactive terminal. The
+remote session must reach a Bash shell. Host SSH aliases, keys, agents, jump
+hosts, and authentication policies are used directly; no third-party Python
+packages are needed. cx does not install these dependencies automatically.
+
+For `--ssh-mount`, the host additionally needs SSHFS, working FUSE, and
+`fusermount3` or `fusermount`. The server must support SFTP. The mount uses
+`allow_other,default_permissions` for Docker access, so non-root users
+normally need `user_allow_other` enabled in `/etc/fuse.conf`. Configure that
+intentionally on your host; cx does not edit it. Rootless/remapped Docker
+can need further UID and permission configuration.
+
+See [SSH usage](USAGE.md#work-through-ssh) for terminal handoff, MFA,
+read/write mount modes, and reconnection behavior.
+
 ## 2. Verify and extract a release
 
 If you received both archives and the checksum file:
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf cx-1.0.0-install.tar.gz
-cd cx-1.0.0-install
+tar -xzf cx-1.1.0-install.tar.gz
+cd cx-1.1.0-install
 ```
 
-For portable use, extract `cx-1.0.0-portable.tar.gz` instead. The checksum command
+For portable use, extract `cx-1.1.0-portable.tar.gz` instead. The checksum command
 expects both archives to be present; if you downloaded only one, compare its
 `sha256sum` output with its matching line in `SHA256SUMS`. Checksums detect
 accidental changes; they do not authenticate an untrusted publisher.
@@ -64,8 +82,8 @@ installs dependencies on the host.
 ## Portable edition
 
 ```bash
-tar -xzf cx-1.0.0-portable.tar.gz
-cd cx-1.0.0-portable
+tar -xzf cx-1.1.0-portable.tar.gz
+cd cx-1.1.0-portable
 ./cx --build
 ./cx --login
 ./cx /path/to/project
@@ -92,6 +110,41 @@ program files are replaced and the old program is saved under
 `PREFIX/share/cx/config/config.toml` is kept. Compare it with the new release's
 `config/config.toml` if you want new default instructions. Credentials and
 workspace environments are not part of the program update.
+
+### Upgrading to 1.1.0
+
+From the updated repository or extracted `cx-1.1.0-install` directory:
+
+```bash
+./install.sh
+cx --version
+```
+
+The installer builds the updated image by default. Reuse your original
+`--prefix` if it was customized. Exit existing sessions and start new ones.
+If you install with `--no-build`, run `cx --build` before using the new layout
+or remote client. Do not combine the new launcher with an old image.
+
+The container directory layout changes:
+
+| Previous container path | 1.1.0 container path |
+|---|---|
+| `/workspace/FILE` | `/workspace/main/FILE` |
+| `/cx-external/NAME` | `/workspace/cx-external/NAME` |
+| `/remote/FILE` (development SSH builds) | `/workspace/remote/FILE` |
+
+Sessions now start at `/workspace` so all three locations are visible.
+Use `cd main` for the selected local project. Host project paths, command-line
+source directory arguments, credentials, and environment stores do not move.
+
+The installed `config/config.toml` remains preserved. Compare
+`~/.local/share/cx/config/config.toml` (or your prefix's equivalent) with the
+release's `config/config.toml` and merge desired layout/file instructions.
+SSH sessions additionally inject current session guidance even when the
+preserved base text is older. Portable users should retain their private
+`data/` and merge intentional configuration changes into the new bundle.
+
+### Rollback and portable updates
 
 To undo a program update, first move the current `program` directory aside,
 then move a backup's `program` back to `PREFIX/share/cx/program`. The launcher

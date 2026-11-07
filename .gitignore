@@ -3,3 +3,6 @@
 *.log
 /.cx-test-*/
 /.cx-live-*/
+/.cx-live.*/
+__pycache__/
+*.py[cod]

@@ -18,10 +18,10 @@ trap 'rm -rf -- "$stage"' EXIT
 # Explicit file list: adding a file to the repository does not distribute it.
 files=(
     VERSION README.md CHANGELOG.md .gitignore cx install.sh uninstall.sh
-    bin/cx config/config.toml
-    container/Dockerfile container/cx-entrypoint container/cx-env container/.dockerignore
+    bin/cx bin/cx-ssh-bridge.py config/config.toml
+    container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
     docs/INSTALL.md docs/USAGE.md docs/ARCHITECTURE.md docs/MAINTAINING.md
-    scripts/package.sh scripts/verify-docker.sh tests/smoke.mjs
+    scripts/package.sh scripts/verify-docker.sh tests/smoke.mjs tests/ssh_bridge.py tests/remote-client.mjs
 )
 for edition in install portable; do
     name="cx-$version-$edition"

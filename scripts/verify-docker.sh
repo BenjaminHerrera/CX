@@ -30,6 +30,8 @@ prefix="$fixture/install prefix"
 for edition in install portable; do
     project="$fixture/$edition project"
     shared="$fixture/$edition shared"
+    standalone="$fixture/$edition standalone.txt"
+    printf '%s\n' 'standalone file value' > "$standalone"
     mkdir -p -- "$project/hidden" "$shared"
     printf '%s\n' '.private' hidden > "$project/.codexignore"
     printf '%s\n' 'private fixture value' > "$project/.private"
@@ -45,23 +47,34 @@ for edition in install portable; do
             "$fixture/cx-$version-portable/cx")
     fi
     # Normal launch exercises system config, all limits, and read-only mounts.
-    "${command[@]}" "$project" --version
+    "${command[@]}" "$project" --add-file "$standalone" --version
     # The shell accepts stdin, letting us test real mount contents without login.
     (
         cd -- "$project"
-        "${command[@]}" --shell --add-dir "$shared" <<'CHECK'
+        "${command[@]}" --shell --add-dir "$shared" --add-file "$standalone" <<'CHECK'
 set -Eeuo pipefail
 test "$PWD" = /workspace
-test ! -s /workspace/.private
-test ! -s /workspace/.codexignore
-test ! -e /workspace/hidden/original
-if touch /workspace/hidden/should-fail 2>/dev/null; then
+test -d /workspace/main
+test -d /workspace/cx-external
+test -d /workspace/remote
+entries=(/workspace/*)
+test "${#entries[@]}" = 3
+test -z "$(ls -A /workspace/remote)"
+test ! -s /workspace/main/.private
+test ! -s /workspace/main/.codexignore
+test ! -e /workspace/main/hidden/original
+if touch /workspace/main/hidden/should-fail 2>/dev/null; then
     printf 'verify: ignored directory was writable\n' >&2; exit 1
 fi
-external=(/cx-external/*)
+external=(/workspace/cx-external/*shared)
+files=(/workspace/cx-external/*standalone.txt)
+test "${#files[@]}" = 1
+test -f "${files[0]}"
+grep -q 'standalone file value' "${files[0]}"
+printf '%s\n' 'updated standalone file' > "${files[0]}"
 test "${#external[@]}" = 1
 grep -q 'shared fixture value' "${external[0]}/visible"
-printf '%s\n' written-in-container > /workspace/verified
+printf '%s\n' written-in-container > /workspace/main/verified
 printf '%s\n' written-in-container > "${external[0]}/verified"
 printf '%s\n' persisted > /cx-env/verification-marker
 cx-env active
@@ -74,6 +87,7 @@ CHECK
     )
     grep -q written-in-container "$project/verified"
     grep -q written-in-container "$shared/verified"
+    grep -q 'updated standalone file' "$standalone"
     grep -q 'private fixture value' "$project/.private"
     grep -q 'private fixture value' "$project/hidden/original"
     printf 'PASS: %s edition: container launch, mounts, masking, host writes, persistent storage\n' "$edition"

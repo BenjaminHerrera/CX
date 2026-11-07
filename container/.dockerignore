@@ -1,5 +1,6 @@
-# Only these three files may enter the build context.
+# Only these image source files may enter the build context.
 *
 !Dockerfile
 !cx-entrypoint
 !cx-env
+!cx-remote

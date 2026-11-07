@@ -26,12 +26,15 @@ Examples:
   cx .
   cx ~/projects/my-app
   cx . --add-dir ../shared --add-dir /path/to/data
+  cx . --add-file /path/to/notes.md --add-file ../settings.json
+  cx . --ssh delta --remote-dir /remote/project
+  cx . --ssh delta --remote-dir /remote/project --ssh-mount
   cx . --model YOUR_MODEL
   cx . exec "Run the test suite and fix failures"
   cx --login
   cx --auth-status
   cx --logout
-  cx --shell [--add-dir DIR ...]
+  cx --shell [--add-dir DIR ...] [--add-file FILE ...]
   cx --build                 Build the image (cached layers allowed)
   cx --rebuild               Rebuild with fresh layers
   cx --doctor                Check local prerequisites and paths
@@ -43,6 +46,13 @@ Codex configuration:
   CX_CODEX_HOME/config.toml (default: ~/.codex/config.toml).
 
 Environment:
+  SSH mode uses host SSH configuration and requires host Python 3.11+, OpenSSH,
+  an interactive terminal, and a remote Bash shell. Ctrl-] r opens SSH;
+  Ctrl-] c hands control to Codex.
+  --ssh-mount exposes --remote-dir at /workspace/remote read-only; --ssh-mount=rw
+  allows writes. Mounting additionally requires host sshfs and fusermount3
+  (or fusermount), and an absolute --remote-dir.
+
   CX_CONFIG_DIR    System config folder, default: package/config
   CX_CODEX_VERSION Codex npm version used by --build/--rebuild, default: latest
   CX_IMAGE         Container image name
@@ -53,6 +63,12 @@ Environment:
   CX_CPUS          Container CPU limit, default: 4
   CX_PIDS          Container process limit, default: 1024
 
+Workspace layout:
+  Sessions start at /workspace, containing main/, cx-external/, and remote/.
+  Your selected local project is mounted at /workspace/main. Extra local
+  directories appear in /workspace/cx-external. The remote/ folder is empty
+  unless --ssh-mount is enabled. Use cd main to work on the local project.
+
 Workspace filtering:
   If the workspace contains .codexignore, each listed workspace-relative path
   is replaced by an empty, read-only mount in the container. Path names remain
@@ -62,8 +78,16 @@ Workspace filtering:
 Additional directories:
   Repeat --add-dir DIR to expose other writable directories. Relative paths are
   resolved from the primary workspace. External directories appear beneath
-  /cx-external using their directory names. Each may have .codexignore.
+  /workspace/cx-external using their directory names. Each may have .codexignore.
   --shell also accepts --add-dir, using the current directory as its workspace.
+
+Additional files:
+  Repeat --add-file FILE to expose existing regular files read/write without
+  sharing their parent directory. Relative paths resolve from the primary
+  workspace. External files appear in /workspace/cx-external using sanitized
+  filenames; collisions get -2, -3, etc. Files inside the project stay under
+  /workspace/main. --shell also accepts --add-file. Use in-place writes for
+  individual file mounts; replacing or deleting the mountpoint is unsupported.
 
 Persistent environments:
   Each primary workspace receives a private Micromamba root at /cx-env. Use
@@ -286,11 +310,53 @@ collect_ignore_mounts() {
     done
 }
 
+ADDITIONAL_CONTAINER_PATH=""
+
+allocate_additional_target() {
+    local host_path="$1" fallback="$2" base_name candidate suffix=2 seen collision
+    base_name="${host_path##*/}"
+    base_name="$(printf '%s' "$base_name" | sed 's/[^[:alnum:]_.-]/_/g')"
+    [[ -n "$base_name" && "$base_name" != "." && "$base_name" != ".." ]] || base_name="$fallback"
+    candidate="$base_name"
+    while true; do
+        collision=false
+        ADDITIONAL_CONTAINER_PATH="/workspace/cx-external/${candidate}"
+        for seen in "${ADDED_CONTAINER_PATHS[@]}"; do
+            [[ "$ADDITIONAL_CONTAINER_PATH" != "$seen" ]] || { collision=true; break; }
+        done
+        [[ "$collision" == true ]] || break
+        candidate="${base_name}-${suffix}"
+        suffix=$((suffix + 1))
+    done
+}
+
+register_additional_file() {
+    local workspace="$1" requested="$2" host_path container_path codex_home_path seen
+    [[ "$requested" == /* ]] || requested="${workspace}/${requested}"
+    [[ -f "$requested" ]] || die "--add-file requires an existing regular file: $requested"
+    host_path="$(realpath -e -- "$requested")"
+    [[ -r "$host_path" && -w "$host_path" ]] || die "--add-file requires a readable, writable file: $host_path"
+    codex_home_path="$(canonical_directory "$HOST_CODEX_HOME")"
+    [[ "$host_path" != "$codex_home_path/"* ]] || die "Refusing to expose a Codex credential file through --add-file: $host_path"
+    for seen in "${ADDED_HOST_PATHS[@]}"; do
+        [[ "$host_path" != "$seen" ]] || return 0
+    done
+    if [[ "$host_path" != "$workspace/"* ]]; then
+        [[ "$host_path" != *,* ]] || die "An --add-file path contains a comma, which Docker cannot mount safely: $host_path"
+        allocate_additional_target "$host_path" file
+        container_path="$ADDITIONAL_CONTAINER_PATH"
+        ADDITIONAL_MOUNT_ARGS+=(--mount "type=bind,src=${host_path},dst=${container_path}")
+        ADDED_CONTAINER_PATHS+=("$container_path")
+    fi
+    # Files inside main are already present; retain existing .codexignore masks.
+    # --add-dir is a Codex directory option, so never forward a file to it.
+    ADDED_HOST_PATHS+=("$host_path")
+}
+
 register_additional_directory() {
     local workspace="$1"
     local requested="$2"
     local host_path container_path codex_home_path seen
-    local base_name candidate suffix collision
 
     if [[ "$requested" == /* ]]; then
         host_path="$(canonical_directory "$requested")"
@@ -313,37 +379,17 @@ register_additional_directory() {
     done
 
     if [[ "$host_path" == "$workspace" ]]; then
-        container_path="/workspace"
+        container_path="/workspace/main"
     elif [[ "$host_path" == "$workspace/"* ]]; then
-        container_path="/workspace/${host_path#"$workspace/"}"
+        container_path="/workspace/main/${host_path#"$workspace/"}"
     elif [[ "$workspace" == "$host_path/"* ]]; then
         die "An --add-dir path cannot contain the primary workspace: $host_path"
     else
         [[ "$host_path" != *,* ]] ||
             die "An --add-dir path contains a comma, which Docker cannot mount safely: $host_path"
 
-        base_name="${host_path##*/}"
-        base_name="$(printf '%s' "$base_name" | sed 's/[^[:alnum:]_.-]/_/g')"
-        [[ -n "$base_name" && "$base_name" != "." && "$base_name" != ".." ]] ||
-            base_name="directory"
-
-        candidate="$base_name"
-        suffix=2
-        while true; do
-            collision=false
-            container_path="/cx-external/${candidate}"
-            for seen in "${ADDED_CONTAINER_PATHS[@]}"; do
-                if [[ "$container_path" == "$seen" ]]; then
-                    collision=true
-                    break
-                fi
-            done
-            if [[ "$collision" == false ]]; then
-                break
-            fi
-            candidate="${base_name}-${suffix}"
-            ((suffix += 1))
-        done
+        allocate_additional_target "$host_path" directory
+        container_path="$ADDITIONAL_CONTAINER_PATH"
 
         ADDITIONAL_MOUNT_ARGS+=(
             --mount "type=bind,src=${host_path},dst=${container_path}"
@@ -367,7 +413,7 @@ prepare_workspace_mounts() {
     ADDED_HOST_PATHS=()
     ADDED_CONTAINER_PATHS=()
 
-    collect_ignore_mounts "$workspace" /workspace
+    collect_ignore_mounts "$workspace" /workspace/main
 
     while (($# > 0)); do
         if [[ "$parse_options" == true ]]; then
@@ -375,6 +421,19 @@ prepare_workspace_mounts() {
                 --)
                     parse_options=false
                     CODEX_ARGS+=("$1")
+                    shift
+                    continue
+                    ;;
+                --add-file)
+                    (($# > 1)) || die "--add-file requires a file."
+                    register_additional_file "$workspace" "$2"
+                    shift 2
+                    continue
+                    ;;
+                --add-file=*)
+                    requested="${1#--add-file=}"
+                    [[ -n "$requested" ]] || die "--add-file requires a file."
+                    register_additional_file "$workspace" "$requested"
                     shift
                     continue
                     ;;
@@ -400,6 +459,29 @@ prepare_workspace_mounts() {
     done
 }
 
+prepare_browser_exec() {
+    # /workspace is now a mount browser, above the project's Git repository.
+    # Preserve cx exec without making an unrelated Git repository at the parent.
+    local index=0 argument existing
+    while ((index < ${#CODEX_ARGS[@]})); do
+        argument="${CODEX_ARGS[index]}"
+        case "$argument" in
+            -c|--config|--enable|--disable|-m|--model|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|-i|--image|--local-provider|--remote|--remote-auth-token-env|--add-dir)
+                index=$((index + 2)); continue ;;
+            --) return ;;
+            -*) index=$((index + 1)); continue ;;
+            exec|e)
+                for existing in "${CODEX_ARGS[@]:index+1}"; do
+                    [[ "$existing" != -- ]] || break
+                    [[ "$existing" != --skip-git-repo-check ]] || return 0
+                done
+                CODEX_ARGS=("${CODEX_ARGS[@]:0:index+1}" --skip-git-repo-check "${CODEX_ARGS[@]:index+1}")
+                return ;;
+            *) return ;;
+        esac
+    done
+}
+
 run_container() {
     local workspace="$1"
     shift
@@ -415,15 +497,32 @@ run_container() {
 
     prepare_environment_mount "$workspace"
     prepare_workspace_mounts "$workspace" "$@"
+    prepare_browser_exec
 
     # --cx-shell performs the image's environment setup without adding a -c
     # override to Codex; the mounted system config supplies those instructions.
+    local -a ssh_args=()
+    if [[ -n "${CX_SSH_BRIDGE_DIR:-}" ]]; then
+        ssh_args=(--mount "type=bind,src=${CX_SSH_BRIDGE_DIR},dst=/cx-ssh,readonly"
+            --env CX_SSH_SOCKET=/cx-ssh/bridge.sock --env "CX_SSH_HOST=${CX_SSH_HOST}")
+    fi
+    if [[ -n "${CX_SSH_MOUNT_PATH:-}" ]]; then
+        [[ -n "${CX_SSH_BRIDGE_DIR:-}" ]] || die "SSH filesystem mount requires an SSH bridge."
+        [[ "$CX_SSH_MOUNT_PATH" != *,* ]] || die "SSH mount path contains a comma."
+        [[ "${CX_SSH_MOUNT_MODE:-}" == ro || "${CX_SSH_MOUNT_MODE:-}" == rw ]] || die "Invalid SSH mount mode."
+        local mount_option="type=bind,src=${CX_SSH_MOUNT_PATH},dst=/workspace/remote"
+        [[ "$CX_SSH_MOUNT_MODE" != ro ]] || mount_option+=",readonly"
+        ssh_args+=(--mount "$mount_option" --env CX_SSH_REMOTE_ROOT=/workspace/remote
+            --env "CX_SSH_MOUNT_MODE=${CX_SSH_MOUNT_MODE}")
+        CODEX_ARGS=(--add-dir /workspace/remote "${CODEX_ARGS[@]}")
+    fi
     if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
+        "${ssh_args[@]}" \
         --name "cx-$(date +%s)-$$" \
         --hostname codex-sandbox \
         --user "${uid}:${gid}" \
         --workdir /workspace \
-        --mount "type=bind,src=${workspace},dst=/workspace" \
+        --mount "type=bind,src=${workspace},dst=/workspace/main" \
         "${ADDITIONAL_MOUNT_ARGS[@]}" \
         "${IGNORE_MOUNT_ARGS[@]}" \
         "${ENVIRONMENT_DOCKER_ARGS[@]}" \
@@ -485,12 +584,23 @@ run_shell() {
     ADDED_HOST_PATHS=()
     ADDED_CONTAINER_PATHS=()
     validate_workspace "$workspace"
-    collect_ignore_mounts "$workspace" /workspace
+    collect_ignore_mounts "$workspace" /workspace/main
     prepare_environment_mount "$workspace"
 
     local requested
     while (($# > 0)); do
         case "$1" in
+            --add-file)
+                (($# > 1)) || die "--add-file requires a file."
+                register_additional_file "$workspace" "$2"
+                shift 2
+                ;;
+            --add-file=*)
+                requested="${1#--add-file=}"
+                [[ -n "$requested" ]] || die "--add-file requires a file."
+                register_additional_file "$workspace" "$requested"
+                shift
+                ;;
             --add-dir)
                 (($# > 1)) || die "--add-dir requires a directory."
                 requested="$2"
@@ -513,7 +623,7 @@ run_shell() {
     if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
         --user "${uid}:${gid}" \
         --workdir /workspace \
-        --mount "type=bind,src=${workspace},dst=/workspace" \
+        --mount "type=bind,src=${workspace},dst=/workspace/main" \
         "${ADDITIONAL_MOUNT_ARGS[@]}" \
         "${IGNORE_MOUNT_ARGS[@]}" \
         "${ENVIRONMENT_DOCKER_ARGS[@]}" \
@@ -620,7 +730,50 @@ main() {
     local workspace
     workspace="$(canonical_directory "$target")"
     validate_workspace "$workspace"
-    run_container "$workspace" "$@"
+    local ssh_host="" remote_dir="" saw_ssh=false saw_dir=false parse_remote=true mount_mode=""
+    local -a forwarded=()
+    while (($#)); do
+        if [[ "$parse_remote" == true ]]; then
+            case "$1" in
+                --) parse_remote=false ;;
+                --ssh-mount|--ssh-mount=*)
+                    [[ -z "$mount_mode" ]] || die "--ssh-mount may only be supplied once."
+                    mount_mode=ro
+                    [[ "$1" != --ssh-mount=* ]] || mount_mode="${1#*=}"
+                    [[ "$mount_mode" == ro || "$mount_mode" == rw ]] || die "--ssh-mount accepts ro or rw."
+                    shift; continue ;;
+                --ssh|--remote-dir)
+                    (($# >= 2)) && [[ -n "$2" ]] || die "$1 requires a value."
+                    if [[ "$1" == --ssh ]]; then
+                        [[ "$saw_ssh" == false ]] || die "--ssh may only be supplied once."
+                        ssh_host="$2"; saw_ssh=true
+                    else
+                        [[ "$saw_dir" == false ]] || die "--remote-dir may only be supplied once."
+                        remote_dir="$2"; saw_dir=true
+                    fi
+                    shift 2; continue ;;
+            esac
+        fi
+        forwarded+=("$1"); shift
+    done
+    [[ "$saw_dir" == false || "$saw_ssh" == true ]] || die "--remote-dir requires --ssh."
+    if [[ -n "$mount_mode" ]]; then
+        [[ "$saw_ssh" == true ]] || die "--ssh-mount requires --ssh."
+        [[ "$remote_dir" == /* ]] || die "--ssh-mount requires an absolute --remote-dir."
+        command -v sshfs >/dev/null || die "--ssh-mount requires sshfs on the host."
+        command -v fusermount3 >/dev/null || command -v fusermount >/dev/null || die "--ssh-mount requires fusermount3 or fusermount on the host."
+    fi
+    if [[ "$saw_ssh" == true ]]; then
+        [[ "$ssh_host" != -* ]] || die "Invalid SSH host."
+        [[ -z "${CX_SSH_BRIDGE_DIR:-}" ]] || die "Nested SSH bridges are unsupported."
+        command -v python3 >/dev/null || die "SSH mode requires Python 3 on the host."
+        python3 -c "import tomllib" 2>/dev/null || die "SSH mode requires Python 3.11 or newer."
+        command -v ssh >/dev/null || die "SSH mode requires OpenSSH on the host."
+        [[ -t 0 && -t 1 ]] || die "SSH mode requires an interactive terminal."
+        exec env "CX_SSH_MOUNT_REQUEST=${mount_mode}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
+            "$CX_ROOT/bin/cx" "$workspace" "${forwarded[@]}"
+    fi
+    run_container "$workspace" "${forwarded[@]}"
 }
 
 main "$@"

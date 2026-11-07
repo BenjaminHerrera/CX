@@ -1,97 +1,156 @@
 # System map and access model
 
-## The parts
+## Package layout
 
 ```text
 cx package/
 ├── cx                    Portable entry point; selects bundle-local data
-├── install.sh            Installs the program for the current user
-├── uninstall.sh          Removes managed program files, preserving user data
-├── VERSION               Human-readable package version
-├── bin/cx                Main host launcher, also used by installed cx
-├── config/config.toml    Default Codex environment instructions
+├── bin/
+│   ├── cx                Host launcher used by both editions
+│   └── cx-ssh-bridge.py   Optional host SSH/terminal/filesystem supervisor
+├── config/config.toml    Default Codex developer instructions
 ├── container/
-│   ├── Dockerfile        Builds the Node/Codex/Micromamba image
-│   ├── cx-entrypoint     Selects the development environment and starts a process
-│   ├── cx-env            Inspects and selects persistent environments
-│   └── .dockerignore     Restricts the build context to image source files
-├── docs/                 Installation, usage, architecture, and maintenance
-├── scripts/              Release packaging
-└── tests/                Offline regression suite
+│   ├── Dockerfile        Node/Codex/Micromamba image
+│   ├── cx-entrypoint     Select environment and start the requested process
+│   ├── cx-env            Inspect and select persistent environments
+│   ├── cx-remote         Container client for the host SSH bridge
+│   └── .dockerignore     Restrict image build inputs
+├── install.sh            Install or upgrade managed program files
+├── uninstall.sh          Remove managed code; preserve configuration/data
+├── VERSION               Package release version
+├── docs/                 User and maintainer guides
+├── scripts/              Release packaging and live Docker checks
+└── tests/                Offline regression suites
 ```
 
-The installed `PREFIX/bin/cx` is a symlink to
-`PREFIX/share/cx/program/bin/cx`. That launcher finds its package using its real
-path. `program/config` is a symlink to `PREFIX/share/cx/config`, so upgrades can
-replace code while keeping the system configuration. Portable mode uses the
-same `bin/cx`, reached through the top-level `cx` wrapper.
+Installed `PREFIX/bin/cx` is a symlink to `PREFIX/share/cx/program/bin/cx`.
+That launcher resolves its real path. `program/config` links to the preserved
+`PREFIX/share/cx/config`, so upgrades replace code independently of settings.
+Portable mode reaches the same launcher through the top-level `cx` wrapper.
 
-## One session
+## Session data flow
 
 ```mermaid
 flowchart TD
-    User[User runs cx project] --> Launcher[Host Bash launcher]
+    User[User starts cx] --> Launcher[Host Bash launcher]
     Launcher --> Docker[Disposable Docker container]
-    Project[Host project directory] <-->|read and write at /workspace| Docker
-    Extra[Optional added directories] <-->|read and write at /cx-external| Docker
-    Auth[Codex settings and credentials] <-->|read and write at /codex-home| Docker
-    Envs[Workspace environment store] <-->|read and write at /cx-env| Docker
-    Config[Package config] -->|read only at /etc/codex| Docker
-    Docker --> Entry[Select environment; set PATH]
-    Entry --> Codex[Codex CLI or Bash shell]
-    Codex --> Service[Network services]
+    Main[Selected local project] <-->|/workspace/main| Docker
+    Extra[Extra local files and directories] <-->|/workspace/cx-external| Docker
+    Auth[Codex credentials and settings] <-->|/codex-home| Docker
+    Envs[Local workspace environment store] <-->|/cx-env| Docker
+    Config[Package configuration] -->|read only at /etc/codex| Docker
+    Docker --> Codex[Codex CLI or Bash shell]
+    Launcher -. optional SSH .-> Bridge[Host Python supervisor]
+    Docker <-->|private command socket| Bridge
+    Bridge <-->|persistent SSH shell| Remote[Remote machine]
+    Remote <-->|optional SSHFS view| Files[Host FUSE mount]
+    Files <-->|/workspace/remote| Docker
 ```
 
-No Codex server runs on your host for this package. The Docker image contains
-Node 24 on Debian Bookworm, the Codex CLI, Micromamba, Git, ripgrep, jq, curl,
-SSH client tools, bubblewrap, Bash, and tini. It does not contain a full Python
-or application development environment; create one in `/cx-env` as needed.
+Sessions start at `/workspace`, a container directory containing `main/`,
+`cx-external/`, and `remote/`. The selected project mounts at `main/`; the
+other folders are empty until used. The parent and unused placeholders are
+read-only. No corresponding folders are created in the host project.
 
-## What persists
+The image contains Node 24 on Debian Bookworm, Codex CLI, Micromamba, Git,
+ripgrep, jq, curl, SSH client tools, bubblewrap, Bash, and tini. It does not
+include a complete Python or application development environment. Optional
+SSH supervision runs on the host; development environments live in `/cx-env`.
 
-| Container path | Host source | Lifetime |
+## Mounts and persistence
+
+| Container path | Source | Behavior |
 |---|---|---|
-| `/workspace` | Selected project | Permanent project changes |
-| `/cx-external/...` | `--add-dir` folders | Permanent changes to added files |
-| `/codex-home` | `CX_CODEX_HOME` | Credentials, preferences, and Codex session state |
-| `/cx-env` | Workspace subfolder of `CX_ENV_HOME` | Named environments, caches, and saved selection |
-| `/etc/codex` | Package config directory | Read-only input during Codex runs |
-| `/home/codex`, `/tmp` | Container tmpfs | Discarded after the process exits |
+| `/workspace/main` | Selected local project | Read/write; host changes persist |
+| `/workspace/cx-external/...` | `--add-dir` and `--add-file` sources | Read/write; host changes persist |
+| `/workspace/remote` | Optional host SSHFS mount | Read-only by default; rw edits affect the server |
+| `/codex-home` | `CX_CODEX_HOME` | Persistent credentials, preferences, and sessions |
+| `/cx-env` | Workspace subfolder of `CX_ENV_HOME` | Persistent environments and selection |
+| `/etc/codex` | Package configuration directory | Read-only system configuration |
+| `/cx-ssh/bridge.sock` | Private host socket, SSH mode only | Serialized command requests and output |
+| `/home/codex`, `/tmp` | Container tmpfs | Discarded when the container exits |
 
-The workspace store's name combines a sanitized project basename with the
-first 16 hexadecimal digits of SHA-256 of its canonical absolute path. Its
-`workspace-path` text file records that path for human inspection. `active`
-holds one environment name. Micromamba environments live under `envs/`.
-The wrapper creates no package environment automatically.
+Local environment stores are keyed by a sanitized project basename and the
+first 16 hexadecimal digits of SHA-256 of its canonical absolute path.
+`workspace-path` records the source path, `active` stores the selected name,
+and `envs/` holds Micromamba environments. A new environment is never created
+automatically. SSH host selection does not create a separate remote
+Micromamba store or install packages on the server.
 
-## Access and limits
+Extra directories and files share a sanitized naming space with numeric
+suffixes for collisions. Files already inside the primary project reuse
+that location and its masks. A standalone file bind mount exposes only that
+file, supports in-place writes, and cannot be removed or replaced by rename
+at its container mountpoint. Canonical credential paths are rejected.
 
-The launcher uses Docker as the outer boundary and starts Codex with
-`--sandbox danger-full-access` inside it, preserving the supplied design.
-Codex can modify shared projects, extra directories, its credential store,
-and persistent development environments. Its subprocesses have the same
-access. Container networking is enabled. Run it only against files and data
-you intend the agent to access.
+## SSH supervision and remote mounts
 
-Containers use your numeric UID/GID, a read-only root filesystem, dropped
-Linux capabilities, `no-new-privileges`, and temporary home and `/tmp` mounts.
-Normal Codex runs additionally have configurable memory, CPU, and process
-limits and a file-descriptor limit. Shell and authentication containers have
-the original lighter set of limits. No Docker socket, SSH agent, host root,
-or arbitrary host home directory is automatically mounted.
+The Python 3.11+ supervisor owns separate PTYs for host OpenSSH and the
+Docker/Codex launcher. Keyboard input reaches only the selected terminal.
+Users complete authentication directly; terminal handoff uses Ctrl-] r and
+Ctrl-] c. Remote commands run serially in one Bash shell and return combined
+terminal output and status using randomized framing markers.
 
-`.codexignore` adds empty overlays at named paths. It does not erase files,
-hide names, or prevent access through aliases such as hard links or other
-mounts. It is a convenience for ordinary layouts, not a complete secret
-management system. Mount errors fail the Docker command rather than retrying
-without the requested masks.
+A private per-session bridge directory and socket are accessible only to the
+invoking UID. The directory is mounted read-only into Docker, but connecting
+to its socket permits commands as the authenticated remote account. SSH
+control sockets remain in a separate host-only directory. The bridge opens
+no TCP listener and does not copy host SSH credentials into the container.
+Normal host SSH configuration controls keys, jump hosts, and agent forwarding.
 
-Docker and the host administrator remain trusted components. Credentials are
-writable inside the container because login refreshes need to persist. The
-system config's package-approval wording is an agent instruction and can be
-overridden by higher-priority Codex configuration. It is not a kernel policy.
+With `--ssh-mount[=ro|rw]`, host SSHFS reuses the authenticated SSH control
+connection and mounts the selected absolute remote directory before Docker
+starts. Docker binds that view at `/workspace/remote`. Read-only mode is
+applied at both SSHFS and Docker layers. FUSE and its permissions belong to
+the host; the container gets neither `/dev/fuse` nor extra capabilities.
 
-The release process copies an explicit list of source files. It never copies
-`data/`, `.codex/`, the supplied external environment stores, or host settings.
-Never distribute a used portable folder wholesale: its `data/codex` may contain
-access tokens, and its environment store can contain project data.
+The view remains on the initial host/path even when the command shell changes
+directory or enters a compute allocation. Shell reconnection does not repair
+a disconnected filesystem view; restart cx to recreate it. On exit, the
+supervisor attempts unmounting after the local session stops. Failed unmounts
+retain the temporary directory rather than recursively traversing a live
+remote filesystem. See [SSH usage](USAGE.md#work-through-ssh) for recovery.
+
+## Instructions and configuration
+
+Normal launches mount the package's `config.toml` as system configuration.
+SSH launches read its `developer_instructions` and append session details
+through a CLI override: SSH host, initial directory, layout, authentication
+handoff, file mount limitations, and optional SSHFS path/access mode. This
+also adds current SSH guidance when an installed base configuration was
+preserved from an older release. Codex user/task/project configuration can
+also affect behavior; wrapper instructions are not the entire Codex prompt.
+
+The container entrypoint selects the persistent environment before starting
+Codex or a shell. `cx --shell` performs environment setup but does not start
+Codex or inject developer instructions.
+
+## Access boundaries
+
+Docker is the local outer boundary. Codex runs with `--sandbox danger-full-access`
+inside it and can modify the shared writable files, credentials, and local
+environments. Containers use the invoking UID/GID, a read-only root
+filesystem, dropped Linux capabilities, and `no-new-privileges`. The main
+Codex container also has configurable memory/CPU/process limits and a
+file-descriptor limit. Shell/authentication helpers retain lighter limits.
+Networking is enabled. No Docker socket, host root, arbitrary host home, or
+SSH agent is automatically mounted.
+
+Remote execution uses the remote account's permissions and is not constrained
+by Docker's local filesystem boundary or resource limits. A read-only remote
+mount does not revoke write permissions available through remote commands.
+The terminal framing protocol is cooperative, not an isolation boundary
+against the remote shell.
+
+`.codexignore` adds empty read-only overlays at literal local paths. It does
+not hide names or prevent access through hard links, separate mounts, or
+explicit file aliases. SSHFS views do not inherit these masks. A mount error
+fails the Docker launch instead of silently dropping the requested masks.
+
+Docker and the host administrator remain trusted. Credential storage is
+writable because login refreshes must persist. Package-approval wording is
+an agent instruction, not a kernel-enforced package-manager policy.
+
+Release packaging uses an explicit source list. It excludes credentials,
+runtime data, environments, and caches. Never distribute a used portable
+bundle wholesale; its private `data/` can contain tokens and project data.

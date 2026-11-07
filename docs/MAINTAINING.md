@@ -1,51 +1,79 @@
 # Maintenance and verification
 
-The host program is Bash. The regression suite uses only Node.js built-in
-modules; it has no npm dependencies and installs no packages. Node.js is a
-maintainer tool, not an end-user host requirement.
+The launcher is Bash; the optional host SSH bridge uses Python 3.11+ standard
+library modules. The container client and wrapper tests use Node.js built-in
+modules. No third-party Python or npm packages are needed for these tests.
+Host Node.js is needed for maintenance, not ordinary cx use. Host Python is
+required only for SSH mode and its tests.
 
-## Check a change
+## Offline checks
 
-Run these commands from the source tree or an extracted release. Installed
-program folders contain runtime files and documentation; maintenance scripts
-and tests remain in the source distribution.
+Run from the repository or an extracted release. Installed program folders
+contain runtime code and documentation, while tests and maintenance scripts
+remain in the source distribution.
 
 ```bash
-bash -n cx bin/cx install.sh uninstall.sh container/cx-entrypoint container/cx-env scripts/package.sh scripts/verify-docker.sh
 node tests/smoke.mjs
+node tests/remote-client.mjs
+python3 -B tests/ssh_bridge.py
 ```
 
-The offline suite uses an isolated temporary HOME and a fake Docker executable
-to check command arguments, mount paths, portable data defaults, piped sessions,
-installation, upgrade preservation, refusal to overwrite unrelated programs,
-uninstallation, environment selection, release contents, and extracted bundles.
-It never signs in or builds an image. Temporary fixtures are removed afterward.
+| Suite | Coverage |
+|---|---|
+| `smoke.mjs` | Shell syntax, Docker argument generation, workspace layout, file/directory mounts, masking, piped tasks, credential/path rejection, install/upgrade/removal, environments, packaging, and extracted editions |
+| `remote-client.mjs` | Command transport, quoting, streamed output, and returned exit status |
+| `ssh_bridge.py` | Real PTYs with fake SSH, persistent shell state, framing, terminal handoff, resizing/restoration, manual input exclusion, and mocked SSHFS setup/cleanup/instructions |
 
-Passing offline tests does not verify Docker runtime mount behavior, a real
-image build, platform-specific filesystem behavior, or service authentication.
-On a supported host with a local Docker daemon, run:
+The suites use temporary fixtures, never sign in, and never send model
+requests. The wrapper suite uses fake Docker. The SSH suite requires Linux
+PTYs and Python 3.11+; it mocks FUSE operations. Passing these tests does not
+establish live Docker, SFTP, SSHFS, or authentication compatibility.
+
+## Live Docker verification
+
+On a supported host with a local Docker daemon:
 
 ```bash
 ./scripts/verify-docker.sh --build
 ```
 
-This builds the configured image, extracts clean releases, installs to a
-disposable prefix, and launches both editions against temporary projects.
-It checks real project writes, added directories, empty read-only ignore
-mounts, and persistent storage across containers. It uses temporary credential
-stores, never signs in, and never sends a model request. Fixtures are removed
-on exit. Omit `--build` to test an existing image. The command returns nonzero
-on failure. Tests require a writable source directory and use paths with spaces.
+This builds the image, packages and extracts both editions, installs to a
+disposable prefix, and runs containers against temporary projects. It checks
+the three-folder workspace layout, project and added-directory writes,
+standalone file writes, read-only ignore masks, and persistent storage. It
+uses disposable credential stores and makes no sign-in or model requests.
+Fixtures are removed afterward. Omit `--build` to use an existing image.
 
-**Current validation status:** the offline suite passed in the supplied
-container. Docker is unavailable there, so this Docker verification script,
-image build, and live authentication have not been validated end to end.
+The source directory must be writable. Tests exercise paths containing spaces.
+Afterward, use a disposable project to validate live Codex sign-in and account
+access. Check each architecture and Docker mode you intend to support.
 
-After Docker verification passes, sign in with a real edition and start a
-session on a disposable project to verify account access. Test amd64/arm64 on
-the actual platforms you plan to support; a passing test applies to its host.
+## Live SSH and mount verification
+
+On a host with Python 3.11+, OpenSSH, SSHFS/FUSE, and an accessible SSH/SFTP
+server, use a disposable remote directory:
+
+1. Start an SSH session with a configured alias and `--remote-dir`. Complete
+   login/MFA directly, then press Ctrl-] c. Check `cx-remote status` and run
+   commands that change directory and export a variable; confirm state persists.
+2. Switch with Ctrl-] r and Ctrl-] c. Check manual interaction, resizing,
+   interruption, and reconnection. Disconnected commands must not be replayed.
+3. Start with `--ssh-mount` and inspect `/workspace/remote`. Confirm reads
+   succeed and writes through the mount fail. Confirm remote command execution
+   still works.
+4. Repeat with `--ssh-mount=rw`, write a disposable file through the mount,
+   and verify its contents on the server. Exit and confirm the owned SSHFS
+   mount is gone. Exercise mount failure and busy-unmount recovery separately.
+5. Validate Delta MFA and any manual Slurm allocation workflow on Delta itself.
+   The mount stays on the configured SSH host; it does not follow compute nodes.
+
+Current repository validation covers the offline suites. Live Docker builds,
+Docker bind mounts, SSHFS/FUSE, real sign-in, and Delta MFA remain unverified
+in the supplied environment.
 
 ## Build shareable archives
+
+Update `VERSION`, the changelog, and release-specific documentation first:
 
 ```bash
 ./scripts/package.sh
@@ -53,36 +81,36 @@ cd dist
 sha256sum -c SHA256SUMS
 ```
 
-The script creates two gzip-compressed tar archives with versioned top-level
-folders. Each includes `START-HERE.txt`, the full documentation, and
-`MANIFEST.sha256` for its files. The install edition points users to
-`./install.sh`; the portable edition points to `./cx`. Both share the same
-runtime code and can use either entry point. This avoids two diverging copies
-of the launcher.
+For version 1.1.0 the outputs are:
 
-To verify files after extraction, run `sha256sum -c MANIFEST.sha256` in the
-extracted folder. The outer `SHA256SUMS` file checks the compressed archives.
-Use `./scripts/package.sh --output /some/directory` to choose a destination.
-Release archives are source bundles; the image is not bundled.
+```text
+dist/
+├── cx-1.1.0-install.tar.gz
+├── cx-1.1.0-portable.tar.gz
+└── SHA256SUMS
+```
 
-Only paths listed in `scripts/package.sh` are packaged. Do not replace that
-list with `tar .`: a working portable directory can contain access tokens,
-project environments, and caches. Review the list when adding new files.
-Update `VERSION` and `CHANGELOG.md` before issuing a new release. Generated
-archives are intentionally ignored by Git.
+Each archive contains a versioned top-level directory, `START-HERE.txt`,
+documentation, runtime helpers, maintenance tools, tests, and a per-file
+`MANIFEST.sha256`. Verify extracted files with
+`sha256sum -c MANIFEST.sha256`. The outer checksums verify the compressed
+archives. Use `./scripts/package.sh --output /some/directory` for another
+destination. Docker images are not bundled.
 
-## Source lineage and dependencies
+Packaging uses the explicit list in `scripts/package.sh`; review it when
+adding files. Do not replace it with `tar .`, since a working portable bundle
+can contain credentials and environments. `data/`, `dist/`, logs, test
+fixtures, and Python bytecode are ignored by Git and excluded from archives.
+Keep intended runtime helpers and tests in the release file list even when
+those files have not yet been committed.
 
-Input files were read from:
+## Source lineage
 
-- `.local/bin/cx`
-- `.local/bin/cx-config/config.toml`
-- `.local/share/cx/Dockerfile`
-- `.local/share/cx/cx-entrypoint`
-- `.local/share/cx/cx-env`
+The original inputs were `.local/bin/cx`,
+`.local/bin/cx-config/config.toml`, and the Dockerfile, `cx-entrypoint`, and
+`cx-env` under `.local/share/cx`. Personal settings, credentials, workspace
+metadata, and existing environments were not imported into the repository.
 
-Personal settings, credentials, workspace-path metadata, and existing
-Micromamba environments were not imported. The provided files had no license
-notice; this package does not assign a license on the source owner's behalf.
-Before publishing publicly, the owner should choose the distribution license.
-Container components retain their own upstream licenses.
+The original files had no license notice. The source owner should choose a
+distribution license before public publication; this package does not assign
+one on their behalf. Container components retain their upstream licenses.

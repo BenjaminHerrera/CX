@@ -1,0 +1,37 @@
+#!/usr/bin/env node
+import net from 'node:net';
+const [operation, ...args] = process.argv.slice(2);
+if (!process.env.CX_SSH_SOCKET) {
+  console.error('cx-remote: no SSH session; start cx with --ssh HOST.');
+  process.exit(2);
+}
+if (!((operation === 'status' && !args.length) || (operation === 'exec' && args.length === 1))) {
+  console.error("Usage: cx-remote status | cx-remote exec 'COMMAND'");
+  process.exit(2);
+}
+const socket = net.createConnection(process.env.CX_SSH_SOCKET);
+socket.setEncoding('utf8');
+let buffer = '', complete = false;
+socket.on('connect', () => socket.write(JSON.stringify({op: operation, command: args[0]}) + '\n'));
+socket.on('data', data => {
+  buffer += data.toString();
+  let index;
+  while ((index = buffer.indexOf('\n')) !== -1) {
+    const line = buffer.slice(0, index); buffer = buffer.slice(index + 1);
+    try {
+      const event = JSON.parse(line);
+      if (event.type === 'output') process.stdout.write(Buffer.from(event.data, 'base64'));
+      else if (event.type === 'done' || event.type === 'status') {
+        complete = true;
+        if (event.error) console.error(`cx-remote: ${event.error}`);
+        if (event.type === 'status') console.log(JSON.stringify(event, null, 2));
+        process.exitCode = event.status ?? 0;
+        socket.end();
+      }
+    } catch { console.error('cx-remote: invalid bridge response'); process.exitCode = 255; socket.destroy(); }
+  }
+});
+socket.on('error', error => { console.error(`cx-remote: ${error.message}`); process.exitCode = 255; });
+socket.on('close', () => {
+  if (!complete) { console.error('cx-remote: bridge closed; remote command outcome may be unknown.'); process.exitCode = 255; }
+});
