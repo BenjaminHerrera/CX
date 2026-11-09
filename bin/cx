@@ -48,7 +48,9 @@ Codex configuration:
 Environment:
   SSH mode uses host SSH configuration and requires host Python 3.11+, OpenSSH,
   an interactive terminal, and a remote Bash shell. Ctrl-] r opens SSH;
-  Ctrl-] c hands control to Codex.
+  Ctrl-] c hands control to Codex. Ctrl-] q exits the SSH-mode session.
+  SSH and Codex use separate saved screens with a full-width top bar:
+  green for SSH and blue for Codex. No tmux installation is required.
   --ssh-mount exposes --remote-dir at /workspace/remote read-only; --ssh-mount=rw
   allows writes. Mounting additionally requires host sshfs and fusermount3
   (or fusermount), and an absolute --remote-dir.
@@ -540,6 +542,7 @@ run_container() {
         --env HOME=/home/codex \
         --env CODEX_HOME=/codex-home \
         --env TERM="${TERM:-xterm-256color}" \
+        --env COLORTERM \
         "$IMAGE" \
         --cx-shell -c 'exec codex --sandbox danger-full-access "$@"' cx \
         "${CODEX_ARGS[@]}"; then
@@ -567,6 +570,7 @@ run_codex_utility() {
         --env HOME=/home/codex \
         --env CODEX_HOME=/codex-home \
         --env TERM="${TERM:-xterm-256color}" \
+        --env COLORTERM \
         "$IMAGE" \
         "$@"
 }
@@ -636,6 +640,7 @@ run_shell() {
         --env HOME=/home/codex \
         --env CODEX_HOME=/codex-home \
         --env TERM="${TERM:-xterm-256color}" \
+        --env COLORTERM \
         "$IMAGE" \
         --cx-shell; then
         docker_status=0

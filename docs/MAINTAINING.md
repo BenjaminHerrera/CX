@@ -1,7 +1,8 @@
 # Maintenance and verification
 
 The launcher is Bash; the optional host SSH bridge uses Python 3.11+ standard
-library modules. The container client and wrapper tests use Node.js built-in
+library modules plus bundled pure Python pyte/wcwidth sources for screen
+rendering. The container client and wrapper tests use Node.js built-in
 modules. No third-party Python or npm packages are needed for these tests.
 Host Node.js is needed for maintenance, not ordinary cx use. Host Python is
 required only for SSH mode and its tests.
@@ -16,13 +17,15 @@ remain in the source distribution.
 node tests/smoke.mjs
 node tests/remote-client.mjs
 python3 -B tests/ssh_bridge.py
+python3 -B tests/screens.py
 ```
 
 | Suite | Coverage |
 |---|---|
 | `smoke.mjs` | Shell syntax, Docker argument generation, workspace layout, file/directory mounts, masking, piped tasks, credential/path rejection, install/upgrade/removal, environments, packaging, and extracted editions |
+| `screens.py` | Saved screen isolation, full-width bars, normal/alternate scrollback, pinned history, resize, Unicode, dim text and background shading, indexed/RGB colors, underline styles, standalone imports, and optional native VT tests |
 | `remote-client.mjs` | Command transport, quoting, streamed output, and returned exit status |
-| `ssh_bridge.py` | Real PTYs with fake SSH, persistent shell state, framing, terminal handoff, resizing/restoration, manual input exclusion, and mocked SSHFS setup/cleanup/instructions |
+| `ssh_bridge.py` | Real PTYs with fake SSH, persistent shell state, framing, terminal handoff, resizing/restoration, manual input exclusion, terminal-reply ownership, Windows/enhanced keyboard modes, paste, wheel routing/encoding, capture toggle, history controls, theme reply isolation, TTY restoration, and mocked SSHFS setup/cleanup/instructions |
 
 The suites use temporary fixtures, never sign in, and never send model
 requests. The wrapper suite uses fake Docker. The SSH suite requires Linux
@@ -56,8 +59,18 @@ server, use a disposable remote directory:
 1. Start an SSH session with a configured alias and `--remote-dir`. Complete
    login/MFA directly, then press Ctrl-] c. Check `cx-remote status` and run
    commands that change directory and export a variable; confirm state persists.
-2. Switch with Ctrl-] r and Ctrl-] c. Check manual interaction, resizing,
+2. Switch with Ctrl-] r and Ctrl-] c. Confirm each saved screen restores
+   without the other session's text, the full-width bar changes green/blue,
+   and the bar survives clear-screen commands, alternate buffers, and resizing. Repeat Ctrl-] r at a password/MFA
+   prompt and confirm no extra text is submitted. Check Windows Terminal/WSL
+   separately, including focus changes, delayed terminal replies, enhanced
+   keyboard key releases, Unicode, and bracketed paste. Check resizing,
    interruption, and reconnection. Disconnected commands must not be replayed.
+   Scroll Codex chat history with the wheel, check Shift-drag and Ctrl+Shift+C,
+   and toggle Ctrl-] m for plain drag selection. Confirm Ctrl-] b returns to
+   live output and streaming output does not snap saved history back. Compare
+   dim placeholder text, prompt backgrounds, indexed colors, and text styles
+   against a local session using the same Windows Terminal theme.
 3. Start with `--ssh-mount` and inspect `/workspace/remote`. Confirm reads
    succeed and writes through the mount fail. Confirm remote command execution
    still works.
@@ -67,9 +80,14 @@ server, use a disposable remote directory:
 5. Validate Delta MFA and any manual Slurm allocation workflow on Delta itself.
    The mount stays on the configured SSH host; it does not follow compute nodes.
 
-Current repository validation covers the offline suites. Live Docker builds,
-Docker bind mounts, SSHFS/FUSE, real sign-in, and Delta MFA remain unverified
-in the supplied environment.
+The 1.1.4 checks include the wrapper, bridge, screen-rendering, and client
+suites. The screen suite additionally runs independent native VT checks when
+tmux is present in the test environment; otherwise those checks are skipped.
+tmux is never required to run cx. No live SSH account or model request is
+used by these tests. Windows Terminal input records are tested as protocol
+fixtures, not through a live Windows Terminal application. Live
+Windows Terminal/WSL sessions, Docker builds and bind mounts, SSHFS/FUSE,
+real sign-in, and Delta MFA remain unverified in the supplied environment.
 
 ## Build shareable archives
 
@@ -81,12 +99,12 @@ cd dist
 sha256sum -c SHA256SUMS
 ```
 
-For version 1.1.0 the outputs are:
+For version 1.1.4 the outputs are:
 
 ```text
 dist/
-├── cx-1.1.0-install.tar.gz
-├── cx-1.1.0-portable.tar.gz
+├── cx-1.1.4-install.tar.gz
+├── cx-1.1.4-portable.tar.gz
 └── SHA256SUMS
 ```
 
@@ -113,4 +131,15 @@ metadata, and existing environments were not imported into the repository.
 
 The original files had no license notice. The source owner should choose a
 distribution license before public publication; this package does not assign
-one on their behalf. Container components retain their upstream licenses.
+one on their behalf. Container components retain their upstream licenses. The bundled renderer
+libraries retain their own licenses and replaceable source copies. See
+[third-party notices](../bin/vendor/README.md); retain every listed source and
+license file when updating or packaging them. The screen suite verifies that
+the renderer imports with site packages disabled.
+
+Terminal protocol references used for input routing:
+
+- [Microsoft console virtual terminal sequences](https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences)
+- [Windows Terminal input mode specification](https://github.com/microsoft/terminal/blob/main/doc/specs/%234999%20-%20Improved%20keyboard%20handling%20in%20Conpty.md)
+- [xterm control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
+- [Enhanced keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)

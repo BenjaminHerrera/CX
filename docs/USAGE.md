@@ -268,14 +268,81 @@ press **Ctrl-]**, release it, then **c** to start Codex. If your login shell is
 not Bash, enter `bash` first. Configurations with RemoteCommand must reach a
 Bash shell before handoff.
 
+Switching between established terminals changes input routing without typing
+shell commands into the remote session. The first Ctrl-] c performs shell
+setup, so use it only after reaching the Bash prompt. The bridge isolates common keyboard/focus/paste modes
+and answers display queries from the requesting session's virtual terminal.
+Physical terminal reports left over from previous activity are discarded
+instead of becoming password or prompt text. On normal completion, commands restore the
+remote terminal settings they started with; internal framing is hidden from
+normal output. Bracketed paste is passed through without interpreting its
+contents as bridge shortcuts.
+
 While Codex runs:
 
 - **Ctrl-] r** switches to the remote terminal for authentication or interaction.
 - **Ctrl-] c** returns to Codex once that interaction is complete.
+- **Ctrl-] b** returns from the renderer's saved history to the live screen.
+- **Ctrl-] m** toggles wheel capture; when off, plain dragging selects text.
+- **Ctrl-] q** exits the SSH-mode cx session (status 130), including during login.
 - **Ctrl-] Ctrl-]** sends a literal Ctrl-] to the selected terminal.
 - To interrupt a remote command, switch to SSH and press Ctrl-C. Return only
   after reaching a shell prompt. The command is reported as interrupted;
   its effects may be incomplete.
+
+### Separate screens and session bar
+
+SSH-mode sessions use independent saved terminal screens. The full-width top
+row is **green and labeled SSH** or **blue and labeled CODEX**. It stays visible
+when an application clears its screen, uses an alternate buffer, or scrolls.
+Brief connection notices appear in this bar instead of over application text.
+
+Ctrl-] r/c restores the selected session's current screen, cursor, and styles.
+Output produced while a session is hidden updates only its saved screen; cx
+does not replay old raw output over the active application. Background Codex
+updates are visible when you return to it. The bar reserves one row, and cx
+resizes both application PTYs to the remaining height.
+
+Wheel scrolling is enabled by default. When an application requests mouse
+input, wheel events go to that application with coordinates adjusted for the
+bar. Otherwise, the wheel browses the renderer's saved history, three lines
+per event. Each session's normal and alternate screens keep up to 2,000
+scrolled-off lines independently. This is terminal output history, not a
+separate copy of the full Codex conversation.
+
+While browsing saved history, the bar shows **HISTORY** and the cursor is
+hidden. New output continues updating the live screen without snapping your
+view back. Scroll down, press **Ctrl-] b**, or type to return to the live view.
+Switching between SSH and Codex preserves each screen's history position.
+
+Hold **Shift while dragging** to select text, then use your terminal's copy
+shortcut (**Ctrl+Shift+C** in Windows Terminal). Press **Ctrl-] m** to disable
+wheel capture for plain drag selection; press it again to restore scrolling.
+Clicks and drags are not forwarded to applications; use keyboard navigation
+for those controls. Local sessions without `--ssh` retain their usual behavior.
+See [Windows Terminal selection](https://learn.microsoft.com/en-us/windows/terminal/selection).
+
+The renderer ships with cx as pure Python source. There is no tmux dependency
+and no host pip installation. It preserves VT dim/bold/italic text, underline
+styles and colors, reverse/hidden/struck/overlined text, foreground and
+background shading, ANSI/indexed palette references, and RGB colors across
+switches and history views. Your terminal still chooses the font face and
+determines which style extensions it can display. `COLORTERM` is forwarded
+from the host so applications retain its color capability information.
+The bridge probes the terminal's default foreground/background/cursor colors
+once and caches valid replies for application theme queries; terminals that
+do not answer use the existing light-text/dark-background defaults. These
+replies are consumed locally, never entered into a password or prompt.
+The renderer also handles cursor operations and normal/alternate screens;
+terminal graphics extensions are not forwarded.
+Display queries use virtual coordinates that exclude the bar. Advanced
+keyboard support is not advertised by the virtual terminal; standard input
+and the existing input-mode safeguards remain available.
+
+Closing cx restores the enclosing terminal's screen. Local sessions without
+`--ssh` retain their normal Codex display and have no added session bar.
+
+### Remote commands
 
 The container helper provides remote execution:
 
@@ -398,7 +465,10 @@ those facilities; offline tests mock mount lifecycle operations.
 | Connection to a private service fails | Host network/proxy variables are not automatically forwarded; the container has its own network context. |
 | A new build still has an old Codex version | Use `cx --rebuild` to bypass cached npm layers. |
 | File save fails with a busy mountpoint | For `--add-file`, write in place or share its parent using `--add-dir`. |
+| Password input contains unexpected text or Codex receives stray terminal sequences after handoff | Install the updated wrapper and exit all old SSH sessions. Restart cx; if the host display remains garbled, run `reset` outside cx first. |
 | SSH login needs MFA or interaction | Press Ctrl-] r, complete it directly at the terminal, then Ctrl-] c. |
+| Dragging does not select text in an SSH-mode session | Hold Shift while dragging, then copy with Ctrl+Shift+C in Windows Terminal. Ctrl-] m disables wheel capture for plain drag selection. |
+| Wheel does not scroll chat history in SSH mode | Press Ctrl-] m to enable wheel capture. Mouse-aware applications handle their own scrolling; otherwise the renderer browses its saved terminal history. |
 | SSHFS mount fails at startup | Check host SSHFS/FUSE, server SFTP, and `user_allow_other` in `/etc/fuse.conf`. |
 | Remote mount fails after a disconnect | Restart cx to recreate the filesystem view; shell reconnection alone is insufficient. |
 | `/workspace/main` or the remote client is missing | Rebuild the image after upgrading and restart the session. |
@@ -407,3 +477,24 @@ those facilities; offline tests mock mount lifecycle operations.
 `cx --doctor` prints paths and prerequisite status without creating data or
 changing settings. It returns nonzero if a required item is missing. It does
 not inspect credentials or send them anywhere.
+
+### Updating to the 1.1.4 SSH terminal bridge
+
+Version 1.1.4 adds wheel scrolling and preserves Codex text styles, prompt
+shading, and terminal palette colors. Unlike 1.1.3, wheel capture is enabled
+by default: use Shift-drag for selection or Ctrl-] m for plain dragging.
+The separate screens, session bar, and password/MFA input fixes remain.
+From the updated source checkout or extracted install release, update the host wrapper outside cx.
+An existing 1.1.0 image can be reused:
+
+```bash
+./install.sh --no-build
+```
+
+Reuse your installation prefix if customized. Exit existing SSH-mode cx
+sessions completely and start a new one; running Python supervisors retain
+their old code until they exit. If a previous session left the terminal in
+an unusual input/display mode, run `reset` in your Linux/WSL host shell
+outside cx before restarting. These fixes do not change saved SSH credentials.
+If upgrading from before 1.1.0, also rebuild the image and migrate container
+paths as described in [installation and upgrades](INSTALL.md#upgrading-to-114).

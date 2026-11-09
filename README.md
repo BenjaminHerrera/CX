@@ -1,9 +1,15 @@
 # cx — Codex in a Docker container
 
-**Version 1.1.0.** Run Codex in a disposable Docker container with your local
+**Version 1.1.4.** Run Codex in a disposable Docker container with your local
 project, selected extra directories or files, and optional SSH access. Edits
 update the original files. Credentials, settings, and development environments
 persist between sessions.
+
+Version 1.1.4 restores wheel scrolling in SSH-mode sessions and preserves
+Codex's dim text, shaded prompts, text styles, and terminal palette colors.
+Hold **Shift while dragging** to select text. The separate saved screens and
+full-width top bar remain: **green for SSH, blue for Codex**.
+See the [changelog](CHANGELOG.md).
 
 ## Requirements
 
@@ -54,10 +60,16 @@ Use the device-login link and code printed during sign-in. See the
 [installation guide](docs/INSTALL.md) for authentication, custom paths,
 rollback, and removal.
 
-**Upgrading to 1.1.0:** rebuild the image and restart sessions. The local
-project now appears at `/workspace/main`. Update scripts using the previous
-container paths, and review the new default instructions against your
-preserved installed configuration. [Upgrade details](docs/INSTALL.md#upgrading-to-110).
+**Upgrading from 1.1.0–1.1.3:** use `./install.sh --no-build` to update the host
+wrapper without rebuilding the compatible container image. Completely exit
+old SSH-mode sessions and start new ones so they load the fixes. Saved
+credentials, settings, and environments are preserved. If your prefix was
+customized, pass the same `--prefix` again.
+
+**Upgrading from 1.0.x or older:** rebuild the image and migrate container
+paths to the three-folder workspace layout. Review the new default
+instructions against your preserved installed configuration.
+[Upgrade details](docs/INSTALL.md#upgrading-to-114).
 
 ## Workspace layout
 
@@ -105,6 +117,11 @@ cx ~/cx-remote --ssh delta --remote-dir /srv/project
 `delta` uses your host's SSH configuration and credentials. Complete login
 and MFA directly in the terminal. At a Bash prompt, press **Ctrl-]**, then
 **c** to start Codex. **Ctrl-] r** returns to the SSH terminal for interaction.
+The colored bar always identifies the active screen. **Ctrl-] q** exits the
+SSH-mode session. No tmux installation is needed; the screen renderer is
+bundled with cx. Use the wheel to scroll; **Shift-drag** selects text for
+copying. In Windows Terminal, copy with **Ctrl+Shift+C**. **Ctrl-] b** returns
+to the live view, and **Ctrl-] m** toggles wheel capture for plain drag selection.
 Commands share a persistent remote shell:
 
 ```bash
@@ -155,13 +172,14 @@ modify PATH or install into `~/.local`.
 - [Tests and release packaging](docs/MAINTAINING.md)
 - [Changelog](CHANGELOG.md)
 
-The offline wrapper, SSH/terminal, and remote-client checks pass. SSHFS tests
-mock mounting; live Docker, FUSE, sign-in, and Delta MFA are not verified in
+The offline wrapper, SSH/terminal, screen-rendering, and remote-client checks pass. SSHFS tests
+mock mounting; live Windows Terminal/WSL, Docker, FUSE, sign-in, and Delta MFA
+are not verified in
 this environment. Run `./scripts/verify-docker.sh --build` on a Docker host
 for container verification, then follow the live SSH checklist in the
 maintenance guide.
 
-Create clean `1.1.0` install and portable archives with
+Create clean `1.1.4` install and portable archives with
 `./scripts/package.sh`. Archives and checksums go into `dist/`; packaging
 excludes credentials, runtime data, and caches. Never distribute a used
 portable bundle's private `data/` directory.

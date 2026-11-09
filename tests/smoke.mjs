@@ -65,6 +65,7 @@ check('build uses bundle-relative context and requested version',()=>{
 check('portable run mounts private data, writable project, and system configuration',()=>{
   reset(); bash('cx',[project,'exec','a task with spaces']);
   const args=lastRun();
+  contains(args,'COLORTERM');
   contains(args,`src=${project},dst=/workspace/main`);
   assert.equal(args[args.indexOf('--workdir')+1],'/workspace');
   assert.equal(args.includes(`type=bind,src=${project},dst=/workspace`),false);
@@ -253,6 +254,11 @@ check('clean releases exclude runtime data and run after extraction',()=>{
     const archive=path.join(output,`cx-${version}-${edition}.tar.gz`);
     const listing=run('tar',['-tzf',archive]).stdout;
     assert.equal(listing.includes('/data/'),false); assert.equal(listing.includes('/environments/'),false);
+    for (const required of ['bin/cx_screen.py','bin/vendor/pyte/screens.py','bin/vendor/pyte/LICENSE','bin/vendor/pyte/COPYING','bin/vendor/wcwidth/LICENSE','tests/screens.py']) {
+      assert.ok(listing.includes('/'+required), `missing renderer/source notice: ${required}`);
+    }
+    assert.equal(listing.includes('/__pycache__/'),false);
+    assert.equal(/\.so(?:\n|$)/m.test(listing),false);
     const extract=path.join(temp,`extract-${edition}`); fs.mkdirSync(extract);
     run('tar',['-xzf',archive,'-C',extract]);
     const bundle=path.join(extract,`cx-${version}-${edition}`);

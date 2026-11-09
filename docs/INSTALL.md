@@ -27,7 +27,9 @@ Local sessions do not require Python or host SSH setup. For `--ssh`, install
 Python 3.11+ and OpenSSH on the host and use an interactive terminal. The
 remote session must reach a Bash shell. Host SSH aliases, keys, agents, jump
 hosts, and authentication policies are used directly; no third-party Python
-packages are needed. cx does not install these dependencies automatically.
+packages are needed: the terminal renderer and its pure Python libraries
+ship with cx. tmux is not required. cx does not install host dependencies
+automatically.
 
 For `--ssh-mount`, the host additionally needs SSHFS, working FUSE, and
 `fusermount3` or `fusermount`. The server must support SFTP. The mount uses
@@ -45,11 +47,11 @@ If you received both archives and the checksum file:
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf cx-1.1.0-install.tar.gz
-cd cx-1.1.0-install
+tar -xzf cx-1.1.4-install.tar.gz
+cd cx-1.1.4-install
 ```
 
-For portable use, extract `cx-1.1.0-portable.tar.gz` instead. The checksum command
+For portable use, extract `cx-1.1.4-portable.tar.gz` instead. The checksum command
 expects both archives to be present; if you downloaded only one, compare its
 `sha256sum` output with its matching line in `SHA256SUMS`. Checksums detect
 accidental changes; they do not authenticate an untrusted publisher.
@@ -82,8 +84,8 @@ installs dependencies on the host.
 ## Portable edition
 
 ```bash
-tar -xzf cx-1.1.0-portable.tar.gz
-cd cx-1.1.0-portable
+tar -xzf cx-1.1.4-portable.tar.gz
+cd cx-1.1.4-portable
 ./cx --build
 ./cx --login
 ./cx /path/to/project
@@ -111,23 +113,53 @@ program files are replaced and the old program is saved under
 `config/config.toml` if you want new default instructions. Credentials and
 workspace environments are not part of the program update.
 
-### Upgrading to 1.1.0
+<a id="upgrading-to-112"></a>
+<a id="upgrading-to-113"></a>
 
-From the updated repository or extracted `cx-1.1.0-install` directory:
+### Upgrading to 1.1.4
+
+From the updated repository or extracted `cx-1.1.4-install` directory, on
+your Linux/WSL host outside cx:
 
 ```bash
-./install.sh
+# An existing 1.1.0 image can be reused:
+./install.sh --no-build
 cx --version
+# Expected: cx 1.1.4
 ```
 
-The installer builds the updated image by default. Reuse your original
-`--prefix` if it was customized. Exit existing sessions and start new ones.
-If you install with `--no-build`, run `cx --build` before using the new layout
-or remote client. Do not combine the new launcher with an old image.
+Pass your original `--prefix` if customized. This patch changes the host SSH
+supervisor and bundled renderer; it does not require rebuilding a working
+1.1.0 image. The same procedure applies when upgrading from 1.1.1–1.1.3.
+Exit all old SSH-mode sessions completely and start new ones: running supervisors
+keep their previously loaded code. If an old session left terminal modes
+in an unusual state, run `reset` in the Linux/WSL host shell outside cx
+before restarting. No SSH password or saved-credential change is required
+by this update.
 
-The container directory layout changes:
+Version 1.1.4 restores wheel scrolling in SSH mode and preserves dim text,
+prompt shading, text styles, and terminal palette colors. Wheel capture is
+enabled by default, so hold Shift while dragging to select text, then copy
+with Ctrl+Shift+C in Windows Terminal. Ctrl-] m toggles capture for plain
+drag selection; Ctrl-] b returns from saved history to the live view. Local
+sessions without `--ssh` retain their usual mouse behavior.
 
-| Previous container path | 1.1.0 container path |
+For a new installation, a missing image, or an upgrade from before 1.1.0,
+run `./install.sh` with its default image build instead. If you choose
+`--no-build` in those cases, run `cx --build` before starting cx. Review the
+workspace migration below for older installations.
+
+For portable upgrades, extract the fresh `1.1.4` bundle, transfer your private
+`data/` while sessions are stopped, and merge intentional configuration
+customizations. Reuse an existing 1.1.0 Docker image or build one if absent.
+Do not overwrite an existing data directory with an empty one.
+
+### Workspace migration from 1.0.x
+
+The three-folder layout was introduced in 1.1.0 and is unchanged in 1.1.4.
+When upgrading from 1.0.x or older, rebuild the image and update scripts:
+
+| Previous container path | 1.1.x container path |
 |---|---|
 | `/workspace/FILE` | `/workspace/main/FILE` |
 | `/cx-external/NAME` | `/workspace/cx-external/NAME` |

@@ -18,10 +18,73 @@ trap 'rm -rf -- "$stage"' EXIT
 # Explicit file list: adding a file to the repository does not distribute it.
 files=(
     VERSION README.md CHANGELOG.md .gitignore cx install.sh uninstall.sh
-    bin/cx bin/cx-ssh-bridge.py config/config.toml
+    bin/cx bin/cx-ssh-bridge.py bin/cx_screen.py config/config.toml
     container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
     docs/INSTALL.md docs/USAGE.md docs/ARCHITECTURE.md docs/MAINTAINING.md
-    scripts/package.sh scripts/verify-docker.sh tests/smoke.mjs tests/ssh_bridge.py tests/remote-client.mjs
+    scripts/package.sh scripts/verify-docker.sh tests/smoke.mjs tests/ssh_bridge.py tests/screens.py tests/remote-client.mjs
+    # Bundled pure Python sources and notices; no installed binaries or caches.
+    bin/vendor/README.md
+    bin/vendor/pyte/AUTHORS
+    bin/vendor/pyte/COPYING
+    bin/vendor/pyte/LICENSE
+    bin/vendor/pyte/__init__.py
+    bin/vendor/pyte/__main__.py
+    bin/vendor/pyte/charsets.py
+    bin/vendor/pyte/control.py
+    bin/vendor/pyte/escape.py
+    bin/vendor/pyte/graphics.py
+    bin/vendor/pyte/modes.py
+    bin/vendor/pyte/screens.py
+    bin/vendor/pyte/streams.py
+    bin/vendor/wcwidth/LICENSE
+    bin/vendor/wcwidth/__init__.py
+    bin/vendor/wcwidth/_clip.py
+    bin/vendor/wcwidth/_constants.py
+    bin/vendor/wcwidth/_wcswidth.py
+    bin/vendor/wcwidth/_wcwidth.py
+    bin/vendor/wcwidth/_width.py
+    bin/vendor/wcwidth/align.py
+    bin/vendor/wcwidth/bisearch.py
+    bin/vendor/wcwidth/control_codes.py
+    bin/vendor/wcwidth/escape_sequences.py
+    bin/vendor/wcwidth/grapheme.py
+    bin/vendor/wcwidth/hyperlink.py
+    bin/vendor/wcwidth/sgr_state.py
+    bin/vendor/wcwidth/table_ambiguous.py
+    bin/vendor/wcwidth/table_grapheme.py
+    bin/vendor/wcwidth/table_grapheme_overrides/__init__.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_058c7585.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_2148ff29.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_244dc88b.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_336a71a1.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_33ac73f2.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_3a1895d5.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_59180a0d.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_65c6beb5.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_78f828e8.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_8c2ae14d.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_900356bf.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_97904ece.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_a5880eeb.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_b6d33cf4.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_c57c295b.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_cf02297d.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_e18ac6a7.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_e2b75ee3.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_fb5fd79b.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_known_fdc99132.py
+    bin/vendor/wcwidth/table_grapheme_overrides/_registry.py
+    bin/vendor/wcwidth/table_mc.py
+    bin/vendor/wcwidth/table_overrides.py
+    bin/vendor/wcwidth/table_term_programs.py
+    bin/vendor/wcwidth/table_vs15.py
+    bin/vendor/wcwidth/table_vs16.py
+    bin/vendor/wcwidth/table_wide.py
+    bin/vendor/wcwidth/table_zero.py
+    bin/vendor/wcwidth/text_sizing.py
+    bin/vendor/wcwidth/textwrap.py
+    bin/vendor/wcwidth/unicode_versions.py
+    bin/vendor/wcwidth/wcwidth.py
 )
 for edition in install portable; do
     name="cx-$version-$edition"

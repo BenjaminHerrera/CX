@@ -13,6 +13,7 @@ import shutil
 import time
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,302 @@ import uuid
 import tty
 import tomllib
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cx_screen import SessionDisplay
+
+
+class TerminalIO:
+    """Route input and maintain separate virtual terminals for both PTYs."""
+    # Physical mouse tracking belongs to the bridge. Only wheel events may
+    # reach a child; Shift-drag keeps native terminal selection available.
+    MOUSE_MODES = (9, 1000, 1001, 1002, 1003, 1005, 1006, 1015, 1016)
+    MODES = (1, 1004, 2004, 9001) + MOUSE_MODES
+
+    def __init__(self, deliver):
+        self.deliver = deliver
+        self.enabled = False
+        self.mouse_scroll = True
+        self.colors = {}
+        self.color_queries = set()
+        self.buffers = {}
+        self.states = {}
+        self.display = SessionDisplay(deliver)
+        self.input = bytearray()
+        self.input_since = 0
+        self.pasting = False
+        self.paste_owner = None
+        self.paste_markers = True
+
+    @staticmethod
+    def packet_length(data, input_mode=False):
+        if len(data) < 2:
+            return None
+        if input_mode and data.startswith(b'\x1b[M'):
+            return 6 if len(data) >= 6 else None
+        if data[1] == ord('['):
+            for index in range(2, len(data)):
+                if 0x40 <= data[index] <= 0x7e:
+                    return index + 1
+        elif data[1] in (ord(']'), ord('P'), ord('_')):
+            end = data.find(b'\x1b\\', 2)
+            bell = data.find(b'\x07', 2) if data[1] == ord(']') else -1
+            if bell >= 0 and (end < 0 or bell < end):
+                return bell + 1
+            if end >= 0:
+                return end + 2
+        elif data[1] == ord('O'):
+            return 3 if len(data) >= 3 else None
+        else:
+            return 2
+        return None
+
+    def state(self, owner):
+        return self.states.setdefault(owner, {'modes': set(), 'mouse': set(), 'keys': [0], 'modify': 0, 'keypad': False, 'surrogate': None})
+
+    def apply_mouse(self):
+        if self.enabled:
+            os.write(1, b'\x1b[?1000h\x1b[?1006h' if self.mouse_scroll else
+                     b'\x1b[?1000l\x1b[?1006l')
+        self.display.mouse_scroll = self.mouse_scroll
+
+    def reset(self):
+        if self.enabled:
+            os.write(1, (''.join('\033[?' + str(mode) + 'l' for mode in self.MODES) +
+                         '\033[=0u\033[>4;0m\033>').encode())
+
+    def switch(self, owner, label='SSH'):
+        self.display.select(owner, label)
+        if not self.enabled:
+            return
+        self.reset()
+        state = self.state(owner)
+        sequence = ''.join('\033[?' + str(mode) + 'h' for mode in sorted(state['modes'])
+                           if mode not in self.MOUSE_MODES)
+        sequence += '\033[=' + str(state['keys'][-1]) + 'u'
+        sequence += '\033[>4;' + str(state['modify']) + 'm'
+        if state['keypad']:
+            sequence += '\033='
+        os.write(1, sequence.encode())
+        self.apply_mouse()
+
+    def start(self, rows=24, columns=80):
+        self.enabled = True
+        # Preserve the enclosing shell's kitty keyboard flags once. Child
+        # push/pop operations are virtualized rather than sharing this stack.
+        os.write(1, b'\x1b[>0u')
+        self.reset()
+        self.display.start(rows, columns)
+        self.apply_mouse()
+        # Cache theme colors once. Replies are consumed by the bridge, never
+        # delivered as keystrokes to an authentication prompt or another PTY.
+        self.color_queries = {'10', '11', '12'}
+        os.write(1, b'\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b]12;?\x1b\\')
+
+    def close(self):
+        self.reset()
+        if self.enabled:
+            self.display.close()
+            os.write(1, b'\x1b[<u')
+            self.enabled = False
+
+    def render(self, owner, data, visible=True):
+        data = self.buffers.pop(owner, b'') + data
+        while data:
+            start = data.find(b'\x1b')
+            if start < 0:
+                if visible:
+                    self.display.feed(owner, data)
+                break
+            if start:
+                if visible:
+                    self.display.feed(owner, data[:start])
+                data = data[start:]
+            length = self.packet_length(data)
+            if length is None:
+                if len(data) <= 8192:
+                    self.buffers[owner] = data
+                break
+            packet, data = data[:length], data[length:]
+            state = self.state(owner)
+            modes = re.fullmatch(rb'\x1b\[\?([0-9;]+)([hl])', packet)
+            keys = re.fullmatch(rb'\x1b\[([>=<])([0-9]*)(?:;([123]))?u', packet)
+            modify = re.fullmatch(rb'\x1b\[>4;([012])m', packet)
+            if modes:
+                for mode in map(int, modes[1].split(b';')):
+                    if mode in self.MODES:
+                        if mode in self.MOUSE_MODES:
+                            if modes[2] == b'h':
+                                state['mouse'].add(mode)
+                            else:
+                                state['mouse'].discard(mode)
+                        if modes[2] == b'h' and mode not in self.MOUSE_MODES:
+                            state['modes'].add(mode)
+                        else:
+                            state['modes'].discard(mode)
+            elif keys:
+                operation, value = keys[1], int(keys[2] or (b'1' if keys[1] == b'<' else b'0'))
+                stack = state['keys']
+                if operation == b'>':
+                    stack.append(value)
+                elif operation == b'<':
+                    del stack[max(1, len(stack) - value):]
+                elif keys[3] == b'2':
+                    stack[-1] |= value
+                elif keys[3] == b'3':
+                    stack[-1] &= ~value
+                else:
+                    stack[-1] = value
+                # Do not let either child change the physical shared stack.
+                packet = b'\x1b[=' + str(stack[-1]).encode() + b'u'
+            elif modify:
+                state['modify'] = int(modify[1])
+            elif packet in (b'\x1b=', b'\x1b>'):
+                state['keypad'] = packet == b'\x1b='
+            kind = self.query_kind(packet)
+            if kind:
+                self.respond(owner, packet, kind)
+            elif visible and not keys and not modify and not packet.startswith((b'\x1bP', b'\x1b_')):
+                self.display.feed(owner, packet)
+
+    def respond(self, owner, packet, kind):
+        pane = self.display.pane(owner)
+        if kind == 'cursor':
+            pane.report_device_status(6, private=packet.startswith(b'\x1b[?'))
+        elif kind == 'status':
+            self.deliver(owner, b'\x1b[0n')
+        elif kind == 'device:?':
+            self.deliver(owner, b'\x1b[?6c')
+        elif kind == 'device:>':
+            self.deliver(owner, b'\x1b[>0;0;0c')
+        elif kind == 'device:=':
+            self.deliver(owner, b'\x1bP!|00000000\x1b\\')
+        elif kind.startswith('mode:'):
+            mode = int(kind.split(':')[1])
+            known = mode in self.MODES or mode in (6, 7, 25, 47, 1047, 1048, 1049)
+            enabled = mode in self.state(owner)['modes'] or mode << 5 in pane.screen.mode
+            if mode in self.MOUSE_MODES:
+                enabled = mode in self.state(owner)['mouse']
+            if mode in (47,1047,1049):
+                enabled = pane.screen is pane.alternate
+            status = (1 if enabled else 2) if known else 0
+            self.deliver(owner, f'\033[?{mode};{status}$y'.encode())
+        elif kind.startswith('color:'):
+            number = kind.split(':')[1]
+            rgb = self.colors.get(number, '0000/0000/0000' if number == '11' else 'ffff/ffff/ffff')
+            self.deliver(owner, f'\033]{number};rgb:{rgb}\033\\'.encode())
+        elif kind == 'window':
+            rows, columns = pane.screen.lines, pane.screen.columns
+            reply = f'\033[8;{rows};{columns}t' if packet == b'\x1b[18t' else '\033[4;0;0t'
+            self.deliver(owner, reply.encode())
+        elif kind == 'dcs':
+            if packet.startswith(b'\x1bP+q'):
+                self.deliver(owner, b'\x1bP0+r\x1b\\')
+            else:
+                self.deliver(owner, b'\x1bP>|cx\x1b\\')
+        # Do not advertise enhanced keyboard support from the virtual terminal:
+        # legacy key input works across Linux/WSL hosts without translating an
+        # entire keyboard protocol. Explicit app mode changes remain tracked.
+
+    @staticmethod
+    def query_kind(packet):
+        if packet == b'\x1b[5n':
+            return 'status'
+        if re.fullmatch(rb'\x1b\[\??6n', packet):
+            return 'cursor'
+        if re.fullmatch(rb'\x1b\[[>=]?0?c', packet):
+            return 'device:' + (chr(packet[2]) if packet[2] in b'>=' else '?')
+        if packet == b'\x1b[?u':
+            return 'keys'
+        mode = re.fullmatch(rb'\x1b\[\?(\d+)\$p', packet)
+        if mode:
+            return 'mode:' + mode[1].decode()
+        color = re.fullmatch(rb'\x1b\](10|11|12);\?(?:\x07|\x1b\\)', packet)
+        if color:
+            return 'color:' + color[1].decode()
+        if packet in (b'\x1b[18t', b'\x1b[14t'):
+            return 'window'
+        if packet.startswith(b'\x1bP+q') or packet == b'\x1b[>q':
+            return 'dcs'
+        return None
+
+    @staticmethod
+    def reply_kind(packet):
+        if re.fullmatch(rb'\x1b\[\??\d+;\d+R', packet):
+            return 'cursor'
+        if re.fullmatch(rb'\x1b\[[?>=][0-9;]*c', packet):
+            return 'device:' + chr(packet[2])
+        if re.fullmatch(rb'\x1b\[\?\d+u', packet):
+            return 'keys'
+        mode = re.fullmatch(rb'\x1b\[\?(\d+);\d+\$y', packet)
+        if mode:
+            return 'mode:' + mode[1].decode()
+        color = re.match(rb'\x1b\](10|11|12);', packet)
+        if color:
+            return 'color:' + color[1].decode()
+        if re.fullmatch(rb'\x1b\[[48];\d+;\d+t', packet):
+            return 'window'
+        if packet.startswith((b'\x1bP0+r', b'\x1bP1+r', b'\x1bP>|', b'\x1bP!|')):
+            return 'dcs'
+        return None
+
+    def reply(self, packet):
+        # Applications query their saved virtual terminal, not the physical
+        # viewport. Late reports from an earlier session are never user input.
+        color = re.fullmatch(rb'\x1b\](10|11|12);rgb:([0-9a-fA-F]{1,4}/[0-9a-fA-F]{1,4}/[0-9a-fA-F]{1,4})(?:\x07|\x1b\\)', packet)
+        if color and color[1].decode() in self.color_queries:
+            number = color[1].decode()
+            self.colors[number] = color[2].decode()
+            self.color_queries.discard(number)
+        return self.reply_kind(packet) is not None
+
+    def read_input(self, data):
+        if not self.input:
+            self.input_since = time.monotonic()
+        self.input.extend(data)
+        while self.input:
+            if self.pasting:
+                marker = b'\x1b[201~'
+                end = self.input.find(marker)
+                if end == 0:
+                    del self.input[:len(marker)]
+                    yield marker
+                elif end > 0:
+                    packet = bytes(self.input[:end])
+                    del self.input[:end]
+                    yield packet
+                else:
+                    keep = 0
+                    for size in range(1, min(len(marker), len(self.input) + 1)):
+                        if self.input.endswith(marker[:size]):
+                            keep = size
+                    count = len(self.input) - keep
+                    packet = bytes(self.input[:count])
+                    del self.input[:count]
+                    if packet:
+                        yield packet
+                    break
+                continue
+            if self.input[0] != 27:
+                byte = self.input.pop(0)
+                yield bytes([byte])
+                continue
+            length = self.packet_length(self.input, input_mode=True)
+            if length is None:
+                if len(self.input) > 8192:
+                    self.input.clear()
+                break
+            packet = bytes(self.input[:length])
+            del self.input[:length]
+            yield packet
+
+    def flush_input(self):
+        # A standalone Escape must still reach the application. Partial CSI/OSC
+        # reports stay buffered, so their tails cannot become password text.
+        if not self.pasting and self.input == b'\x1b' and time.monotonic() - self.input_since >= .05:
+            self.input.clear()
+            return b'\x1b'
+        return b''
 
 
 class Bridge:
@@ -33,16 +330,31 @@ class Bridge:
         self.buffer = b''
         self.clients = {}
         self.escape = False
-        self.local_output = bytearray()
+        self.resize_pending = False
         self.running = True
         self.result = 1
         self.mount_mode = os.environ.get('CX_SSH_MOUNT_REQUEST', '')
         self.mount_process = None
         self.mount_path = None
         self.mount_log = None
+        self.terminal = TerminalIO(self.deliver_terminal)
+
+    def deliver_terminal(self, owner, data):
+        if owner is not None and (owner is self.remote or owner is self.local):
+            while data:
+                count = os.write(owner[0], data)
+                data = data[count:]
+
+    def switch_focus(self, focus):
+        self.focus = focus
+        self.terminal.switch(self.remote if focus == 'remote' else self.local,
+                             'SSH' if focus == 'remote' else 'CODEX')
 
     def notice(self, message):
-        os.write(1, ('\r\ncx SSH: ' + message + '\r\n').encode())
+        if self.terminal.display.enabled:
+            self.terminal.display.notice(message)
+        else:
+            os.write(1, ('\r\ncx SSH: ' + message + '\r\n').encode())
 
     def connection_help(self):
         # Match the command references in .bash_aliases (cxh, dh, sshfsh).
@@ -64,21 +376,36 @@ class Bridge:
         row('Log in', 'Complete SSH authentication/MFA and reach a Bash prompt.')
         row('Ctrl-] c', 'Start Codex after login, or return to Codex.')
         row('Ctrl-] r', 'Open the remote terminal for authentication or interaction.')
+        row('Ctrl-] q', 'Exit this cx SSH-mode session.')
+        row('Ctrl-] b', 'Return to the live view after scrolling history.')
+        row('Ctrl-] m', 'Toggle wheel scrolling; Shift-drag selects text when on.')
         row('Ctrl-] Ctrl-]', 'Send a literal Ctrl-] to the selected terminal.')
         lines.extend(['', f'{reset}'])
-        os.write(1, ('\r\n'.join(lines) + '\r\n').encode())
+        self.terminal.render(self.remote, ('\r\n'.join(lines) + '\r\n').encode())
+
+    def request_resize(self, *_):
+        self.resize_pending = True
 
     def resize(self, *_):
-        size = fcntl.ioctl(0, termios.TIOCGWINSZ, b'\0' * 8)
+        rows, columns, _, _ = struct.unpack('HHHH', fcntl.ioctl(0, termios.TIOCGWINSZ, b'\0' * 8))
+        rows, columns = rows or 24, columns or 80
+        self.terminal.display.resize(rows, columns)
+        size = struct.pack('HHHH', max(1, rows - 1), columns, 0, 0)
         for item in (self.remote, self.local):
             if item:
                 try:
                     fcntl.ioctl(item[0], termios.TIOCSWINSZ, size)
                 except OSError:
                     pass
+        self.resize_pending = False
+        self.terminal.display.paint(force=True)
 
     def spawn(self, args, env=None):
         master, slave = pty.openpty()
+        if os.isatty(0):
+            rows, columns, _, _ = struct.unpack('HHHH', fcntl.ioctl(0, termios.TIOCGWINSZ, b'\0' * 8))
+            size = struct.pack('HHHH', max(1, (rows or 24) - 1), columns or 80, 0, 0)
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, size)
         # Establish a controlling terminal for SSH authentication and Docker UI.
         def child_setup():
             os.setsid()
@@ -89,7 +416,6 @@ class Bridge:
         return master, process
 
     def connect(self):
-        self.connection_help()
         args = ['ssh', '-tt']
         if self.mount_mode:
             args += ['-o', 'ControlMaster=auto', '-o', 'ControlPath=' + self.control_path,
@@ -97,7 +423,8 @@ class Bridge:
                      '-o', 'ServerAliveCountMax=3']
         self.remote = self.spawn(args + [self.host])
         self.ready = False
-        self.focus = 'remote'
+        self.switch_focus('remote')
+        self.connection_help()
         self.resize()
 
     def send(self, client, **event):
@@ -118,9 +445,14 @@ class Bridge:
 
     def begin(self, command, client=None):
         token = uuid.uuid4().hex
-        self.pending = {'client': client, 'token': token.encode()}
+        self.pending = {'client': client, 'token': token.encode(), 'started': False}
         # The marker is generated by printf, never present verbatim in echoed input.
-        payload = "stty -echo; eval " + shlex.quote(command) + "; printf '\\036%s:%s\\037' " + token + ' "$?"\n'
+        status_var, tty_var = '__cx_status_' + token, '__cx_tty_' + token
+        payload = (tty_var + '=$(stty -g); stty -echo; ' +
+                   "printf '\\036%s:start\\037' " + token + '; eval ' + shlex.quote(command) +
+                   '; ' + status_var + '=$?; stty "$' + tty_var + '"; ' +
+                   "printf '\\036%s:%s\\037' " + token + ' "$' + status_var + '"; ' +
+                   'unset ' + status_var + ' ' + tty_var + '\n')
         os.write(self.remote[0], payload.encode())
 
     def activate(self):
@@ -135,12 +467,7 @@ class Bridge:
                 command += ' && cd -- ' + shlex.quote(self.directory)
             self.begin(command)
         else:
-            if not self.pending:
-                os.write(self.remote[0], b'stty -echo\n')
-            self.focus = 'local'
-            if self.local_output:
-                os.write(1, self.local_output)
-                self.local_output.clear()
+            self.switch_focus('local')
             self.resize()
             self.notice('Codex terminal. Ctrl-] r opens the remote terminal.')
 
@@ -253,15 +580,27 @@ class Bridge:
         # Preserve system instructions even for installations retaining an older config.
         args = self.launcher[:2] + ['-c', 'developer_instructions=' + json.dumps(instructions, ensure_ascii=False)] + self.launcher[2:]
         self.local = self.spawn(args, env)
+        self.terminal.switch(self.local, 'CODEX')
         self.resize()
 
     def output(self, data):
         if not self.pending:
-            if self.focus == 'remote':
-                os.write(1, data)
+            self.terminal.render(self.remote, data)
             return
         self.buffer += data
         token = self.pending['token']
+        if not self.pending.get('started', True):
+            marker = b'\x1e' + token + b':start\x1f'
+            start = self.buffer.find(marker)
+            if start < 0:
+                count = max(0, len(self.buffer) - len(marker) + 1)
+                self.terminal.render(self.remote, self.buffer[:count], visible=False)
+                self.buffer = self.buffer[count:]
+                return
+            self.terminal.render(self.remote, self.buffer[:start], visible=False)
+            self.terminal.display.feed(self.remote, b'\r\n')
+            self.buffer = self.buffer[start + len(marker):]
+            self.pending['started'] = True
         pattern = b'\x1e' + token + rb':([0-9]+)\x1f'
         match = re.search(pattern, self.buffer)
         # Stream immediately, retaining only a possible incomplete marker.
@@ -276,11 +615,11 @@ class Bridge:
         chunk, self.buffer = self.buffer[:end], self.buffer[end:]
         client = self.pending['client']
         if chunk:
-            if self.focus == 'remote':
-                os.write(1, chunk)
-            elif client:
+            self.terminal.render(self.remote, chunk)
+            if self.focus != 'remote' and client:
                 self.send(client, type='output', data=base64.b64encode(chunk).decode())
         if match:
+            self.terminal.render(self.remote, self.buffer[len(match[0]):])
             status = int(match.group(1))
             bootstrap = client is None
             self.finish(status)
@@ -289,7 +628,7 @@ class Bridge:
                     self.notice('Shell setup failed. Use a Bash shell and check --remote-dir, then Ctrl-] c.')
                 else:
                     self.ready = True
-                    self.focus = 'local'
+                    self.switch_focus('local')
                     self.notice('Remote shell ready. Starting/resuming Codex. Ctrl-] r opens SSH.')
                     self.start_local()
 
@@ -310,19 +649,163 @@ class Bridge:
         else:
             self.send(client, type='done', status=2, error='Invalid request')
 
+    def windows_key(self, packet, owner):
+        if not re.fullmatch(rb'\x1b\[[0-9;]+_', packet):
+            return None
+        values = packet[2:-1].split(b';')
+        if not 2 <= len(values) <= 6:
+            return b''
+        values += [b''] * (6 - len(values))
+        vk, _, code, down, modifiers, repeat = [int(value or (b'1' if index == 5 else b'0'))
+                                                for index, value in enumerate(values)]
+        if down != 1 or vk in (16, 17, 18):
+            return b''
+        if not code:
+            if modifiers & 12 and (65 <= vk <= 90 or vk == 32):
+                code = vk & 31
+            elif modifiers & 12 and vk == 221:
+                code = 29
+            else:
+                key = {8: b'\x7f', 9: b'\t', 13: b'\r', 27: b'\x1b',
+                       35: b'\x1b[F', 36: b'\x1b[H', 37: b'\x1b[D',
+                       38: b'\x1b[A', 39: b'\x1b[C', 40: b'\x1b[B'}.get(vk)
+                return key if key is not None else b''
+        state = self.terminal.state(owner)
+        if 0xd800 <= code <= 0xdbff:
+            state['surrogate'] = code
+            return b''
+        if 0xdc00 <= code <= 0xdfff:
+            high, state['surrogate'] = state['surrogate'], None
+            if high is None:
+                return b''
+            code = 0x10000 + ((high - 0xd800) << 10) + code - 0xdc00
+        else:
+            state['surrogate'] = None
+        if not 0 <= code <= 0x10ffff:
+            return b''
+        result = chr(code).encode() * max(1, min(repeat, 65535))
+        return b'\x1b' + result if modifiers & 3 and not modifiers & 12 else result
+
+    @staticmethod
+    def legacy_key(packet):
+        match = re.fullmatch(rb'\x1b\[(\d+)(?::[0-9:]+)?(?:;(\d+)(?::([123]))?)?u', packet)
+        if not match:
+            match = re.fullmatch(rb'\x1b\[27;(\d+);(\d+)~', packet)
+            if not match:
+                return None
+            code, modifiers, event = int(match[2]), int(match[1]), 1
+        else:
+            code, modifiers, event = int(match[1]), int(match[2] or b'1'), int(match[3] or b'1')
+        if event == 3:
+            return b''
+        modifiers -= 1
+        if modifiers & ~7 or not 0 <= code <= 0x10ffff or 0xd800 <= code <= 0xdfff:
+            return None
+        if modifiers & 4 and 64 <= code <= 127:
+            code &= 31
+        data = chr(code).encode()
+        if modifiers & 2:
+            data = b'\x1b' + data
+        return data
+
     def keyboard(self, data):
+        for packet in self.terminal.read_input(data):
+            owner = self.remote if self.focus == 'remote' else self.local
+            if self.terminal.pasting:
+                if packet != b'\x1b[201~' or self.terminal.paste_markers:
+                    self.deliver_terminal(self.terminal.paste_owner, packet)
+                if packet == b'\x1b[201~':
+                    self.terminal.pasting = False
+                continue
+            if packet == b'\x1b[200~':
+                self.terminal.display.follow(owner)
+                self.terminal.pasting = True
+                self.terminal.paste_owner = owner
+                self.terminal.paste_markers = 2004 in self.terminal.state(owner)['modes']
+                if self.terminal.paste_markers:
+                    self.deliver_terminal(owner, packet)
+                continue
+            if self.terminal.reply(packet):
+                continue
+            if packet in (b'\x1b[I', b'\x1b[O'):
+                if 1004 in self.terminal.state(owner)['modes']:
+                    self.deliver_terminal(owner, packet)
+                continue
+            # Consume mouse packets locally; forward only wheel events to
+            # applications which explicitly request mouse input.
+            mouse = (packet.startswith(b'\x1b[M') or
+                     re.fullmatch(rb'\x1b\[<?\d+;\d+;\d+[Mm]', packet))
+            if mouse:
+                self.wheel(owner, packet)
+                continue
+            legacy = self.windows_key(packet, owner)
+            if legacy is None:
+                legacy = self.legacy_key(packet)
+            state = self.terminal.state(owner)
+            enhanced = (9001 in state['modes'] if packet.endswith(b'_') else
+                        bool(state['keys'][-1] or state['modify']))
+            if legacy is not None and (self.focus == 'remote' or not enhanced or legacy == b'\x1d' or self.escape):
+                self.keyboard_bytes(legacy)
+            elif len(packet) > 1:
+                self.terminal.display.follow(owner)
+                self.deliver_terminal(owner, packet)
+            else:
+                self.keyboard_bytes(packet)
+
+    def wheel(self, owner, packet):
+        if not self.terminal.enabled or not self.terminal.mouse_scroll:
+            return
+        match = re.fullmatch(rb'\x1b\[(<?)(\d+);(\d+);(\d+)([Mm])', packet)
+        if match:
+            if match[5] != b'M':
+                return
+            button, column, row = map(int, (match[2], match[3], match[4]))
+            if not match[1]:
+                button -= 32  # urxvt encoding.
+        elif packet.startswith(b'\x1b[M') and len(packet) == 6:
+            button, column, row = (value - 32 for value in packet[3:])
+        else:
+            return
+        direction = button & ~28  # Ignore Shift/Alt/Ctrl modifier bits.
+        display = self.terminal.display
+        if direction not in (64, 65) or not (1 <= column <= display.columns and 2 <= row <= display.rows):
+            return
+        requested = self.terminal.state(owner)['mouse']
+        if requested.intersection((9, 1000, 1002, 1003)) and not display.pane(owner).screen.scroll_offset:
+            row -= 1  # The reserved session bar is outside the child PTY.
+            if 1006 in requested:
+                output = f'\033[<{button};{column};{row}M'.encode()
+            elif 1015 in requested:
+                output = f'\033[{button + 32};{column};{row}M'.encode()
+            elif max(button, column, row) <= 223:
+                output = b'\x1b[M' + bytes(value + 32 for value in (button, column, row))
+            else:
+                return
+            self.deliver_terminal(owner, output)
+        else:
+            display.scroll(owner, 3 if direction == 64 else -3)
+
+    def keyboard_bytes(self, data):
         for byte in data:
             if self.escape:
                 self.escape = False
                 if byte == ord('r'):
-                    self.focus = 'remote'
-                    if self.remote and not self.pending:
-                        os.write(self.remote[0], b'stty echo\n')
+                    self.switch_focus('remote')
                     if not self.remote:
                         self.connect()
                     self.notice('Remote terminal. Ctrl-] c returns to Codex after login/interaction.')
                 elif byte == ord('c'):
                     self.activate()
+                elif byte == ord('q'):
+                    self.result = 130
+                    self.running = False
+                elif byte == ord('b'):
+                    self.terminal.display.follow(self.remote if self.focus == 'remote' else self.local)
+                elif byte == ord('m'):
+                    self.terminal.mouse_scroll = not self.terminal.mouse_scroll
+                    self.terminal.apply_mouse()
+                    self.notice('Wheel scrolling on; Shift-drag selects text.' if self.terminal.mouse_scroll else
+                                'Wheel scrolling off; drag selects text. Ctrl-] m enables scrolling.')
                 elif byte == 29:
                     item = self.remote if self.focus == 'remote' else self.local
                     if item:
@@ -332,6 +815,7 @@ class Bridge:
             else:
                 item = self.remote if self.focus == 'remote' else self.local
                 if item:
+                    self.terminal.display.follow(item)
                     os.write(item[0], bytes([byte]))
                     if byte == 3 and self.focus == 'remote' and self.pending:
                         self.finish(130, 'User interrupted remote work; outcome may be unknown.')
@@ -339,9 +823,15 @@ class Bridge:
 
     def loop(self):
         while self.running:
+            if self.resize_pending:
+                self.resize()
+            self.terminal.display.paint()
             readers = [0, self.server] + list(self.clients)
             readers += [item[0] for item in (self.remote, self.local) if item]
-            readable, _, _ = select.select(readers, [], [], .2)
+            readable, _, _ = select.select(readers, [], [], .05)
+            pending_escape = self.terminal.flush_input() if 0 not in readable else b''
+            if pending_escape:
+                self.deliver_terminal(self.remote if self.focus == 'remote' else self.local, pending_escape)
             for source in readable:
                 if source == 0:
                     data = os.read(0, 4096)
@@ -379,11 +869,8 @@ class Bridge:
                     if data:
                         if item is self.remote:
                             self.output(data)
-                        elif self.focus == 'local':
-                            os.write(1, data)
                         else:
-                            self.local_output.extend(data)
-                            del self.local_output[:-1048576]
+                            self.terminal.render(self.local, data)
                     else:
                         os.close(source)
                         if item is self.remote:
@@ -395,13 +882,14 @@ class Bridge:
                             if self.mount_path:
                                 self.notice('The /workspace/remote mount may be disconnected. Restart cx to recreate it.')
                         else:
+                            self.terminal.display.paint(force=True)
                             self.result = item[1].wait()
                             self.local = None
                             return
 
     def run(self):
         saved = termios.tcgetattr(0)
-        old_resize = signal.signal(signal.SIGWINCH, self.resize)
+        old_resize = signal.signal(signal.SIGWINCH, self.request_resize)
         def stop(*_):
             self.running = False
         old_term = signal.signal(signal.SIGTERM, stop)
@@ -418,9 +906,15 @@ class Bridge:
             os.chmod(self.runtime + '/bridge.sock', 0o600)
             self.server.listen(8)
             tty.setraw(0)
+            rows, columns, _, _ = struct.unpack('HHHH', fcntl.ioctl(0, termios.TIOCGWINSZ, b'\0' * 8))
+            self.terminal.start(rows or 24, columns or 80)
             self.connect()
             self.loop()
         finally:
+            try:
+                self.terminal.close()
+            except OSError:
+                pass
             termios.tcsetattr(0, termios.TCSADRAIN, saved)
             signal.signal(signal.SIGWINCH, old_resize)
             signal.signal(signal.SIGTERM, old_term)

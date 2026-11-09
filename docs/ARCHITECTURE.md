@@ -7,7 +7,9 @@ cx package/
 ├── cx                    Portable entry point; selects bundle-local data
 ├── bin/
 │   ├── cx                Host launcher used by both editions
-│   └── cx-ssh-bridge.py   Optional host SSH/terminal/filesystem supervisor
+│   ├── cx-ssh-bridge.py   Optional host SSH/terminal/filesystem supervisor
+│   ├── cx_screen.py       Independent saved screens and reserved session bar
+│   └── vendor/            Pure Python renderer libraries and upstream licenses
 ├── config/config.toml    Default Codex developer instructions
 ├── container/
 │   ├── Dockerfile        Node/Codex/Micromamba image
@@ -89,7 +91,43 @@ The Python 3.11+ supervisor owns separate PTYs for host OpenSSH and the
 Docker/Codex launcher. Keyboard input reaches only the selected terminal.
 Users complete authentication directly; terminal handoff uses Ctrl-] r and
 Ctrl-] c. Remote commands run serially in one Bash shell and return combined
-terminal output and status using randomized framing markers.
+terminal output and status using randomized start/completion markers. Echoed
+internal command text is excluded from results, and each command restores
+its starting remote TTY settings on normal completion.
+
+The terminal router buffers split escape sequences. Display queries are
+answered from the requesting PTY's saved virtual terminal, so physical
+terminal replies cannot enter another application's password or prompt.
+Common input modes are tracked per PTY and restored on handoff. The bridge
+owns physical SGR mouse tracking and forwards only wheel events to children
+which request mouse input, encoding their requested protocol and excluding
+the bar row. Other wheel events navigate that screen's saved history.
+Clicks, drags, out-of-bounds events, and reports received with wheel capture
+disabled are discarded. Shift-drag preserves native terminal selection;
+Ctrl-] m disables capture for plain dragging. Bracketed paste bypasses shortcut
+interpretation; enhanced keyboard releases are not treated as new keypresses.
+Switching to an existing terminal does not inject shell text during password
+or MFA entry. The initial Ctrl-] c still performs shell setup and must be used
+only after reaching a Bash prompt. The display layer keeps an independent normal and alternate terminal screen
+for each PTY. It draws only the active screen, never replays raw background
+output, and reserves a full-width top row: green for SSH, blue for CODEX.
+Notices stay in this row. Child PTY dimensions exclude it. The enclosing
+terminal screen is restored on exit.
+
+Both normal and alternate screens retain up to 2,000 lines of styled
+scrollback, including lines moved by CSI S/T scroll commands. A separate
+viewport offset leaves application buffers, cursor
+coordinates, and query replies live while history is displayed. New scrolled
+lines advance the offset to keep the viewed content in place until it ages
+out; typing or Ctrl-] b returns to the live screen. Switching preserves offsets.
+Local subclasses extend pyte's cells with dim/hidden/overline and underline
+attributes; indexed colors stay palette references rather than fixed RGB
+approximations. Vendor sources remain unchanged. Default color probes run
+once at startup; validated replies populate a local cache for theme queries
+and are never forwarded as input. COLORTERM is passed to Docker from the host.
+The pyte/wcwidth sources are bundled with upstream notices; no runtime tmux
+or host package installation is required. Rendering covers VT text rather
+than arbitrary terminal graphics extensions.
 
 A private per-session bridge directory and socket are accessible only to the
 invoking UID. The directory is mounted read-only into Docker, but connecting
