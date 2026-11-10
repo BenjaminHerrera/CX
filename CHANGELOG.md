@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.2.1 — 2026-11-09
+
+- Add `cx --setup-slurm SSH_ALIAS --shared-dir /path` for per-server shared
+  tracker directories and remote hook installation. Save settings separately
+  for each SSH alias without requiring Docker or changing SSH configuration;
+  an optional job-ID pattern handles site-specific allocation messages.
+- Require explicit per-server Slurm setup for interactive allocations instead
+  of using an Alpine-specific fallback; recognize standard Slurm submission and
+  queue messages and lock the confirmed job ID for the session.
+- Add interactive MCP sessions for the existing `cpu` and `gpu` functions.
+  Confirm an allocation-shell startup marker against the Slurm job ID before
+  allowing framed commands; support polling, cancellation, and shell exit.
+- Add a remote Bash startup hook and private shared-directory rendezvous for
+  Slurm configurations using `--export=NONE` and GNU screen.
+- Preserve manual SSH handoff, the persistent login shell, existing CLI tools,
+  and explicit authorization for Slurm allocations. Never replay uncertain work.
+- Add simulated allocation, real-PTY, marker-fragmentation, and MCP tests.
+- Verify live CPU and GPU `sinteractive` allocations on Alpine, including
+  compute-node command execution and allocation cleanup.
+
+**Upgrade:** run `./install.sh`, install the remote startup hook, and restart
+cx. The image must be rebuilt for the new MCP tools. See
+[upgrade instructions](docs/INSTALL.md#upgrading-to-121).
+
+## 1.2.0 — 2026-11-09
+
+- Add automatic, session-only cx_ssh MCP registration for --ssh sessions,
+  with --no-ssh-mcp opt-out and explicit missing-adapter/conflict errors.
+- Expose ssh_status, ssh_exec, ssh_poll, and ssh_cancel through a container
+  stdio adapter using locked SDK dependencies and the existing private socket.
+- Track commands in the host bridge across MCP restarts and tool-call timeouts.
+  Preserve one persistent shell, CLI compatibility, manual authentication,
+  renderer styling, and SSHFS browsing. Never replay commands automatically.
+- Bound output and completed records, report truncation and unknown outcomes,
+  and support explicit one-shot Ctrl-C requests without promising rollback.
+- Add protocol, tracked-command, SDK-client, and wrapper regression coverage.
+
+**Upgrade:** run `./install.sh` with its default image build and restart cx.
+Automatic MCP requires the new image; older images can use --no-ssh-mcp.
+See [upgrade instructions](docs/INSTALL.md#upgrading-to-120).
+
 ## 1.1.4 — 2026-11-08
 
 - Restore wheel scrolling in SSH mode. Route wheel events to mouse-aware
@@ -21,7 +62,7 @@
 **Upgrade from 1.1.0–1.1.3:** run `./install.sh --no-build` on the host
 and restart SSH-mode sessions. The existing 1.1.0 image remains compatible.
 Selection now uses Shift-drag while wheel capture is on. See
-[upgrade instructions](docs/INSTALL.md#upgrading-to-114).
+[upgrade instructions](docs/INSTALL.md#upgrading-to-120).
 
 ## 1.1.3 — 2026-11-08
 
@@ -36,7 +77,7 @@ Selection now uses Shift-drag while wheel capture is on. See
 
 **Upgrade from 1.1.0–1.1.2:** run `./install.sh --no-build` on the host
 and restart SSH-mode sessions. The existing 1.1.0 image remains compatible.
-See [upgrade instructions](docs/INSTALL.md#upgrading-to-114).
+See [upgrade instructions](docs/INSTALL.md#upgrading-to-120).
 
 ## 1.1.2 — 2026-11-08
 
@@ -57,7 +98,7 @@ See [upgrade instructions](docs/INSTALL.md#upgrading-to-114).
 
 **Upgrade from 1.1.x:** run `./install.sh --no-build` and restart SSH-mode
 sessions. The 1.1.0 image remains compatible; older installations still need
-the workspace/image migration. See [upgrade instructions](docs/INSTALL.md#upgrading-to-114).
+the workspace/image migration. See [upgrade instructions](docs/INSTALL.md#upgrading-to-120).
 
 ## 1.1.1 — 2026-11-08
 
@@ -79,7 +120,7 @@ restart all SSH-mode cx sessions. This release changes host-side supervision;
 the 1.1.0 container image remains compatible. Credentials, configuration,
 project paths, and environment stores are preserved. Older installations
 still need the 1.1.0 image/layout migration. See
-[upgrade instructions](docs/INSTALL.md#upgrading-to-114).
+[upgrade instructions](docs/INSTALL.md#upgrading-to-120).
 
 ## 1.1.0 — 2026-11-06
 

@@ -327,6 +327,19 @@ class Bridge:
         self.focus = 'remote'
         self.ready = False
         self.pending = None
+        self.session_id = str(uuid.uuid4())
+        self.jobs = {}
+        self.submitted_ids = set()
+        self.interactive = None
+        self.interactive_root = os.environ.get('CX_SLURM_INTERACTIVE_DIR') or None
+        job_pattern = os.environ.get('CX_SLURM_JOB_ID_PATTERN')
+        self.job_id_patterns = [re.compile(rb'(?:Interactive job with ID |Granted job allocation |Submitted batch job )(\d+)'),
+                                re.compile(rb'\b(?:salloc|srun): job (\d+)\b')]
+        if job_pattern:
+            custom_pattern = re.compile(job_pattern.encode())
+            if custom_pattern.groups != 1:
+                raise ValueError('Slurm job-ID pattern must contain exactly one capture group.')
+            self.job_id_patterns.append(custom_pattern)
         self.buffer = b''
         self.clients = {}
         self.escape = False
@@ -346,6 +359,8 @@ class Bridge:
                 data = data[count:]
 
     def switch_focus(self, focus):
+        if focus == 'remote' and self.interactive:
+            self.interactive['ready'] = False
         self.focus = focus
         self.terminal.switch(self.remote if focus == 'remote' else self.local,
                              'SSH' if focus == 'remote' else 'CODEX')
@@ -434,10 +449,24 @@ class Bridge:
             self.clients.pop(client, None)
             client.close()
 
+    def prune_jobs(self):
+        completed = [key for key, value in self.jobs.items() if value['state'] in ('completed', 'unknown')]
+        for key in completed[:-32]:
+            del self.jobs[key]
+
     def finish(self, status, error=None):
         if not self.pending:
             return
         client = self.pending['client']
+        if self.interactive and self.pending.get('job_id') == self.interactive['id']:
+            child = self.jobs.get(self.interactive.get('child'))
+            if child and child['state'] in ('running', 'interrupt_requested'):
+                child.update(state='unknown', error='Interactive shell closed before command completion; do not replay.')
+            self.interactive = None
+        job = self.jobs.get(self.pending.get('job_id'))
+        if job:
+            job.update(state='unknown' if error else 'completed', exit_code=None if error else status, error=error)
+            self.prune_jobs()
         if client:
             self.send(client, type='done', status=status, error=error)
         self.pending = None
@@ -567,6 +596,10 @@ class Bridge:
                          ' Individual --add-file mounts are also under /workspace/cx-external. Edit those files '
                          'in place; deleting or replacing their mountpoints by rename is unsupported.')
         instructions += ' SSH host alias: ' + json.dumps(self.host) + '. Initial remote directory: ' + json.dumps(self.directory or 'remote login directory') + '.'
+        if self.interactive_root:
+            instructions += (' The server-specific interactive tracker directory is ' +
+                             json.dumps(self.interactive_root, ensure_ascii=False) +
+                             '; it is a remote server path, not a container mount.')
         if self.mount_path:
             instructions += (' A live SSHFS view of that initial directory is mounted at /workspace/remote (' + self.mount_mode +
                              '). Use ordinary local file tools to browse/read /workspace/remote. ' +
@@ -578,7 +611,36 @@ class Bridge:
                              'a disconnect, restart cx to recreate it. This mount description overrides earlier '
                              'instructions that restrict local tools to the local workspace.')
         # Preserve system instructions even for installations retaining an older config.
-        args = self.launcher[:2] + ['-c', 'developer_instructions=' + json.dumps(instructions, ensure_ascii=False)] + self.launcher[2:]
+        overrides = ['-c', 'developer_instructions=' + json.dumps(instructions, ensure_ascii=False)]
+        if os.environ.get('CX_SSH_MCP', '1') == '1':
+            user_root = Path(os.environ.get('CX_CODEX_HOME', str(Path.home() / '.codex')))
+            candidates = [config_root / 'config.toml', user_root / 'config.toml']
+            project = Path(self.launcher[1])
+            candidates += [parent / '.codex/config.toml' for parent in (project, *project.parents)]
+            def has_reserved_server(value):
+                return isinstance(value, dict) and (
+                    'cx_ssh' in value.get('mcp_servers', {}) or
+                    any(has_reserved_server(child) for child in value.values()))
+            for config in candidates:
+                if config.is_file() and has_reserved_server(tomllib.loads(config.read_text())):
+                    raise ValueError('MCP server cx_ssh is reserved by cx; rename it in ' + str(config) + ' or use --no-ssh-mcp.')
+            if any('mcp_servers.cx_ssh' in arg for arg in self.launcher[2:]):
+                raise ValueError('MCP server cx_ssh is reserved by cx; remove the override or use --no-ssh-mcp.')
+            instructions += (' Use cx_ssh MCP ssh_status first, then ssh_exec, ssh_poll, and ssh_cancel for remote work. '
+                             'These MCP recommendations supersede earlier cx-remote execution recommendations. '
+                             'For explicitly authorized cpu/gpu interactive allocations use ssh_interactive_start with the existing function and its arguments, '
+                             'poll until interactive_ready, then use ssh_interactive_exec and poll the returned command ID; '
+                             'readiness confirms the Slurm job ID, not the physical host: check hostname and use site tools to run on the intended compute node. '
+                             'use ssh_interactive_close when done. Never send commands while waiting or authenticating. '
+                             'Commands are tracked only for this cx session. Never replay a command after timeout or unknown outcome, '
+                             'including through cx-remote. Poll its ID instead. Cancellation requests interruption, not rollback.')
+            overrides = ['-c', 'developer_instructions=' + json.dumps(instructions, ensure_ascii=False),
+                         '-c', 'mcp_servers.cx_ssh.command="node"',
+                         '-c', 'mcp_servers.cx_ssh.args=["/opt/cx-mcp/server.mjs"]',
+                         '-c', 'mcp_servers.cx_ssh.env_vars=["CX_SSH_SOCKET"]',
+                         '-c', 'mcp_servers.cx_ssh.enabled=true',
+                         '-c', 'mcp_servers.cx_ssh.required=true']
+        args = self.launcher[:2] + overrides + self.launcher[2:]
         self.local = self.spawn(args, env)
         self.terminal.switch(self.local, 'CODEX')
         self.resize()
@@ -601,27 +663,71 @@ class Bridge:
             self.terminal.display.feed(self.remote, b'\r\n')
             self.buffer = self.buffer[start + len(marker):]
             self.pending['started'] = True
-        pattern = b'\x1e' + token + rb':([0-9]+)\x1f'
+        child_token = self.interactive.get('child_token') if self.interactive else None
+        pattern = b'\x1e(' + re.escape(token) + rb'):(start|[0-9]+)\x1f'
+        if child_token:
+            # GNU screen consumes C0 record separators, so nested markers
+            # must use printable bytes rather than the outer PTY framing.
+            pattern += b'|__CX_FRAME_(' + re.escape(child_token) + rb')_(start|wrong|[0-9]+)__'
         match = re.search(pattern, self.buffer)
         # Stream immediately, retaining only a possible incomplete marker.
-        prefix = b'\x1e' + token + b':'
+        prefixes = [b'\x1e' + token + b':']
+        if child_token:
+            prefixes.append(b'__CX_FRAME_' + child_token + b'_')
         end = len(self.buffer)
         if match:
             end = match.start()
         else:
-            start = self.buffer.rfind(b'\x1e')
-            if start >= 0 and (prefix.startswith(self.buffer[start:]) or self.buffer[start:].startswith(prefix)):
-                end = start
+            for prefix in prefixes:
+                index = self.buffer.rfind(prefix)
+                if index >= 0:
+                    end = min(end, index)
+                for size in range(1, min(len(prefix), len(self.buffer)) + 1):
+                    if self.buffer.endswith(prefix[:size]):
+                        end = min(end, len(self.buffer) - size)
         chunk, self.buffer = self.buffer[:end], self.buffer[end:]
         client = self.pending['client']
         if chunk:
             self.terminal.render(self.remote, chunk)
+            job = self.jobs.get(self.pending.get('job_id'))
+            if job and self.focus != 'remote':
+                job['output'].extend(chunk)
+                excess = max(0, len(job['output']) - 1024 * 1024)
+                del job['output'][:excess]
+                job['base'] += excess
+                if self.interactive and self.interactive['id'] == self.pending.get('job_id'):
+                    child = self.jobs.get(self.interactive.get('child'))
+                    if child and self.interactive.get('child_started'):
+                        child['output'].extend(chunk)
+                        excess = max(0, len(child['output']) - 1024 * 1024)
+                        del child['output'][:excess]
+                        child['base'] += excess
+            if self.interactive and self.interactive['id'] == self.pending.get('job_id'):
+                self.interactive_observe(chunk)
             if self.focus != 'remote' and client:
                 self.send(client, type='output', data=base64.b64encode(chunk).decode())
         if match:
-            self.terminal.render(self.remote, self.buffer[len(match[0]):])
-            status = int(match.group(1))
-            bootstrap = client is None
+            rest = self.buffer[len(match[0]):]
+            if child_token and match.group(3) == child_token:
+                if match.group(4) == b'start':
+                    self.interactive['child_started'] = True
+                elif match.group(4) == b'wrong':
+                    child = self.jobs[self.interactive['child']]
+                    child.update(state='completed', exit_code=125, error='Slurm job ID did not match; command was not run.')
+                    self.interactive.update(child=None, child_token=None, child_started=False, ready=False)
+                    self.prune_jobs()
+                else:
+                    child = self.jobs[self.interactive['child']]
+                    child.update(state='completed', exit_code=int(match.group(4)), error=None)
+                    self.interactive.update(child=None, child_token=None, child_started=False)
+                    self.prune_jobs()
+                self.buffer = b''
+                if rest:
+                    self.output(rest)
+                return
+            self.terminal.render(self.remote, rest)
+            status = int(match.group(2))
+            bootstrap = client is None and 'job_id' not in self.pending
             self.finish(status)
             if bootstrap:
                 if status:
@@ -632,13 +738,192 @@ class Bridge:
                     self.notice('Remote shell ready. Starting/resuming Codex. Ctrl-] r opens SSH.')
                     self.start_local()
 
+    def interactive_observe(self, data):
+        session = self.interactive
+        previous = session['observe']
+        combined = previous + data
+        discarded = max(0, len(combined) - 16384)
+        session['observe'] = combined[discarded:]
+        # Strip terminal styling before matching; screen may repaint lines.
+        ansi = rb'\x1b\[[0-?]*[ -/]*[@-~]'
+        plain = re.sub(ansi, b'', session['observe'])
+        boundary = len(re.sub(ansi, b'', session['observe'][:max(0, len(previous) - discarded)]))
+        jobs = [(match.start(), match.group(1)) for pattern in self.job_id_patterns
+                for match in pattern.finditer(plain)
+                if match.group(1) and re.fullmatch(rb'[0-9]+', match.group(1))]
+        if jobs and not session['confirmed']:
+            session['slurm_id'] = max(jobs, key=lambda item: item[0])[1].decode()
+        marker = rb'__CX_READY_' + session['nonce'].encode() + rb'_(\d+)__'
+        for match in re.finditer(marker, plain):
+            if match.end() > boundary and session.get('slurm_id') == match.group(1).decode():
+                session['ready'] = True
+                session['confirmed'] = True
+                child = self.jobs.get(session.get('child'))
+                if child and child['state'] == 'interrupt_requested':
+                    child.update(state='unknown', error='Shell returned after interruption; exit status is unknown.')
+                    session.update(child=None, child_token=None, child_started=False)
+                    self.prune_jobs()
+
+    def job_request(self, client, request):
+        operation, key = request['op'], request.get('command_id')
+        def fail(code, message):
+            self.send(client, type='job', error=message, code=code, session_id=self.session_id)
+        try:
+            if str(uuid.UUID(key)) != key:
+                raise ValueError()
+        except (ValueError, TypeError, AttributeError):
+            fail('invalid_argument', 'command_id must be a canonical UUID.')
+            return
+        job = self.jobs.get(key)
+        if operation == 'interactive_start':
+            command = request.get('command')
+            try:
+                parts = shlex.split(command) if isinstance(command, str) else []
+            except ValueError:
+                parts = []
+            if not parts or parts[0] not in ('cpu', 'gpu') or any('\n' in part or '\0' in part for part in parts):
+                fail('invalid_argument', 'Provide a cpu or gpu function and its arguments.')
+                return
+            if job or key in self.submitted_ids:
+                fail('conflict', 'Interactive session ID was already submitted; poll it instead.')
+                return
+            if not self.ready or not self.remote or self.pending or self.focus == 'remote':
+                fail('busy', 'SSH must be connected, ready, idle, and controlled by Codex.')
+                return
+            if not self.interactive_root:
+                fail('not_configured', 'Configure this SSH alias with cx --setup-slurm HOST --shared-dir /shared/path/cx before requesting an interactive allocation.')
+                return
+            nonce = uuid.uuid4().hex
+            # Aliases use --export=NONE, so the compute hook reads a private
+            # shared rendezvous file rather than relying on inherited env.
+            path = shlex.quote(self.interactive_root + '/' + nonce)
+            status_var = '__cx_interactive_rc_' + nonce
+            wrapped = ('(umask 077; : > ' + path + ') && ' + shlex.join(parts) +
+                       '; ' + status_var + '=$?; command rm -f -- ' + path +
+                       '; eval "unset ' + status_var + '; (exit $' + status_var + ')"')
+            job = dict(command=command, state='running', output=bytearray(), base=0, exit_code=None, error=None)
+            self.jobs[key] = job
+            self.submitted_ids.add(key)
+            self.interactive = dict(id=key, nonce=nonce, ready=False, confirmed=False, observe=b'', child=None, child_token=None, child_started=False)
+            try:
+                self.begin(wrapped)
+                self.pending['job_id'] = key
+            except OSError:
+                job.update(state='unknown', error='SSH write failed; allocation outcome may be unknown.')
+                self.pending = None
+                self.ready = False
+                self.interactive = None
+        elif operation == 'interactive_exec':
+            parent = request.get('session_command_id')
+            session = self.interactive
+            command = request.get('command')
+            if not session or session['id'] != parent or not self.pending or self.focus != 'local':
+                fail('not_ready', 'Interactive allocation is not confirmed ready or SSH is under manual control.')
+                return
+            if session['child'] or job or key in self.submitted_ids:
+                fail('busy', 'An interactive command is active or this command ID was used.')
+                return
+            if not session['ready']:
+                fail('not_ready', 'Wait for the next compute-shell readiness marker before sending a command.')
+                return
+            if not isinstance(command, str) or not command or len(command.encode()) > 1024 * 1024 or '\0' in command:
+                fail('invalid_argument', 'Expected a nonempty command of at most 1 MiB without NUL.')
+                return
+            token = uuid.uuid4().hex
+            job_id = session['slurm_id']
+            payload = ('if [[ "${SLURM_JOB_ID:-}" == ' + shlex.quote(job_id) + ' ]]; then ' +
+                       "printf '__CX_FRAME_%s_start__' " + token + '; eval ' + shlex.quote(command) +
+                       '; __cx_child_rc=$?; ' + "printf '\\r\\n__CX_FRAME_%s_%s__' " + token +
+                       ' "$__cx_child_rc"; unset __cx_child_rc; else ' +
+                       "printf '__CX_FRAME_%s_wrong__' " + token + '; fi\n')
+            if len(payload.encode()) > 3000:
+                fail('invalid_argument', 'Interactive command is too long for a terminal line; use a shorter command or a script.')
+                return
+            job = dict(command=command, state='running', output=bytearray(), base=0, exit_code=None, error=None)
+            self.jobs[key] = job
+            self.submitted_ids.add(key)
+            session.update(child=key, child_token=token.encode(), child_started=False, ready=False)
+            try:
+                os.write(self.remote[0], payload.encode())
+            except OSError:
+                job.update(state='unknown', error='SSH write failed; command outcome may be unknown.')
+                self.ready = False
+        elif operation == 'interactive_close':
+            session = self.interactive
+            if not session or session['id'] != key or not session['ready'] or session['child'] or self.focus != 'local':
+                fail('not_ready', 'Interactive shell must be ready, idle, and controlled by Codex.')
+                return
+            session['ready'] = False
+            os.write(self.remote[0], b'exit\n')
+        if operation == 'submit':
+            command = request.get('command')
+            if not isinstance(command, str) or not command or len(command.encode()) > 1024 * 1024 or '\0' in command:
+                fail('invalid_argument', 'Expected a nonempty command of at most 1 MiB without NUL.')
+                return
+            if job:
+                if job['command'] != command:
+                    fail('conflict', 'Command ID already belongs to a different submission.')
+                    return
+            elif key in self.submitted_ids:
+                fail('not_found', 'Command record expired; this ID cannot execute again.')
+                return
+            elif not self.ready or not self.remote:
+                fail('unavailable', 'Remote shell unavailable. Use Ctrl-] r to authenticate/recover, then Ctrl-] c.')
+                return
+            elif self.pending or self.focus == 'remote':
+                fail('busy', 'Remote shell is busy or controlled by the user.')
+                return
+            else:
+                job = dict(command=command, state='running', output=bytearray(), base=0, exit_code=None, error=None)
+                self.jobs[key] = job
+                self.submitted_ids.add(key)
+                try:
+                    self.begin(command)
+                    self.pending['job_id'] = key
+                except OSError:
+                    job.update(state='unknown', error='SSH write failed; command outcome may be unknown. Do not replay.')
+                    self.pending = None
+                    self.ready = False
+        elif not job:
+            fail('not_found', 'Command ID is expired or belongs to another cx session. Do not replay automatically.')
+            return
+        if operation == 'cancel' and job['state'] == 'running':
+            child = self.interactive and self.interactive.get('child') == key
+            if self.interactive and self.interactive['id'] == key and self.interactive['confirmed']:
+                fail('use_interactive_close', 'Cancel the active nested command first, then close the idle interactive shell.')
+                return
+            if not self.pending or (self.pending.get('job_id') != key and not child) or not self.remote or self.focus != 'local':
+                fail('unavailable', 'Command is no longer attached to the remote shell.')
+                return
+            os.write(self.remote[0], b'\x03')
+            job['state'] = 'interrupt_requested'
+        cursor = request.get('cursor', 0)
+        if type(cursor) is not int or cursor < 0 or cursor > job['base'] + len(job['output']):
+            fail('invalid_argument', 'Output cursor is outside the available command range.')
+            return
+        start = max(cursor, job['base'])
+        chunk = bytes(job['output'][start - job['base']:start - job['base'] + 65536])
+        self.send(client, type='job', session_id=self.session_id, command_id=key,
+                  state=job['state'], exit_code=job['exit_code'], error=job['error'],
+                  data=base64.b64encode(chunk).decode(), next_cursor=start + len(chunk),
+                  truncated=cursor < job['base'], output_start=job['base'],
+                  interactive_ready=bool(self.interactive and self.interactive['id'] == key and self.interactive['ready']),
+                  slurm_job_id=self.interactive.get('slurm_id') if self.interactive and self.interactive['id'] == key else None,
+                  interactive_active_command_id=self.interactive.get('child') if self.interactive and self.interactive['id'] == key else None)
+
     def request(self, client, request):
+        if request.get('op') in ('submit', 'poll', 'cancel', 'interactive_start', 'interactive_exec', 'interactive_close'):
+            self.job_request(client, request)
+            return
         if request.get('op') == 'status':
             self.send(client, type='status', host=self.host, connected=bool(self.remote),
                       ready=self.ready, busy=bool(self.pending), terminal=self.focus,
                       initial_directory=self.directory or None,
                       mount='/workspace/remote' if self.mount_path else None, mount_mode=self.mount_mode or None,
-                      mount_connected=bool(self.mount_process and self.mount_process.poll() is None))
+                      mount_connected=bool(self.mount_process and self.mount_process.poll() is None), session_id=self.session_id,
+                      active_command_id=self.pending.get('job_id') if self.pending else None,
+                      interactive_active_command_id=self.interactive.get('child') if self.interactive else None,
+                      interactive_directory=self.interactive_root)
         elif request.get('op') == 'exec' and isinstance(request.get('command'), str):
             if not self.ready or not self.remote:
                 self.send(client, type='done', status=255, error='Remote shell unavailable; ask the user to press Ctrl-] r and reconnect.')
@@ -815,6 +1100,8 @@ class Bridge:
             else:
                 item = self.remote if self.focus == 'remote' else self.local
                 if item:
+                    if self.focus == 'remote' and self.interactive:
+                        self.interactive['ready'] = False
                     self.terminal.display.follow(item)
                     os.write(item[0], bytes([byte]))
                     if byte == 3 and self.focus == 'remote' and self.pending:

@@ -198,6 +198,7 @@ permission gate. A human running shell commands controls those changes directly.
 | `CX_ENV_HOME` | `~/.local/share/cx/environments` | Workspace environment stores |
 | `CX_ENV_NAME` | Saved selection, else `default` | Session environment override |
 | `CX_CONFIG_DIR` | Package `config/` | Directory containing system `config.toml` |
+| `CX_SLURM_CONFIG` | `$XDG_CONFIG_HOME/cx/slurm-servers.json`, else `~/.config/cx/slurm-servers.json` | Host file holding shared directories keyed by SSH alias |
 | `CX_MEMORY` | `8g` | Normal Codex container memory limit |
 | `CX_CPUS` | `4` | Normal Codex container CPU limit |
 | `CX_PIDS` | `1024` | Normal Codex container process limit |
@@ -342,6 +343,124 @@ and the existing input-mode safeguards remain available.
 Closing cx restores the enclosing terminal's screen. Local sessions without
 `--ssh` retain their normal Codex display and have no added session bar.
 
+### SSH MCP tools
+
+`--ssh HOST` automatically registers the session-only `cx_ssh` stdio server
+after you complete SSH login and hand control to Codex. It uses the existing
+private bridge socket; SSH keys and authentication stay on the host. It adds
+no network listener and does not change saved MCP settings or permissions.
+
+```bash
+cx /path/to/project --ssh delta --remote-dir /srv/project
+# CLI-only fallback:
+cx /path/to/project --ssh delta --no-ssh-mcp
+```
+
+| Tool | Arguments and result |
+|---|---|
+| `ssh_status` | No arguments; readiness, focus, mount, bridge session ID, active command ID. |
+| `ssh_exec` | `command`: start once and return a command ID. Directory/environment changes persist. |
+| `ssh_poll` | `command_id`, optional byte `cursor`: state, combined output, next cursor, truncation, exit code when known. |
+| `ssh_cancel` | `command_id`: request Ctrl-C once; interruption is not rollback. |
+
+Only one command runs at a time across MCP and CLI. Busy/manual SSH focus
+rejects new commands without queueing. Polling never reruns commands. Tool
+errors/timeouts must not trigger a fallback execution through `cx-remote`.
+A transport error from `ssh_exec` includes its generated ID; poll that ID or
+inspect status instead of resubmitting the command.
+
+Tracking lives in the host bridge for this cx session, surviving MCP restarts
+and tool-call timeouts. It does not survive exiting cx. States are `running`,
+`interrupt_requested`, `completed`, and `unknown`. A confirmed completion
+includes the actual exit code. SSH disconnect leaves unfinished work unknown;
+reconnecting never replays it. Tool-call cancellation alone does not interrupt
+remote work; use `ssh_cancel` explicitly. If Ctrl-C does not produce completion
+framing, the shell stays busy; use Ctrl-] r and manual recovery/reconnection.
+
+Each command keeps the latest 1 MiB of output; retain up to 32 finished records.
+Poll retrieves up to 64 KiB per call using `next_cursor`. Truncation and expired
+IDs are explicit. Text output is a UTF-8 preview; `output_base64` preserves exact
+PTY bytes, including split Unicode. stdout/stderr are combined. Output during
+manual SSH interaction is excluded from agent results, as with CLI execution.
+
+The `cx_ssh` registration name is reserved. Rename a conflicting user/project
+server or pass `--no-ssh-mcp`. File browsing and editing still use ordinary
+file tools through SSHFS or existing remote commands; no dedicated MCP file
+or environment-management tools are added.
+
+### Interactive CPU and GPU sessions
+
+Run setup on the Linux/WSL host for each SSH alias. Choose an **absolute path
+on storage shared by that server's login and compute nodes**. It can contain
+spaces and is interpreted on the server, not inside the cx container:
+
+```bash
+cx --setup-slurm my-cluster --shared-dir /shared/myuser/cx
+cx --setup-slurm another-cluster --shared-dir '/shared/myuser/cx data'
+cx --setup-slurm third-cluster --shared-dir /shared/myuser/cx \
+  --job-id-pattern 'Allocation #([0-9]+)'
+```
+
+Setup uses your host OpenSSH configuration and interactive authentication; it
+does not require Docker or request a Slurm allocation. It creates a private
+`interactive` directory beneath the selected root and installs
+`~/.bashrc.d/cx-interactive.sh`. If needed it appends a managed source line to
+`~/.bashrc`, first backing up the existing file. It refuses to overwrite an
+unrecognized hook. Repeating setup is idempotent; running it again with a new
+path updates that alias while retaining remote roots for other sessions.
+
+Host-side mappings are saved in `~/.config/cx/slurm-servers.json` (under
+`$XDG_CONFIG_HOME/cx` when set), or in the file named by `CX_SLURM_CONFIG`.
+Later `cx --ssh alpine` sessions select that alias's configured directory
+automatically. `ssh_status` reports it as `interactive_directory`, a remote
+path; it is not automatically mounted into the container. The remote hook
+reads configured roots from `~/.config/cx/slurm-roots` and emits a marker
+containing the Slurm job ID and random token when an interactive allocation shell
+reaches a prompt. It is inactive outside Slurm. Interactive allocation tools
+require a configured alias; without one they return `not_configured` before
+sending a command. Normal SSH and `cx-remote` work without Slurm setup.
+The selected directory contains interactive rendezvous files; command output
+and status records remain in the host bridge's memory for the current session.
+The hook and the small roots locator stay under the remote home directory so
+Bash can find the selected shared paths during startup. Slurm output-log paths
+remain controlled by your `cpu` and `gpu` functions and site configuration.
+
+Setup checks login-node paths and hook installation; it cannot prove that the
+chosen directory or Bash startup configuration is shared with compute nodes.
+The bridge recognizes `Interactive job with ID N`, `Granted job allocation N`,
+`Submitted batch job N`, and `salloc: job N` or `srun: job N` in scheduler
+output. For another message, supply `--job-id-pattern` with
+exactly one capture group for the numeric job ID, as in the example. The
+pattern augments the built-in patterns and is saved for that alias. Repeating
+setup without the flag keeps the existing pattern; pass `--job-id-pattern ''`
+to remove it. The existing `cpu` and `gpu` Bash functions must be loaded in
+the login shell and launch an interactive Bash shell with `SLURM_JOB_ID` set.
+The observed job ID becomes fixed once the allocation shell is confirmed; later
+command output cannot redirect the session to another job ID.
+
+Readiness confirms the Slurm job ID, not that the shell is physically on a
+compute node. Some `salloc` workflows leave the shell on a login node; check
+`hostname` and use your site's `srun` or other approved method as needed.
+
+For an explicitly requested allocation, call `ssh_interactive_start` with a
+`cpu ...` or `gpu ...` command, then `ssh_poll` its returned ID until
+`interactive_ready` is true. cx requires the matching Slurm job ID and token;
+queue messages or a login/authentication prompt do not count as readiness.
+Call `ssh_interactive_exec` with the session ID and command, then poll its new
+command ID for combined output and exit status. Directory and environment
+changes persist in the compute shell. Commands must fit in a terminal line.
+Call `ssh_interactive_close` on the session ID to exit the shell and return to
+the login shell. Only one nested command can run at once. `ssh_cancel` requests
+Ctrl-C for a queued allocation or active nested command; once an allocation is
+ready, use close to exit it. If the prompt returns without a completion marker,
+the outcome is unknown. Never replay work after a timeout or disconnect.
+
+If authentication is needed, use Ctrl-] r and complete it manually. Input is
+blocked while you control SSH. cx requires another matching hook marker after
+manual input before it permits another command. The remote mount remains rooted
+on the login host; it does not follow the compute allocation. GNU screen and
+live Slurm behavior depend on the site; test with a small authorized allocation.
+
 ### Remote commands
 
 The container helper provides remote execution:
@@ -374,10 +493,9 @@ that command automatically. Press Ctrl-] r to reconnect, log in again, then
 Ctrl-] c to resume. A new shell loses previous state and reapplies the initial
 `--remote-dir`. Confirm earlier command effects before repeating work.
 
-For Delta, log in normally and use the usual Slurm commands explicitly. You can
-switch to the remote terminal to enter an interactive allocation, then return
-once a Bash prompt is available on the allocated node. cx does not automatically
-request, track, or cancel allocations. A command that exits or replaces the
+For Alpine or Delta, request Slurm resources only when explicitly authorized.
+Use the interactive MCP tools for the supported cpu/gpu shell workflow, or
+switch to the remote terminal for manual interaction. A command that exits or replaces the
 shell, or changes its input/prompt behavior, can prevent completion detection;
 use terminal handoff to recover. Closing cx terminates its local SSH process;
 remote job cleanup follows the remote system's normal policies.
@@ -478,23 +596,9 @@ those facilities; offline tests mock mount lifecycle operations.
 changing settings. It returns nonzero if a required item is missing. It does
 not inspect credentials or send them anywhere.
 
-### Updating to the 1.1.4 SSH terminal bridge
+### Updating to the 1.2.1 SSH MCP bridge
 
-Version 1.1.4 adds wheel scrolling and preserves Codex text styles, prompt
-shading, and terminal palette colors. Unlike 1.1.3, wheel capture is enabled
-by default: use Shift-drag for selection or Ctrl-] m for plain dragging.
-The separate screens, session bar, and password/MFA input fixes remain.
-From the updated source checkout or extracted install release, update the host wrapper outside cx.
-An existing 1.1.0 image can be reused:
-
-```bash
-./install.sh --no-build
-```
-
-Reuse your installation prefix if customized. Exit existing SSH-mode cx
-sessions completely and start a new one; running Python supervisors retain
-their old code until they exit. If a previous session left the terminal in
-an unusual input/display mode, run `reset` in your Linux/WSL host shell
-outside cx before restarting. These fixes do not change saved SSH credentials.
-If upgrading from before 1.1.0, also rebuild the image and migrate container
-paths as described in [installation and upgrades](INSTALL.md#upgrading-to-114).
+Run `./install.sh` from the release on the host, including its default image
+build, then restart sessions. A host-only `--no-build` update needs `cx --build`
+before automatic MCP works. Use `--no-ssh-mcp` temporarily with older images.
+See [installation and upgrades](INSTALL.md#upgrading-to-121).

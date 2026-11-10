@@ -8,6 +8,7 @@ import re
 import select
 import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -80,6 +81,68 @@ class SessionTests(unittest.TestCase):
         output = b''.join(base64.b64decode(e['data']) for e in events if e['type'] == 'output')
         self.assertIn(b'hello world:/', output)
         self.assertEqual(events[-1]['status'], 1)
+
+    def test_tracked_command_uses_real_shell_and_survives_submit_client_close(self):
+        self.bridge.focus = 'local'
+        key = str(module.uuid.uuid4())
+        self.bridge.request(self.send, dict(op='submit', command_id=key,
+                            command='export CX_TRACKED=yes; printf tracked-output; false'))
+        self.assertEqual(json.loads(self.receive.recv(65536))['state'], 'running')
+        self.pump(lambda: self.bridge.pending is None)
+        self.bridge.request(self.send, dict(op='poll', command_id=key))
+        result = json.loads(self.receive.recv(65536))
+        self.assertEqual(result['exit_code'], 1)
+        self.assertIn(b'tracked-output', module.base64.b64decode(result['data']))
+        events = self.command('printf "$CX_TRACKED"')
+        self.assertIn(b'yes', b''.join(module.base64.b64decode(e['data']) for e in events if e['type'] == 'output'))
+
+    def test_interactive_cpu_shell_with_real_pty(self):
+        self.bridge.focus = 'local'
+        self.bridge.interactive_root = str(self.home)
+        self.assertEqual(self.command('umask 002')[-1]['status'], 0)
+        hook = str(ROOT / 'scripts/cx-interactive-hook.sh')
+        setup = ('export CX_INTERACTIVE_DIR=' + module.shlex.quote(str(self.home)) + '; '
+                 'cpu() { echo "Interactive job with ID 123 submitted"; '
+                 'SLURM_JOB_ID=123 bash --noprofile --rcfile ' + module.shlex.quote(hook) + ' -i; }')
+        self.assertEqual(self.command(setup)[-1]['status'], 0)
+        parent = str(module.uuid.uuid4())
+        self.bridge.request(self.send, dict(op='interactive_start', command_id=parent, command='cpu 4'))
+        self.assertEqual(json.loads(self.receive.recv(65536))['state'], 'running')
+        self.pump(lambda: bool(self.bridge.interactive and self.bridge.interactive['ready']))
+        child = str(module.uuid.uuid4())
+        self.bridge.request(self.send, dict(op='interactive_exec', command_id=child,
+                            session_command_id=parent, command='export CX_NESTED=ok; printf nested-output; false'))
+        self.assertEqual(json.loads(self.receive.recv(65536))['state'], 'running')
+        self.pump(lambda: self.bridge.jobs[child]['state'] == 'completed')
+        self.assertEqual(self.bridge.jobs[child]['exit_code'], 1)
+        self.assertIn(b'nested-output', self.bridge.jobs[child]['output'])
+        self.pump(lambda: self.bridge.interactive['ready'])
+        next_id = str(module.uuid.uuid4())
+        self.bridge.request(self.send, dict(op='interactive_exec', command_id=next_id,
+                            session_command_id=parent, command='printf "$CX_NESTED"'))
+        self.receive.recv(65536)
+        self.pump(lambda: self.bridge.jobs[next_id]['state'] == 'completed')
+        self.assertIn(b'ok', self.bridge.jobs[next_id]['output'])
+        self.pump(lambda: self.bridge.interactive['ready'])
+        self.bridge.request(self.send, dict(op='interactive_close', command_id=parent))
+        self.receive.recv(65536)
+        self.pump(lambda: self.bridge.pending is None)
+        self.assertEqual(self.bridge.jobs[parent]['state'], 'completed')
+        self.assertEqual(list(self.home.glob('[0-9a-f]' * 32)), [])
+        events = self.command('umask')
+        output = b''.join(module.base64.b64decode(e['data']) for e in events if e['type'] == 'output')
+        self.assertIn(b'0002', output)
+
+    def test_failed_allocation_returns_exit_status_and_removes_tracker(self):
+        self.bridge.focus = 'local'
+        self.bridge.interactive_root = str(self.home)
+        self.assertEqual(self.command('cpu() { return 37; }')[-1]['status'], 0)
+        parent = str(module.uuid.uuid4())
+        self.bridge.request(self.send, dict(op='interactive_start', command_id=parent, command='cpu 4'))
+        self.receive.recv(65536)
+        self.pump(lambda: self.bridge.pending is None)
+        self.assertEqual(self.bridge.jobs[parent]['exit_code'], 37)
+        self.assertEqual(list(self.home.glob('[0-9a-f]' * 32)), [])
 
     def test_quoting_and_marker_like_output(self):
         events = self.command("printf '%s\\n' \"single ' double \\\"\"; printf '\\036not-a-marker:0\\037';\ntrue")
@@ -273,6 +336,266 @@ class MountTests(unittest.TestCase):
         self.assertEqual(env['CX_SSH_MOUNT_PATH'], self.bridge.mount_path)
         self.assertEqual(env['CX_SSH_BRIDGE_DIR'], self.bridge.runtime)
         self.assertNotIn('CX_SSH_CONTROL_PATH', env)
+
+
+class MCPRegistrationTests(unittest.TestCase):
+    def test_registration_is_session_only_and_opt_out_preserves_cli(self):
+        with tempfile.TemporaryDirectory(dir=ROOT, prefix='.cx-test-mcp-') as directory:
+            root = Path(directory)
+            config = root / 'config.toml'
+            config.write_text('developer_instructions="instructions"\n[mcp_servers.other]\ncommand="other"\n')
+            original = config.read_bytes()
+            with patch.dict(os.environ, CX_CONFIG_DIR=directory, CX_CODEX_HOME=directory, CX_SSH_MCP='1'):
+                bridge = module.Bridge('host', '', ['/cx', directory])
+                bridge.runtime = directory
+                bridge.mount_files = Mock()
+                bridge.spawn = Mock(return_value=(100, object()))
+                bridge.resize = Mock()
+                bridge.terminal.switch = Mock()
+                bridge.start_local()
+                args = bridge.spawn.call_args.args[0]
+                self.assertIn('mcp_servers.cx_ssh.command="node"', args)
+                self.assertEqual(config.read_bytes(), original)
+                bridge.local = None
+                config.write_text('[mcp_servers.cx_ssh]\ncommand="existing"\n')
+                with self.assertRaisesRegex(ValueError, 'reserved'):
+                    bridge.start_local()
+                os.environ['CX_SSH_MCP'] = '0'
+                bridge.start_local()
+                self.assertFalse(any('mcp_servers.cx_ssh' in arg for arg in bridge.spawn.call_args.args[0]))
+
+
+class TrackedCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.bridge = module.Bridge('host', '/project', [])
+        self.bridge.interactive_root = '/shared/cx/interactive'
+        self.bridge.remote = (101, object())
+        self.bridge.focus = 'local'
+        self.bridge.ready = True
+        self.bridge.send = Mock()
+        self.writer = patch.object(module.os, 'write', return_value=1)
+        self.write_mock = self.writer.start()
+        self.addCleanup(self.writer.stop)
+
+    def call(self, op, **args):
+        self.bridge.request(object(), dict(op=op, **args))
+        return self.bridge.send.call_args.kwargs
+
+    def start(self):
+        key = str(module.uuid.uuid4())
+        result = self.call('submit', command_id=key, command='echo hello')
+        self.assertEqual(result['state'], 'running')
+        return key
+
+    def output(self, data, end=None):
+        token = self.bridge.pending['token']
+        self.bridge.output(b'\x1e' + token + b':start\x1f' + data +
+                           (b'\x1e' + token + b':' + str(end).encode() + b'\x1f' if end is not None else b''))
+
+    def test_completion_polling_and_duplicate_submission(self):
+        key = self.start()
+        token = self.bridge.pending['token']
+        self.call('submit', command_id=key, command='echo hello')
+        self.assertEqual(self.bridge.pending['token'], token)
+        self.bridge.start_local = Mock()
+        self.output(b'hello', 17)
+        result = self.call('poll', command_id=key)
+        self.assertEqual(result['exit_code'], 17)
+        self.assertEqual(result['state'], 'completed')
+        self.assertEqual(module.base64.b64decode(result['data']), b'hello')
+        self.assertEqual(self.call('poll', command_id=key, cursor=5)['data'], '')
+        self.bridge.start_local.assert_not_called()
+        self.assertEqual(self.call('submit', command_id=key, command='other')['code'], 'conflict')
+
+    def test_interactive_handshake_commands_and_close(self):
+        parent = str(module.uuid.uuid4())
+        child = str(module.uuid.uuid4())
+        self.assertFalse(self.call('interactive_start', command_id=parent, command='cpu 4')['interactive_ready'])
+        self.assertEqual(self.call('interactive_exec', command_id=child, session_command_id=parent, command='pwd')['code'], 'not_ready')
+        token = self.bridge.pending['token']
+        nonce = self.bridge.interactive['nonce']
+        prefix = b'\x1e' + token + b':start\x1fInteractive job with ID 123 submitted\r\n'
+        self.bridge.output(prefix + f'__CX_READY_{nonce}_124__\r\n'.encode())
+        self.assertFalse(self.call('poll', command_id=parent)['interactive_ready'])
+        marker = f'__CX_READY_{nonce}_123__\r\n'.encode()
+        for byte in marker:
+            self.bridge.output(bytes([byte]))
+        self.assertTrue(self.call('poll', command_id=parent)['interactive_ready'])
+        self.assertEqual(self.call('interactive_exec', command_id=child, session_command_id=parent, command='pwd')['state'], 'running')
+        nested = self.bridge.interactive['child_token']
+        self.assertEqual(self.call('interactive_exec', command_id=str(module.uuid.uuid4()), session_command_id=parent, command='hostname')['code'], 'busy')
+        for byte in b'__CX_FRAME_' + nested + b'_start__/project\r\n__CX_FRAME_' + nested + b'_7__':
+            self.bridge.output(bytes([byte]))
+        result = self.call('poll', command_id=child)
+        self.assertEqual(result['exit_code'], 7)
+        self.assertEqual(module.base64.b64decode(result['data']), b'/project\r\n')
+        self.bridge.output(marker)
+        self.assertEqual(self.call('interactive_close', command_id=parent)['state'], 'running')
+        self.assertEqual(self.write_mock.call_args.args, (101, b'exit\n'))
+        self.bridge.output(b'\x1e' + token + b':0\x1f')
+        self.assertEqual(self.call('poll', command_id=parent)['state'], 'completed')
+
+    def test_interactive_uses_selected_remote_directory_with_spaces(self):
+        root = '/shared/project data/cx/interactive'
+        self.bridge.interactive_root = root
+        self.assertEqual(self.call('status')['interactive_directory'], root)
+        parent = str(module.uuid.uuid4())
+        self.call('interactive_start', command_id=parent, command='cpu 4')
+        written = self.write_mock.call_args.args[1].decode()
+        self.assertIn(root + '/', written)
+        self.assertNotIn('/projects/$USER/.resources/cx-interactive', written)
+
+    def test_unconfigured_interactive_allocation_fails_before_writing(self):
+        self.bridge.interactive_root = None
+        parent = str(module.uuid.uuid4())
+        result = self.call('interactive_start', command_id=parent, command='cpu 4')
+        self.assertEqual(result['code'], 'not_configured')
+        self.assertIn('--setup-slurm', result['error'])
+        self.assertFalse(self.write_mock.called)
+        self.assertIsNone(self.bridge.pending)
+
+    def test_standard_slurm_messages_and_job_id_remains_locked(self):
+        for message in (b'Submitted batch job 456', b'salloc: job 456 queued and waiting for resources',
+                        b'srun: job 456 queued and waiting for resources'):
+            self.bridge.pending = None
+            self.bridge.interactive = None
+            parent = str(module.uuid.uuid4())
+            self.call('interactive_start', command_id=parent, command='cpu')
+            token, nonce = self.bridge.pending['token'], self.bridge.interactive['nonce']
+            self.bridge.output(b'\x1e' + token + b':start\x1f' + message + b'\r\n' + f'__CX_READY_{nonce}_456__\r\n'.encode())
+            self.assertTrue(self.call('poll', command_id=parent)['interactive_ready'])
+            self.bridge.output(b'Submitted batch job 999\r\n' + f'__CX_READY_{nonce}_999__\r\n'.encode())
+            self.assertEqual(self.call('poll', command_id=parent)['slurm_job_id'], '456')
+
+    def test_server_specific_job_id_pattern_requires_matching_token(self):
+        with patch.dict(os.environ, CX_SLURM_JOB_ID_PATTERN=r'Allocation #([0-9]+)'):
+            self.bridge.job_id_patterns = module.Bridge('host', '', []).job_id_patterns
+        parent = str(module.uuid.uuid4())
+        self.call('interactive_start', command_id=parent, command='gpu A100')
+        token, nonce = self.bridge.pending['token'], self.bridge.interactive['nonce']
+        self.bridge.output(b'\x1e' + token + b':start\x1fAllocation #456\r\n' + f'__CX_READY_{nonce}_457__\r\n'.encode())
+        self.assertFalse(self.call('poll', command_id=parent)['interactive_ready'])
+        self.bridge.output(f'__CX_READY_{nonce}_456__\r\n'.encode())
+        result = self.call('poll', command_id=parent)
+        self.assertTrue(result['interactive_ready'])
+        self.assertEqual(result['slurm_job_id'], '456')
+
+    def test_interactive_does_not_send_during_manual_focus_or_bad_allocation(self):
+        parent = str(module.uuid.uuid4())
+        self.assertEqual(self.call('interactive_start', command_id=parent, command='echo bad')['code'], 'invalid_argument')
+        self.call('interactive_start', command_id=parent, command='gpu A100')
+        token = self.bridge.pending['token']
+        nonce = self.bridge.interactive['nonce']
+        self.bridge.output(b'\x1e' + token + b':start\x1fInteractive job with ID 7 submitted\r\n' + f'__CX_READY_{nonce}_7__'.encode())
+        self.bridge.focus = 'remote'
+        self.assertEqual(self.call('interactive_exec', command_id=str(module.uuid.uuid4()), session_command_id=parent, command='pwd')['code'], 'not_ready')
+        self.assertEqual(self.call('interactive_close', command_id=parent)['code'], 'not_ready')
+
+    def test_interactive_disconnect_marks_nested_work_unknown(self):
+        parent, child = str(module.uuid.uuid4()), str(module.uuid.uuid4())
+        self.call('interactive_start', command_id=parent, command='gpu A100')
+        token, nonce = self.bridge.pending['token'], self.bridge.interactive['nonce']
+        self.bridge.output(b'\x1e' + token + b':start\x1fInteractive job with ID 7 submitted\r\n' + f'__CX_READY_{nonce}_7__'.encode())
+        self.call('interactive_exec', command_id=child, session_command_id=parent, command='echo test')
+        self.bridge.finish(255, 'SSH disconnected')
+        self.assertEqual(self.call('poll', command_id=child)['state'], 'unknown')
+        self.assertEqual(self.call('poll', command_id=parent)['state'], 'unknown')
+
+    def test_stale_ready_marker_cannot_reenable_manual_input(self):
+        parent = str(module.uuid.uuid4())
+        self.call('interactive_start', command_id=parent, command='cpu')
+        token, nonce = self.bridge.pending['token'], self.bridge.interactive['nonce']
+        self.bridge.output(b'\x1e' + token + b':start\x1fInteractive job with ID 7 submitted\r\n' + f'__CX_READY_{nonce}_7__'.encode())
+        self.bridge.switch_focus('remote')
+        self.bridge.output(b'new unrelated output')
+        self.assertFalse(self.call('poll', command_id=parent)['interactive_ready'])
+
+    def test_nested_job_id_mismatch_does_not_run_command(self):
+        parent, child = str(module.uuid.uuid4()), str(module.uuid.uuid4())
+        self.call('interactive_start', command_id=parent, command='cpu')
+        token, nonce = self.bridge.pending['token'], self.bridge.interactive['nonce']
+        self.bridge.output(b'\x1e' + token + b':start\x1fInteractive job with ID 7 submitted\r\n' + f'__CX_READY_{nonce}_7__'.encode())
+        self.call('interactive_exec', command_id=child, session_command_id=parent, command='dangerous-command')
+        payload = self.write_mock.call_args.args[1]
+        self.assertIn(b'${SLURM_JOB_ID:-}', payload)
+        nested = self.bridge.interactive['child_token']
+        self.bridge.output(b'__CX_FRAME_' + nested + b'_wrong__')
+        result = self.call('poll', command_id=child)
+        self.assertEqual(result['exit_code'], 125)
+        self.assertIn('not run', result['error'])
+        self.assertFalse(self.call('poll', command_id=parent)['interactive_ready'])
+
+    def test_nested_cancel_keeps_output_and_waits_for_new_prompt(self):
+        parent, child = str(module.uuid.uuid4()), str(module.uuid.uuid4())
+        self.call('interactive_start', command_id=parent, command='cpu')
+        token, nonce = self.bridge.pending['token'], self.bridge.interactive['nonce']
+        marker = f'__CX_READY_{nonce}_7__'.encode()
+        self.bridge.output(b'\x1e' + token + b':start\x1fInteractive job with ID 7 submitted\r\n' + marker)
+        self.call('interactive_exec', command_id=child, session_command_id=parent, command='long-running')
+        nested = self.bridge.interactive['child_token']
+        self.bridge.output(b'__CX_FRAME_' + nested + b'_start__partial')
+        self.assertEqual(self.call('cancel', command_id=child)['state'], 'interrupt_requested')
+        self.bridge.output(b'final-output\r\n' + marker + b'\r\n')
+        result = self.call('poll', command_id=child)
+        self.assertEqual(result['state'], 'unknown')
+        self.assertIn(b'final-output', module.base64.b64decode(result['data']))
+        self.assertTrue(self.call('poll', command_id=parent)['interactive_ready'])
+        self.assertEqual(self.call('cancel', command_id=parent)['code'], 'use_interactive_close')
+
+    def test_hook_only_emits_matching_token_files_inside_slurm(self):
+        with tempfile.TemporaryDirectory(dir=ROOT, prefix='.cx-test-hook-') as directory:
+            path = Path(directory)
+            (path / ('a' * 32)).touch()
+            (path / 'invalid').touch()
+            (path / ('b' * 32)).symlink_to(path / ('a' * 32))
+            hook = str(ROOT / 'scripts/cx-interactive-hook.sh')
+            env = dict(os.environ, CX_INTERACTIVE_DIR=directory, SLURM_JOB_ID='123')
+            result = subprocess.run(['bash', '--noprofile', '--norc', '-ic', 'source "$1"; __cx_interactive_ready', '_', hook],
+                                    env=env, capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout, '\n__CX_READY_' + 'a' * 32 + '_123__\n')
+            env.pop('SLURM_JOB_ID')
+            result = subprocess.run(['bash', '--noprofile', '--norc', '-ic', 'source "$1"; type -t __cx_interactive_ready || true', '_', hook],
+                                    env=env, capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout, '')
+
+    def test_busy_manual_focus_and_disconnection(self):
+        self.bridge.focus = 'remote'
+        self.assertEqual(self.call('submit', command_id=str(module.uuid.uuid4()), command='x')['code'], 'busy')
+        self.bridge.focus = 'local'
+        key = self.start()
+        self.assertEqual(self.call('submit', command_id=str(module.uuid.uuid4()), command='x')['code'], 'busy')
+        self.bridge.finish(255, 'SSH disconnected')
+        result = self.call('poll', command_id=key)
+        self.assertEqual(result['state'], 'unknown')
+        self.assertIsNone(result['exit_code'])
+
+    def test_cancellation_is_once_and_does_not_fabricate_completion(self):
+        key = self.start()
+        self.assertEqual(self.call('cancel', command_id=key)['state'], 'interrupt_requested')
+        self.call('cancel', command_id=key)
+        interrupts = [call for call in self.write_mock.mock_calls if call.args == (101, b'\x03')]
+        self.assertEqual(len(interrupts), 1)
+        self.assertIsNotNone(self.bridge.pending)
+        self.output(b'', 130)
+        self.assertEqual(self.call('cancel', command_id=key)['exit_code'], 130)
+
+    def test_output_limits_authentication_exclusion_and_eviction(self):
+        key = self.start()
+        self.output(b'x' * (1024 * 1024 + 10))
+        result = self.call('poll', command_id=key)
+        self.assertTrue(result['truncated'])
+        self.assertEqual(result['output_start'], 10)
+        self.assertEqual(len(module.base64.b64decode(result['data'])), 65536)
+        self.bridge.focus = 'remote'
+        self.bridge.output(b'authentication-secret')
+        self.assertNotIn(b'authentication-secret', self.bridge.jobs[key]['output'])
+        self.bridge.focus = 'local'
+        self.bridge.finish(0)
+        for _ in range(32):
+            self.start()
+            self.bridge.finish(0)
+        self.assertEqual(self.call('poll', command_id=key)['code'], 'not_found')
+        self.assertEqual(self.call('submit', command_id=key, command='echo hello')['code'], 'not_found')
 
 
 class TerminalRoutingTests(unittest.TestCase):

@@ -50,6 +50,7 @@ trap cleanup EXIT
 for item in bin container docs VERSION README.md CHANGELOG.md uninstall.sh; do
     cp -R -- "$package_root/$item" "$staging/"
 done
+install -m 0644 "$package_root/scripts/cx-interactive-hook.sh" "$staging/bin/cx-interactive-hook.sh"
 # Keep the user's configuration separate from replaceable program files.
 if [[ ! -e "$install_root/config/config.toml" ]]; then
     install -m 0644 "$package_root/config/config.toml" "$install_root/config/config.toml"

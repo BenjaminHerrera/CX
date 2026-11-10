@@ -192,3 +192,45 @@ an agent instruction, not a kernel-enforced package-manager policy.
 Release packaging uses an explicit source list. It excludes credentials,
 runtime data, environments, and caches. Never distribute a used portable
 bundle wholesale; its private `data/` can contain tokens and project data.
+
+## SSH MCP adapter (1.2.0)
+
+Codex starts a container-local Node stdio MCP adapter, which forwards requests
+to the same private Unix socket as cx-remote. Dependencies are pinned and
+locked, installed only into the Docker image at build time. No host/remote
+server or HTTP listener is added. Session overrides register cx_ssh without
+writing user configuration; --no-ssh-mcp retains CLI-only operation.
+
+The bridge owns session UUID, command records and duplicate-ID tombstones.
+submit starts one command in the existing shell; poll reads a bounded output
+ring by absolute byte cursor; cancel sends Ctrl-C once. Legacy streaming exec
+continues to work and shares the same busy/manual-focus exclusion. Finished
+records are capped at 32, output at 1 MiB per command, chunks at 64 KiB.
+Disconnect reports unknown outcome without inventing an exit code or retrying.
+MCP disconnect does not terminate work. Manual SSH output is excluded from
+recorded results. Records disappear when the bridge exits.
+
+## Interactive compute sessions (1.2.1)
+
+An explicitly requested cpu/gpu invocation creates a random rendezvous file in
+the SSH alias's configured shared directory (`interactive/`) before starting
+the existing shell function. An unconfigured alias fails before sending a
+command. The host-side setup helper
+uses OpenSSH to install the managed Bash hook, append an idempotent startup
+source line, and register remote roots under `~/.config/cx/slurm-roots`.
+Its host-side JSON registry maps exact SSH aliases to roots using an atomic,
+locked update. The compute hook reads all registered roots because accounts
+may share a home directory across multiple clusters. No credentials are copied.
+A per-alias optional regular expression with one numeric capture group augments
+the built-in Slurm job-ID patterns; a captured ID still must match the random
+token emitted by the compute-shell hook. Once confirmed, the job ID is locked
+for that interactive session so later command output cannot change its target.
+A compute-shell Bash startup hook emits the token and SLURM_JOB_ID.
+The bridge requires both that token and the job ID observed in the allocator
+output before enabling command input. A printable nonce-framed protocol is used
+inside the nested shell because GNU screen consumes C0 control characters.
+Nested command IDs retain bounded output and exit status independently of the
+parent allocation; only one nested command runs at a time. Manual focus gates
+input, and shell disappearance or disconnect yields unknown outcomes. The
+outer function removes its rendezvous file on normal return; interrupted or
+disconnected sessions can leave stale files requiring manual cleanup.

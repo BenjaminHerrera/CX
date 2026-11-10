@@ -4,3 +4,7 @@
 !cx-entrypoint
 !cx-env
 !cx-remote
+!mcp/
+!mcp/package.json
+!mcp/package-lock.json
+!mcp/server.mjs

@@ -1,15 +1,15 @@
 # cx — Codex in a Docker container
 
-**Version 1.1.4.** Run Codex in a disposable Docker container with your local
+**Version 1.2.1.** Run Codex in a disposable Docker container with your local
 project, selected extra directories or files, and optional SSH access. Edits
 update the original files. Credentials, settings, and development environments
 persist between sessions.
 
-Version 1.1.4 restores wheel scrolling in SSH-mode sessions and preserves
-Codex's dim text, shaded prompts, text styles, and terminal palette colors.
-Hold **Shift while dragging** to select text. The separate saved screens and
-full-width top bar remain: **green for SSH, blue for Codex**.
-See the [changelog](CHANGELOG.md).
+Version 1.2.1 adds interactive MCP sessions for the existing `cpu` and `gpu`
+functions. `cx --setup-slurm` installs the remote hook and saves a shared cx
+directory per SSH alias. The hook confirms the Slurm allocation shell before cx
+sends commands. See the [changelog](CHANGELOG.md) and
+[interactive setup](docs/USAGE.md#interactive-cpu-and-gpu-sessions).
 
 ## Requirements
 
@@ -60,16 +60,15 @@ Use the device-login link and code printed during sign-in. See the
 [installation guide](docs/INSTALL.md) for authentication, custom paths,
 rollback, and removal.
 
-**Upgrading from 1.1.0–1.1.3:** use `./install.sh --no-build` to update the host
-wrapper without rebuilding the compatible container image. Completely exit
-old SSH-mode sessions and start new ones so they load the fixes. Saved
-credentials, settings, and environments are preserved. If your prefix was
-customized, pass the same `--prefix` again.
+**Upgrading from 1.1.x:** run `./install.sh` with its default image build,
+then restart sessions. MCP requires the new container adapter. Saved settings,
+credentials, and environments are preserved. A host-only update can use an
+older image with `--ssh HOST --no-ssh-mcp`; rebuild before enabling MCP.
 
 **Upgrading from 1.0.x or older:** rebuild the image and migrate container
 paths to the three-folder workspace layout. Review the new default
 instructions against your preserved installed configuration.
-[Upgrade details](docs/INSTALL.md#upgrading-to-114).
+[Upgrade details](docs/INSTALL.md#upgrading-to-121).
 
 ## Workspace layout
 
@@ -172,14 +171,15 @@ modify PATH or install into `~/.local`.
 - [Tests and release packaging](docs/MAINTAINING.md)
 - [Changelog](CHANGELOG.md)
 
-The offline wrapper, SSH/terminal, screen-rendering, and remote-client checks pass. SSHFS tests
-mock mounting; live Windows Terminal/WSL, Docker, FUSE, sign-in, and Delta MFA
-are not verified in
-this environment. Run `./scripts/verify-docker.sh --build` on a Docker host
+CPU and GPU interactive MCP sessions were verified with small live Alpine
+allocations, including execution on compute nodes and cleanup. This does not
+verify other sites or allocation modes. SSHFS tests mock mounting; live Windows
+Terminal/WSL, Docker, FUSE, sign-in, and Delta MFA require separate checks.
+Run `./scripts/verify-docker.sh --build` on a Docker host
 for container verification, then follow the live SSH checklist in the
 maintenance guide.
 
-Create clean `1.1.4` install and portable archives with
+Create clean `1.2.1` install and portable archives with
 `./scripts/package.sh`. Archives and checksums go into `dist/`; packaging
 excludes credentials, runtime data, and caches. Never distribute a used
 portable bundle's private `data/` directory.

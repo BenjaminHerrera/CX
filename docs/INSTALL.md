@@ -47,11 +47,11 @@ If you received both archives and the checksum file:
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf cx-1.1.4-install.tar.gz
-cd cx-1.1.4-install
+tar -xzf cx-1.2.1-install.tar.gz
+cd cx-1.2.1-install
 ```
 
-For portable use, extract `cx-1.1.4-portable.tar.gz` instead. The checksum command
+For portable use, extract `cx-1.2.1-portable.tar.gz` instead. The checksum command
 expects both archives to be present; if you downloaded only one, compare its
 `sha256sum` output with its matching line in `SHA256SUMS`. Checksums detect
 accidental changes; they do not authenticate an untrusted publisher.
@@ -84,8 +84,8 @@ installs dependencies on the host.
 ## Portable edition
 
 ```bash
-tar -xzf cx-1.1.4-portable.tar.gz
-cd cx-1.1.4-portable
+tar -xzf cx-1.2.1-portable.tar.gz
+cd cx-1.2.1-portable
 ./cx --build
 ./cx --login
 ./cx /path/to/project
@@ -115,48 +115,46 @@ workspace environments are not part of the program update.
 
 <a id="upgrading-to-112"></a>
 <a id="upgrading-to-113"></a>
+<a id="upgrading-to-114"></a>
+<a id="upgrading-to-120"></a>
 
-### Upgrading to 1.1.4
+### Upgrading to 1.2.1
 
-From the updated repository or extracted `cx-1.1.4-install` directory, on
-your Linux/WSL host outside cx:
+From the updated repository or extracted `cx-1.2.1-install` directory,
+on your Linux/WSL host outside cx:
 
 ```bash
-# An existing 1.1.0 image can be reused:
-./install.sh --no-build
+./install.sh
 cx --version
-# Expected: cx 1.1.4
+# Expected: cx 1.2.1
 ```
 
-Pass your original `--prefix` if customized. This patch changes the host SSH
-supervisor and bundled renderer; it does not require rebuilding a working
-1.1.0 image. The same procedure applies when upgrading from 1.1.1–1.1.3.
-Exit all old SSH-mode sessions completely and start new ones: running supervisors
-keep their previously loaded code. If an old session left terminal modes
-in an unusual state, run `reset` in the Linux/WSL host shell outside cx
-before restarting. No SSH password or saved-credential change is required
-by this update.
+Reuse your original `--prefix` if customized. The default build installs the
+MCP adapter and its locked dependencies into the image. Exit old sessions
+and start new ones. Unlike 1.1.x host-only patches, automatic MCP requires a
+new image. Version 1.2.1 also requires the remote startup hook for interactive
+CPU/GPU sessions; see [interactive setup](USAGE.md#interactive-cpu-and-gpu-sessions).
+Run `cx --setup-slurm SSH_ALIAS --shared-dir /shared/path/cx` on the host to
+install it and save a separate location per SSH alias. Interactive allocations
+now require explicit setup instead of an Alpine-specific fallback. To migrate
+an existing Alpine installation, rerun setup with the desired existing or new
+shared cx root; the installer recognizes and upgrades previous managed hooks.
+Restart active sessions after upgrading. Setup does not need Docker.
+If you use `./install.sh --no-build`, run `cx --build` afterward,
+or temporarily use `--ssh HOST --no-ssh-mcp`. Missing adapters fail explicitly.
 
-Version 1.1.4 restores wheel scrolling in SSH mode and preserves dim text,
-prompt shading, text styles, and terminal palette colors. Wheel capture is
-enabled by default, so hold Shift while dragging to select text, then copy
-with Ctrl+Shift+C in Windows Terminal. Ctrl-] m toggles capture for plain
-drag selection; Ctrl-] b returns from saved history to the live view. Local
-sessions without `--ssh` retain their usual mouse behavior.
+User MCP configuration is preserved. The session-only name `cx_ssh` is
+reserved; rename a conflicting server or use `--no-ssh-mcp`. This feature does
+not change Codex approval settings or grant additional permissions.
 
-For a new installation, a missing image, or an upgrade from before 1.1.0,
-run `./install.sh` with its default image build instead. If you choose
-`--no-build` in those cases, run `cx --build` before starting cx. Review the
-workspace migration below for older installations.
-
-For portable upgrades, extract the fresh `1.1.4` bundle, transfer your private
-`data/` while sessions are stopped, and merge intentional configuration
-customizations. Reuse an existing 1.1.0 Docker image or build one if absent.
-Do not overwrite an existing data directory with an empty one.
+For portable upgrades, extract `cx-1.2.1-portable.tar.gz`, transfer private
+`data/` while sessions are stopped, merge intentional configuration changes,
+and run `./cx --build`. Never replace saved data with an empty directory.
+Credentials, environment stores, and workspace paths are unchanged.
 
 ### Workspace migration from 1.0.x
 
-The three-folder layout was introduced in 1.1.0 and is unchanged in 1.1.4.
+The three-folder layout was introduced in 1.1.0 and is unchanged in 1.2.1.
 When upgrading from 1.0.x or older, rebuild the image and update scripts:
 
 | Previous container path | 1.1.x container path |

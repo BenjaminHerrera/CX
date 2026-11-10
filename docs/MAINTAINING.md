@@ -3,7 +3,7 @@
 The launcher is Bash; the optional host SSH bridge uses Python 3.11+ standard
 library modules plus bundled pure Python pyte/wcwidth sources for screen
 rendering. The container client and wrapper tests use Node.js built-in
-modules. No third-party Python or npm packages are needed for these tests.
+modules. The MCP suite requires the locked SDK dependencies; other suites need no npm dependencies.
 Host Node.js is needed for maintenance, not ordinary cx use. Host Python is
 required only for SSH mode and its tests.
 
@@ -16,7 +16,10 @@ remain in the source distribution.
 ```bash
 node tests/smoke.mjs
 node tests/remote-client.mjs
+npm ci --prefix container/mcp --ignore-scripts
+node tests/mcp.mjs
 python3 -B tests/ssh_bridge.py
+python3 -B tests/slurm_setup.py
 python3 -B tests/screens.py
 ```
 
@@ -24,6 +27,7 @@ python3 -B tests/screens.py
 |---|---|
 | `smoke.mjs` | Shell syntax, Docker argument generation, workspace layout, file/directory mounts, masking, piped tasks, credential/path rejection, install/upgrade/removal, environments, packaging, and extracted editions |
 | `screens.py` | Saved screen isolation, full-width bars, normal/alternate scrollback, pinned history, resize, Unicode, dim text and background shading, indexed/RGB colors, underline styles, standalone imports, and optional native VT tests |
+| `slurm_setup.py` | Fake SSH server setup, separate aliases, paths with spaces, job-ID patterns, idempotence, hook discovery, configuration privacy, and refusal of unmanaged hooks |
 | `remote-client.mjs` | Command transport, quoting, streamed output, and returned exit status |
 | `ssh_bridge.py` | Real PTYs with fake SSH, persistent shell state, framing, terminal handoff, resizing/restoration, manual input exclusion, terminal-reply ownership, Windows/enhanced keyboard modes, paste, wheel routing/encoding, capture toggle, history controls, theme reply isolation, TTY restoration, and mocked SSHFS setup/cleanup/instructions |
 
@@ -77,14 +81,16 @@ server, use a disposable remote directory:
 4. Repeat with `--ssh-mount=rw`, write a disposable file through the mount,
    and verify its contents on the server. Exit and confirm the owned SSHFS
    mount is gone. Exercise mount failure and busy-unmount recovery separately.
-5. Validate Delta MFA and any manual Slurm allocation workflow on Delta itself.
-   The mount stays on the configured SSH host; it does not follow compute nodes.
+5. For each Slurm site, use an authorized small CPU and GPU allocation to
+   check readiness, `hostname`, command output and exit status, persistent shell
+   state, and close/cleanup. Check Delta MFA on Delta itself. The mount stays
+   on the configured SSH host; it does not follow compute nodes.
 
-The 1.1.4 checks include the wrapper, bridge, screen-rendering, and client
+The 1.2.1 checks include the wrapper, bridge, screen-rendering, and client
 suites. The screen suite additionally runs independent native VT checks when
 tmux is present in the test environment; otherwise those checks are skipped.
-tmux is never required to run cx. No live SSH account or model request is
-used by these tests. Windows Terminal input records are tested as protocol
+tmux is never required to run cx. The offline tests do not use a live SSH
+account or send a model request. Windows Terminal input records are tested as protocol
 fixtures, not through a live Windows Terminal application. Live
 Windows Terminal/WSL sessions, Docker builds and bind mounts, SSHFS/FUSE,
 real sign-in, and Delta MFA remain unverified in the supplied environment.
@@ -99,12 +105,12 @@ cd dist
 sha256sum -c SHA256SUMS
 ```
 
-For version 1.1.4 the outputs are:
+For version 1.2.1 the outputs are:
 
 ```text
 dist/
-├── cx-1.1.4-install.tar.gz
-├── cx-1.1.4-portable.tar.gz
+├── cx-1.2.1-install.tar.gz
+├── cx-1.2.1-portable.tar.gz
 └── SHA256SUMS
 ```
 
@@ -143,3 +149,21 @@ Terminal protocol references used for input routing:
 - [Windows Terminal input mode specification](https://github.com/microsoft/terminal/blob/main/doc/specs/%234999%20-%20Improved%20keyboard%20handling%20in%20Conpty.md)
 - [xterm control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
 - [Enhanced keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+
+MCP verification: use the SDK client against the real adapter, plus bridge
+PTY tests for tracked output and cancellation. Verify discovery in a rebuilt
+Docker image and a live Codex SSH session. Check --no-ssh-mcp, a missing adapter,
+reserved-name conflicts, adapter restart/polling, output truncation, and unknown
+outcomes after disconnect. Release archives contain adapter sources and
+lockfile, never node_modules; run npm ci for source MCP tests.
+
+Interactive-session checks use a fake allocator and real PTY plus unit tests
+for token/job matching, fragmented frames, manual-focus gating, nested shell
+state, output, return codes, cancellation, and disconnect. Validate GNU screen
+attachment and Slurm with a small explicitly authorized allocation on-site;
+the simulator cannot prove site-specific timing or authentication behavior.
+On 2026-11-09, live Alpine `sinteractive` CPU and A100 MIG GPU tests reached
+compute nodes through the MCP bridge, ran commands, and closed both jobs; the
+CPU test also confirmed shell state persists across commands. The scheduler
+showed neither job remaining afterward. Other sites and allocation modes
+still need their own checks.

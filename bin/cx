@@ -34,6 +34,7 @@ Examples:
   cx --login
   cx --auth-status
   cx --logout
+  cx --setup-slurm SSH_ALIAS --shared-dir /shared/path/cx [--job-id-pattern REGEX]
   cx --shell [--add-dir DIR ...] [--add-file FILE ...]
   cx --build                 Build the image (cached layers allowed)
   cx --rebuild               Rebuild with fresh layers
@@ -46,6 +47,7 @@ Codex configuration:
   CX_CODEX_HOME/config.toml (default: ~/.codex/config.toml).
 
 Environment:
+  SSH MCP tools are registered automatically; --no-ssh-mcp uses CLI tools only.
   SSH mode uses host SSH configuration and requires host Python 3.11+, OpenSSH,
   an interactive terminal, and a remote Bash shell. Ctrl-] r opens SSH;
   Ctrl-] c hands control to Codex. Ctrl-] q exits the SSH-mode session.
@@ -64,6 +66,7 @@ Environment:
   CX_MEMORY        Container memory limit, default: 8g
   CX_CPUS          Container CPU limit, default: 4
   CX_PIDS          Container process limit, default: 1024
+  CX_SLURM_CONFIG  Host file for per-SSH-alias Slurm settings, default: ~/.config/cx/slurm-servers.json
 
 Workspace layout:
   Sessions start at /workspace, containing main/, cx-external/, and remote/.
@@ -505,6 +508,11 @@ run_container() {
     # override to Codex; the mounted system config supplies those instructions.
     local -a ssh_args=()
     if [[ -n "${CX_SSH_BRIDGE_DIR:-}" ]]; then
+        if [[ "${CX_SSH_MCP:-1}" == 1 ]]; then
+            docker run --rm --entrypoint node "$IMAGE" -e \
+                'require("node:fs").accessSync("/opt/cx-mcp/server.mjs"); require.resolve("/opt/cx-mcp/node_modules/@modelcontextprotocol/sdk/package.json")' \
+                || die "SSH MCP adapter missing from image. Run cx --rebuild, or use --ssh HOST --no-ssh-mcp."
+        fi
         ssh_args=(--mount "type=bind,src=${CX_SSH_BRIDGE_DIR},dst=/cx-ssh,readonly"
             --env CX_SSH_SOCKET=/cx-ssh/bridge.sock --env "CX_SSH_HOST=${CX_SSH_HOST}")
     fi
@@ -710,6 +718,12 @@ main() {
         -h|--help) usage; return ;;
         --version) printf 'cx %s\n' "$VERSION"; return ;;
         --doctor) doctor; return ;;
+        --setup-slurm)
+            shift
+            command -v python3 >/dev/null || die "Slurm setup requires Python 3 on the host."
+            command -v ssh >/dev/null || die "Slurm setup requires OpenSSH on the host."
+            python3 "$CX_ROOT/bin/cx-slurm-setup.py" "$@"
+            return ;;
     esac
     require_docker
     case "${1:-}" in
@@ -735,11 +749,12 @@ main() {
     local workspace
     workspace="$(canonical_directory "$target")"
     validate_workspace "$workspace"
-    local ssh_host="" remote_dir="" saw_ssh=false saw_dir=false parse_remote=true mount_mode=""
+    local ssh_host="" remote_dir="" saw_ssh=false saw_dir=false parse_remote=true mount_mode="" ssh_mcp=1
     local -a forwarded=()
     while (($#)); do
         if [[ "$parse_remote" == true ]]; then
             case "$1" in
+                --no-ssh-mcp) ssh_mcp=0; shift; continue ;;
                 --) parse_remote=false ;;
                 --ssh-mount|--ssh-mount=*)
                     [[ -z "$mount_mode" ]] || die "--ssh-mount may only be supplied once."
@@ -762,6 +777,7 @@ main() {
         forwarded+=("$1"); shift
     done
     [[ "$saw_dir" == false || "$saw_ssh" == true ]] || die "--remote-dir requires --ssh."
+    [[ "$ssh_mcp" == 1 || "$saw_ssh" == true ]] || die "--no-ssh-mcp requires --ssh."
     if [[ -n "$mount_mode" ]]; then
         [[ "$saw_ssh" == true ]] || die "--ssh-mount requires --ssh."
         [[ "$remote_dir" == /* ]] || die "--ssh-mount requires an absolute --remote-dir."
@@ -775,7 +791,10 @@ main() {
         python3 -c "import tomllib" 2>/dev/null || die "SSH mode requires Python 3.11 or newer."
         command -v ssh >/dev/null || die "SSH mode requires OpenSSH on the host."
         [[ -t 0 && -t 1 ]] || die "SSH mode requires an interactive terminal."
-        exec env "CX_SSH_MOUNT_REQUEST=${mount_mode}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
+        local slurm_interactive_dir slurm_job_pattern
+        slurm_interactive_dir="$(python3 "$CX_ROOT/bin/cx-slurm-setup.py" --lookup "$ssh_host")" || die "Cannot read Slurm configuration for $ssh_host."
+        slurm_job_pattern="$(python3 "$CX_ROOT/bin/cx-slurm-setup.py" --lookup-pattern "$ssh_host")" || die "Cannot read Slurm job-ID pattern for $ssh_host."
+        exec env "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
             "$CX_ROOT/bin/cx" "$workspace" "${forwarded[@]}"
     fi
     run_container "$workspace" "${forwarded[@]}"

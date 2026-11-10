@@ -18,10 +18,12 @@ trap 'rm -rf -- "$stage"' EXIT
 # Explicit file list: adding a file to the repository does not distribute it.
 files=(
     VERSION README.md CHANGELOG.md .gitignore cx install.sh uninstall.sh
-    bin/cx bin/cx-ssh-bridge.py bin/cx_screen.py config/config.toml
+    bin/cx bin/cx-ssh-bridge.py bin/cx-slurm-setup.py bin/cx_screen.py config/config.toml
     container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
+    container/mcp/package.json container/mcp/package-lock.json container/mcp/server.mjs
+    tests/mcp.mjs tests/slurm_setup.py
     docs/INSTALL.md docs/USAGE.md docs/ARCHITECTURE.md docs/MAINTAINING.md
-    scripts/package.sh scripts/verify-docker.sh tests/smoke.mjs tests/ssh_bridge.py tests/screens.py tests/remote-client.mjs
+    scripts/package.sh scripts/verify-docker.sh scripts/cx-interactive-hook.sh tests/smoke.mjs tests/ssh_bridge.py tests/screens.py tests/remote-client.mjs
     # Bundled pure Python sources and notices; no installed binaries or caches.
     bin/vendor/README.md
     bin/vendor/pyte/AUTHORS

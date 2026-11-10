@@ -18,7 +18,7 @@ const home = path.join(temp, 'home');
 const log = path.join(temp, 'docker.jsonl');
 for (const dir of [fixture, mockBin, project, home]) fs.mkdirSync(dir, {recursive:true});
 for (const file of ['bin','container','config','docs','scripts','tests','VERSION','README.md','CHANGELOG.md','.gitignore','cx','install.sh','uninstall.sh']) {
-  fs.cpSync(path.join(root,file),path.join(fixture,file),{recursive:true});
+  fs.cpSync(path.join(root,file),path.join(fixture,file),{recursive:true,filter:source=>path.basename(source)!=='node_modules'});
 }
 const env = {...process.env};
 for (const key of Object.keys(env)) if (key.startsWith('CX_')) delete env[key];
@@ -99,6 +99,17 @@ check('SSH bridge mount is explicit and remote options are validated',()=>{
     reset(); const result=bash('cx',[project,...options],{ok:false});
     assert.notEqual(result.status,0); assert.equal(lastRun(),undefined);
   }
+});
+check('SSH MCP opt-out is validated and missing adapters fail explicitly',()=>{
+  reset();
+  assert.notEqual(bash('cx',[project,'--no-ssh-mcp'],{ok:false}).status,0);
+  reset();
+  const bridge=path.join(temp,'bridge');
+  const result=bash('cx',[project],{ok:false,env:{...env,CX_SSH_BRIDGE_DIR:bridge,CX_SSH_HOST:'delta',MOCK_DOCKER_FAIL:'run'}});
+  assert.notEqual(result.status,0);
+  assert.match(result.stderr,/adapter missing/);
+  reset(); bash('cx',[project],{env:{...env,CX_SSH_BRIDGE_DIR:bridge,CX_SSH_HOST:'delta',CX_SSH_MCP:'0'}});
+  assert.equal(calls().filter(x=>x[0]==='run').length,1);
 });
 check('remote filesystem mounts are optional, read-only by default, and can be writable',()=>{
   const mount=path.join(temp,'remote files'); fs.mkdirSync(mount);

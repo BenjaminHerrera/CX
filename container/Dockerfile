@@ -40,6 +40,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY cx-entrypoint cx-env cx-remote /usr/local/bin/
+COPY mcp/ /opt/cx-mcp/
+RUN cd /opt/cx-mcp && npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # The actual UID/GID is supplied by `docker run`.
 RUN chmod 0755 /usr/local/bin/cx-entrypoint /usr/local/bin/cx-env /usr/local/bin/cx-remote \
