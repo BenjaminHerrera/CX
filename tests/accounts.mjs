@@ -15,7 +15,7 @@ Object.assign(env,{HOME:home,CX_DATA_HOME:data,PATH:`${bin}:${process.env.PATH}`
 fs.writeFileSync(path.join(bin,'docker'),`#!/usr/bin/env node
 const fs=require('node:fs');const args=process.argv.slice(2);
 fs.appendFileSync(process.env.CX_TEST_LOG,JSON.stringify(args)+'\\n');
-if(args[0]==='image'&&args.includes('--format'))console.log(process.env.CX_TEST_OLD_IMAGE?'0':'1');
+if(args[0]==='image'&&args.includes('--format'))console.log(process.env.CX_TEST_OLD_IMAGE||(process.env.CX_TEST_OLD_SSH_IMAGE&&args.some(a=>a.includes('io.cx.ssh-agents')))?'0':'1');
 if(args[0]==='run'&&process.env.CX_TEST_EXIT)process.exit(Number(process.env.CX_TEST_EXIT));
 `,{mode:0o755});
 const launcher=path.join(root,'bin/cx');
@@ -178,6 +178,13 @@ check('AGENTS startup imports use an ephemeral memory file and never edit the pr
   fs.unlinkSync(agents);fs.unlinkSync(claude);
   assert.equal(adapter(['--cx-session','prompt']).status,0);
   assert.equal(fs.existsSync(path.join(adapterWorkspace,'.claude/CLAUDE.md')),false);
+});
+check('Claude SSH keeps its native project overlay and rejects old images',()=>{
+  clear();ok(pair('claude','work'),{CX_SSH_BRIDGE_DIR:temp,CX_SSH_HOST:'fixture',CX_SSH_INSTRUCTIONS:'current context',CX_SSH_MCP:'1'});
+  assert.ok(last().some(a=>a.startsWith('/workspace/.claude:')));
+  assert.ok(last().includes('CX_SSH_INSTRUCTIONS=current context'));
+  const failed=run(pair('claude','work'),{CX_SSH_BRIDGE_DIR:temp,CX_SSH_HOST:'fixture',CX_TEST_OLD_SSH_IMAGE:'1'});
+  assert.notEqual(failed.status,0);assert.match(failed.stderr,/lacks Claude SSH support/);
 });
 check('API-key auth is selected privately and never supplied as native arguments',()=>{
   fs.writeFileSync(ca+'/api-key','selected-fixture');

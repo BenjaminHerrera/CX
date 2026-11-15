@@ -548,6 +548,9 @@ run_container() {
         ssh_args+=(--tmpfs "/workspace/.claude:rw,nosuid,nodev,size=16m,mode=700,uid=${uid},gid=${gid}")
     fi
     if [[ -n "${CX_SSH_BRIDGE_DIR:-}" ]]; then
+        if [[ "$AGENT" == claude ]]; then
+            [[ "$(docker image inspect --format '{{index .Config.Labels "io.cx.ssh-agents"}}' "$IMAGE")" == 1 ]] || die "Image lacks Claude SSH support. Run cx --rebuild."
+        fi
         if [[ "${CX_SSH_MCP:-1}" == 1 ]]; then
             docker run --rm --entrypoint node "$IMAGE" -e \
                 'require("node:fs").accessSync("/opt/cx-mcp/server.mjs"); require.resolve("/opt/cx-mcp/node_modules/@modelcontextprotocol/sdk/package.json")' \
