@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add Claude SSH launch guidance and session-only cx_ssh MCP registration through
+  built-in agent adapters. Preserve shared command tracking and native ownership.
+- Identify the selected agent/account in the blue assistant terminal bar.
+
 - Establish the `v2` integration workflow for multi-CLI/account development,
   including CI on integration pushes and implementation PRs targeting `v2`.
 - Add named Codex/Claude accounts, explicit subscription/API-key login, an

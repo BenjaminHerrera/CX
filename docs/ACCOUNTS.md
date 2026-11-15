@@ -139,9 +139,8 @@ The image defaults to Claude **2.1.323** and accepts `CX_CLAUDE_VERSION` at buil
 time; `CX_CODEX_VERSION` retains its existing override. Managed Codex history
 requires Codex 0.169.0 or later; older versions fail before launching a session. Automatic and manual Claude
 self-updates are disabled. Incompatible images fail with a rebuild instruction.
-Claude permission bypass requires a non-root invoking UID. Claude SSH/MCP/Slurm
-parity is tracked by [CX-2](https://github.com/BenjaminHerrera/CX/issues/2); Claude
-SSH launches fail clearly until that integration is implemented. Codex SSH uses
+Claude permission bypass requires a non-root invoking UID. Claude SSH/MCP/Slurm integration reuses the existing bridge and requires the
+live validation tracked by [CX-2](https://github.com/BenjaminHerrera/CX/issues/2). Codex SSH uses
 the selected profile and retains its existing transport and authentication rules.
 
 ### Shared Codex Resume Picker

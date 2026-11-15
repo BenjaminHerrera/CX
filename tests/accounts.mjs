@@ -190,5 +190,14 @@ check('API-key auth is selected privately and never supplied as native arguments
   routed=adapter(['--cx-auth','login'],{CX_AGENT:'codex',CX_AUTH_MODE:'subscription'});
   assert.equal(routed.status,0,routed.stderr);assert.deepEqual(JSON.parse(routed.stdout).args,['login','--device-auth']);
 });
+check('Claude SSH registration and current resume context are session-only',()=>{
+  const context='Current SSH host: fixture-new-host. Never replay uncertain commands.';
+  const r=adapter(['--cx-session','--resume','fixture'],{CX_SSH_SOCKET:'/cx-ssh/bridge.sock',CX_SSH_INSTRUCTIONS:context,CX_SSH_MCP:'1'});
+  assert.equal(r.status,0,r.stderr);const args=JSON.parse(r.stdout).args;
+  assert.ok(args.includes('--mcp-config'));assert.ok(args.some(a=>a.includes('cx_ssh')&&a.includes('/opt/cx-mcp/server.mjs')));
+  assert.ok(args[args.indexOf('--append-system-prompt')+1].includes(context));
+  const fallback=adapter(['--cx-session','prompt'],{CX_SSH_SOCKET:'/cx-ssh/bridge.sock',CX_SSH_INSTRUCTIONS:context,CX_SSH_MCP:'0'});
+  assert.equal(JSON.parse(fallback.stdout).args.some(a=>a.includes('cx_ssh')),false);
+});
 console.log(`\n${checks} account/adapter checks passed; no live provider authentication.`);
 } finally {fs.rmSync(temp,{recursive:true,force:true});}

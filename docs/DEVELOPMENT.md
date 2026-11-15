@@ -49,7 +49,7 @@ release allowlist.
 checks actual CLI resume and concurrent distinct writes with fixture auth against
 a loopback model simulator. It uses disposable homes and never logs into providers.
 Record exact versions and keep live subscription/API login and Docker checks as
-open gates when unavailable. Claude SSH/MCP/Slurm integration belongs to CX-2.
+open gates when unavailable. Claude SSH/MCP/Slurm live integration validation belongs to CX-2.
 The suite includes `tests/codex-account-history.mjs`, which can also run separately
 with `CX_NATIVE_HISTORY=1`. It checks native subscription-identity filtering and
 ownership rejection with the native check enabled, plus the production shared
