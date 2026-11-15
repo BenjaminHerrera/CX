@@ -48,6 +48,9 @@ check('wrapper selection before/after workspace preserves native profile and -- 
   clear();ok(pair('codex','beta','--profile','native','exec','task','--','--agent','custom','--account','literal'));
   const a=last();assert.deepEqual(a.slice(-10),['--profile','native','exec','--skip-git-repo-check','task','--','--agent','custom','--account','literal'].slice(-10));
   assert.ok(a.includes('CX_AUTH_MODE=api-key'));
+  ok([project,'-p','--agent','claude','--account','work','native print task']);
+  assert.ok(last().includes('CX_AGENT=claude'));
+  ok(pair('claude','work','-c'));assert.equal(last().at(-1),'-c');
   assert.equal(run(pair('codex','beta','exec','-'),{CX_TEST_EXIT:'23'}).status,23);
 });
 check('only selected account and its own CLI history are mounted; refresh paths are directories',()=>{

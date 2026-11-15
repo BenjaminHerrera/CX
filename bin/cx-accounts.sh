@@ -47,7 +47,7 @@ account_options() {
                     shift 2; continue ;;
                 --agent=*) [[ -z "$AGENT" ]] || die "Duplicate --agent."; AGENT="${1#*=}"; valid_agent "$AGENT" || die "Invalid --agent."; shift; continue ;;
                 --account=*) [[ -z "$ACCOUNT" ]] || die "Duplicate --account."; ACCOUNT="${1#*=}"; valid_account "$ACCOUNT" || die "Invalid --account."; shift; continue ;;
-                -c|--config|--profile|-p|--model|-m|--add-dir|--add-file|--ssh|--remote-dir|--enable|--disable|--settings|--mcp-config|--append-system-prompt|--system-prompt)
+                --config|--profile|--model|-m|--add-dir|--add-file|--ssh|--remote-dir|--enable|--disable|--settings|--mcp-config|--append-system-prompt|--system-prompt)
                     (($# > 1)) || die "$1 requires a value."
                     SELECTION_ARGS+=("$1" "$2"); shift 2; continue ;;
             esac
