@@ -1,0 +1,27 @@
+name: Usage question
+description: Ask for help with installation, configuration, or usage.
+title: "[Question]: "
+body:
+  - type: markdown
+    attributes:
+      value: Read SUPPORT.md and the documentation first. Do not post authentication secrets or private configuration.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and environment
+      description: cx version, host OS, terminal, installed/portable, local/SSH, and relevant mount or Slurm setup.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Relevant documentation, minimal commands, and redacted output.
+    validations:
+      required: true

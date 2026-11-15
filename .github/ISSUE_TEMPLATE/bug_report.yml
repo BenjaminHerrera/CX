@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible cx failure.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues and read docs/USAGE.md troubleshooting first.
+        Redact secrets, private paths, hostnames, and account details. Security reports follow SECURITY.md.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: cx --version, Codex version, and Docker version if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS/WSL, terminal, Docker mode, installed or portable, local or SSH. For SSH, include mounting/Slurm mode and whether ordinary ssh works.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal command and numbered steps using disposable data. Do not repeat a remote command with an unknown outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and relevant output
+      description: Include redacted errors or a screenshot if useful. Never upload credentials, Codex home, or portable data directories.
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks and workarounds tried
+      description: Relevant cx --doctor output, last working version, and any safe workaround.

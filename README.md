@@ -1,185 +1,104 @@
-# cx — Codex in a Docker container
+# cx — Codex in Docker
 
-**Version 1.2.1.** Run Codex in a disposable Docker container with your local
-project, selected extra directories or files, and optional SSH access. Edits
-update the original files. Credentials, settings, and development environments
-persist between sessions.
+Run Codex against your local project in a disposable Docker container, with
+persistent settings and development environments. Connect to an SSH host for
+remote commands, file access, and interactive Slurm CPU/GPU sessions.
 
-Version 1.2.1 adds interactive MCP sessions for the existing `cpu` and `gpu`
-functions. `cx --setup-slurm` installs the remote hook and saves a shared cx
-directory per SSH alias. The hook confirms the Slurm allocation shell before cx
-sends commands. See the [changelog](CHANGELOG.md) and
-[interactive setup](docs/USAGE.md#interactive-cpu-and-gpu-sessions).
+**Version 1.2.1** · [Documentation](docs/README.md) · [Changelog](CHANGELOG.md) ·
+[Issues](https://github.com/BenjaminHerrera/CX/issues/new/choose)
+
+## Features
+
+- A consistent workspace for your project, extra directories, and individual files.
+- Installed and portable editions with persistent Codex settings and environments.
+- Optional SSH mode with separate terminal screens, tracked commands, and MCP tools.
+- Optional SSHFS browsing/editing and per-server Slurm interactive setup.
+
+cx is an independent wrapper for Codex CLI, not an official OpenAI product.
 
 ## Requirements
 
-- Linux or a Linux distribution inside WSL2, with Bash 4+, GNU coreutils,
-  `sed`, and `tar`/`gzip`.
-- A running **local Docker daemon** accessible to your user. For WSL2, enable
-  Docker Desktop integration for your distribution. Remote Docker daemons
-  cannot bind-mount your local project paths correctly.
-- Internet access for image builds, sign-in, and Codex requests, plus an
-  account with Codex access.
-- Resources for the default main container limits: 8 GB memory, 4 CPUs, and
-  1,024 processes. These limits are configurable.
+Linux or WSL2 with Bash 4+, GNU coreutils, `sed`, `tar`/`gzip`, a running
+**local Docker daemon** accessible to your user, internet access, and an account
+with Codex access. Default container limits are 8 GB memory and 4 CPUs;
+[these are configurable](docs/USAGE.md#settings).
 
-Local sessions do not need host Node.js, Micromamba, Python, or SSH setup.
-Optional SSH sessions need host Python 3.11+, OpenSSH, an interactive
-terminal, and a remote Bash shell. Optional remote filesystem mounts also
-need host SSHFS/FUSE and server SFTP access. See [SSH setup](docs/INSTALL.md#optional-ssh-prerequisites).
-Native macOS and Windows shells are outside this package's supported scope.
+SSH additionally requires host Python 3.11+, OpenSSH, an interactive terminal,
+and remote Bash. Remote file mounts require SSHFS/FUSE and server SFTP support.
+Native macOS and Windows shells are outside the supported scope.
 
-## Install or upgrade
+## Quick start
 
-From the updated repository or extracted install release:
+On your Linux/WSL host:
 
 ```bash
+git clone https://github.com/BenjaminHerrera/CX.git
+cd CX
 ./install.sh
-```
-
-This installs into `~/.local` and builds the Docker image. Existing managed
-installations are backed up; credentials, environments, and the installed
-system configuration are preserved. Reuse `--prefix /your/original/prefix`
-if you originally selected a custom prefix.
-
-Add the launcher directory to your shell profile if needed:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-Then sign in and start a session:
-
-```bash
+export PATH="$HOME/.local/bin:$PATH"  # Add to your shell profile if needed
 cx --doctor
 cx --login
 cx /path/to/project
 ```
 
-Use the device-login link and code printed during sign-in. See the
-[installation guide](docs/INSTALL.md) for authentication, custom paths,
-rollback, and removal.
+The installer builds the image and installs to `~/.local`. Complete the displayed
+device-login steps. See [installation](docs/INSTALL.md) for custom prefixes,
+portable archives, upgrades, rollback, and removal.
 
-**Upgrading from 1.1.x:** run `./install.sh` with its default image build,
-then restart sessions. MCP requires the new container adapter. Saved settings,
-credentials, and environments are preserved. A host-only update can use an
-older image with `--ssh HOST --no-ssh-mcp`; rebuild before enabling MCP.
+## Everyday use
 
-**Upgrading from 1.0.x or older:** rebuild the image and migrate container
-paths to the three-folder workspace layout. Review the new default
-instructions against your preserved installed configuration.
-[Upgrade details](docs/INSTALL.md#upgrading-to-121).
+```bash
+cx .                                      # Open the current project
+cx . exec "Run the tests and fix failures"  # Run a non-interactive task
+cx . --add-dir ../shared                   # Share another writable directory
+cx . --add-file ~/notes.md                 # Share one existing writable file
+cx --shell                                # Open a container shell
+cx --help                                 # Show launcher options
+```
 
-## Workspace layout
-
-Sessions start at `/workspace`. Running `ls -al` shows:
+Inside the container:
 
 ```text
 /workspace/
-├── main/          # contents of the selected local project
-├── cx-external/   # extra local directories and individual files
-└── remote/        # optional SSHFS view of the remote project
+├── main/          # Selected local project
+├── cx-external/   # Added local directories and files
+└── remote/        # Optional SSHFS view
 ```
 
-For `cx ~/projects/app`, the contents of that directory appear directly in
-`main/`. These are container paths; cx does not create these folders inside
-your local project. Unused `cx-external/` and `remote/` folders remain empty.
+Edits to writable mounts update the original files. Individually mounted files
+require in-place writes; replacing their mountpoints by rename is unsupported.
+See [usage](docs/USAGE.md) for filtering, persistence, and configuration.
 
-## Local commands
+## Optional SSH and Slurm
+
+Use an alias from your host SSH configuration:
 
 ```bash
-cx .                                      # Select the current local project
-cx . exec "Run the tests and fix failures" # Run a non-interactive task
-cx . --add-dir ../shared                   # Share another writable directory
-cx . --add-file ~/notes.md                 # Share one existing writable file
-cx --shell                                # Open a shell at /workspace
-cx --auth-status                          # Check Codex sign-in
-cx --build                                # Build with cached layers
-cx --rebuild                              # Refresh base image and rebuild all layers
-cx --help                                 # Show options
+cx /path/to/local/project --ssh my-server --remote-dir /remote/project
+# Add --ssh-mount for read-only file browsing, or --ssh-mount=rw for edits.
 ```
 
-Repeat or combine `--add-dir` and `--add-file`. Relative paths resolve from
-the selected local project. Extra files and directories appear under
-`/workspace/cx-external`; project files already under `main/` keep their
-existing location. Individual file mounts require **in-place writes**;
-rename-based replacement and deletion of their mountpoints are unsupported.
-See [usage](docs/USAGE.md) for naming, filtering, and configuration.
+Complete login/MFA directly. At the remote Bash prompt, press **Ctrl-]**, then
+**c** to enter Codex; **Ctrl-] r** returns to SSH. The top bar identifies the
+active screen. MCP tools and `cx-remote` share the remote shell.
 
-## Optional SSH sessions
+For Slurm, first run `cx --setup-slurm my-server --shared-dir /shared/myuser/cx`
+on your host. The server must provide compatible `cpu` and `gpu` Bash functions.
+Read [SSH usage](docs/USAGE.md#work-through-ssh) and
+[interactive setup](docs/USAGE.md#interactive-cpu-and-gpu-sessions) before allocating resources.
 
-```bash
-mkdir -p ~/cx-remote
-cx ~/cx-remote --ssh delta --remote-dir /srv/project
-```
+## Access, support, and contributing
 
-`delta` uses your host's SSH configuration and credentials. Complete login
-and MFA directly in the terminal. At a Bash prompt, press **Ctrl-]**, then
-**c** to start Codex. **Ctrl-] r** returns to the SSH terminal for interaction.
-The colored bar always identifies the active screen. **Ctrl-] q** exits the
-SSH-mode session. No tmux installation is needed; the screen renderer is
-bundled with cx. Use the wheel to scroll; **Shift-drag** selects text for
-copying. In Windows Terminal, copy with **Ctrl+Shift+C**. **Ctrl-] b** returns
-to the live view, and **Ctrl-] m** toggles wheel capture for plain drag selection.
-Commands share a persistent remote shell:
+Codex can modify writable mounts and persisted settings. SSH commands use your
+remote account's permissions, even when the remote file mount is read-only.
+Review the [access model](docs/ARCHITECTURE.md#access-boundaries) before use.
 
-```bash
-# Inside the cx session:
-cx-remote status
-cx-remote exec 'hostname; pwd; ls'
-```
+- [Support and troubleshooting](SUPPORT.md)
+- [Contribution process](CONTRIBUTING.md) and [development guide](docs/DEVELOPMENT.md)
+- [Security policy](SECURITY.md) and [community conduct](CODE_OF_CONDUCT.md)
 
-Add `--ssh-mount` to browse remote files at `/workspace/remote`, read-only.
-Use `--ssh-mount=rw` to allow direct remote edits:
+## License status
 
-```bash
-cx ~/cx-remote --ssh delta --remote-dir /srv/project --ssh-mount
-cx ~/cx-remote --ssh delta --remote-dir /srv/project --ssh-mount=rw
-```
-
-Remote command execution stays available in either mode. The local project
-remains at `/workspace/main`. See [SSH usage](docs/USAGE.md#work-through-ssh)
-for authentication, mount permissions, reconnection, and Delta/Slurm behavior.
-
-## Installed and portable editions
-
-| | Installed | Portable |
-|---|---|---|
-| Start | `cx /path/to/project` | `/path/to/bundle/cx /path/to/project` |
-| Program | `~/.local/share/cx/program` | Extracted folder |
-| Credentials and settings | `~/.codex` | `bundle/data/codex` |
-| Development environments | `~/.local/share/cx/environments` | `bundle/data/environments` |
-
-Both editions require Docker. Portable archives contain source, not a prebuilt
-image. From a fresh portable bundle:
-
-```bash
-./cx --build
-./cx --login
-./cx /path/to/project
-```
-
-Select a project **outside the bundle**, since its `data/` contains private
-credentials. Keep the bundle together when moving it. Portable mode does not
-modify PATH or install into `~/.local`.
-
-## Documentation and verification
-
-- [Installation, upgrades, and removal](docs/INSTALL.md)
-- [Commands, SSH, mounts, environments, and troubleshooting](docs/USAGE.md)
-- [Architecture, persistence, and access](docs/ARCHITECTURE.md)
-- [Tests and release packaging](docs/MAINTAINING.md)
-- [Changelog](CHANGELOG.md)
-
-CPU and GPU interactive MCP sessions were verified with small live Alpine
-allocations, including execution on compute nodes and cleanup. This does not
-verify other sites or allocation modes. SSHFS tests mock mounting; live Windows
-Terminal/WSL, Docker, FUSE, sign-in, and Delta MFA require separate checks.
-Run `./scripts/verify-docker.sh --build` on a Docker host
-for container verification, then follow the live SSH checklist in the
-maintenance guide.
-
-Create clean `1.2.1` install and portable archives with
-`./scripts/package.sh`. Archives and checksums go into `dist/`; packaging
-excludes credentials, runtime data, and caches. Never distribute a used
-portable bundle's private `data/` directory.
+The original cx code currently has **no distribution license**. Public source
+availability does not grant an open-source license. Bundled dependencies retain
+their [upstream licenses](bin/vendor/README.md).

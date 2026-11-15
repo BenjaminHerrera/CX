@@ -47,7 +47,7 @@ mkdir -p -- "$prefix/bin" "$install_root/config"
 staging="$(mktemp -d "$install_root/.install.XXXXXX")"
 cleanup() { [[ ! -d "$staging" ]] || rm -rf -- "$staging"; }
 trap cleanup EXIT
-for item in bin container docs VERSION README.md CHANGELOG.md uninstall.sh; do
+for item in bin container docs VERSION README.md CHANGELOG.md CONTRIBUTING.md SUPPORT.md SECURITY.md CODE_OF_CONDUCT.md AGENTS.md uninstall.sh; do
     cp -R -- "$package_root/$item" "$staging/"
 done
 install -m 0644 "$package_root/scripts/cx-interactive-hook.sh" "$staging/bin/cx-interactive-hook.sh"

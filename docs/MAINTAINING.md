@@ -1,5 +1,9 @@
 # Maintenance and verification
 
+Start with the [development guide](DEVELOPMENT.md) for local setup and component
+workflows. See [GitHub maintenance](GITHUB.md) for triage, repository settings,
+and the release checklist. The [documentation index](README.md) lists all guides.
+
 The launcher is Bash; the optional host SSH bridge uses Python 3.11+ standard
 library modules plus bundled pure Python pyte/wcwidth sources for screen
 rendering. The container client and wrapper tests use Node.js built-in
@@ -29,6 +33,7 @@ python3 -B tests/screens.py
 | `screens.py` | Saved screen isolation, full-width bars, normal/alternate scrollback, pinned history, resize, Unicode, dim text and background shading, indexed/RGB colors, underline styles, standalone imports, and optional native VT tests |
 | `slurm_setup.py` | Fake SSH server setup, separate aliases, paths with spaces, job-ID patterns, idempotence, hook discovery, configuration privacy, and refusal of unmanaged hooks |
 | `remote-client.mjs` | Command transport, quoting, streamed output, and returned exit status |
+| `mcp.mjs` | SDK discovery, input validation, structured results, command routing, and adapter restarts |
 | `ssh_bridge.py` | Real PTYs with fake SSH, persistent shell state, framing, terminal handoff, resizing/restoration, manual input exclusion, terminal-reply ownership, Windows/enhanced keyboard modes, paste, wheel routing/encoding, capture toggle, history controls, theme reply isolation, TTY restoration, and mocked SSHFS setup/cleanup/instructions |
 
 The suites use temporary fixtures, never sign in, and never send model

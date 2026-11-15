@@ -1,0 +1,28 @@
+name: Feature proposal
+description: Propose a focused improvement to cx.
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Who needs this, and what is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Give a concrete workflow or example command and expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and tradeoffs
+      description: Existing workarounds, compatibility, setup, permissions, and persistence implications.
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and validation
+      description: Local/SSH/Slurm, installed/portable, affected platforms, and how success could be checked.

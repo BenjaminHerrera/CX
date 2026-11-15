@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation and troubleshooting
+    url: https://github.com/BenjaminHerrera/CX/blob/main/docs/README.md
+    about: Start with installation, usage, and support guides.
+  - name: Security policy
+    url: https://github.com/BenjaminHerrera/CX/blob/main/SECURITY.md
+    about: Follow the private reporting instructions; do not post vulnerabilities publicly.

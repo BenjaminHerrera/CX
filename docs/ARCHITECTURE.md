@@ -8,6 +8,7 @@ cx package/
 ├── bin/
 │   ├── cx                Host launcher used by both editions
 │   ├── cx-ssh-bridge.py   Optional host SSH/terminal/filesystem supervisor
+│   ├── cx-slurm-setup.py  Per-alias shared-path and remote hook setup
 │   ├── cx_screen.py       Independent saved screens and reserved session bar
 │   └── vendor/            Pure Python renderer libraries and upstream licenses
 ├── config/config.toml    Default Codex developer instructions
@@ -16,6 +17,7 @@ cx package/
 │   ├── cx-entrypoint     Select environment and start the requested process
 │   ├── cx-env            Inspect and select persistent environments
 │   ├── cx-remote         Container client for the host SSH bridge
+│   ├── mcp/              Stdio SSH adapter and locked SDK dependencies
 │   └── .dockerignore     Restrict image build inputs
 ├── install.sh            Install or upgrade managed program files
 ├── uninstall.sh          Remove managed code; preserve configuration/data

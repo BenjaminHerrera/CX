@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: Offline checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: container/mcp/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test-only dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes tmux
+          npm ci --prefix container/mcp --ignore-scripts
+      - name: Wrapper, installation, and package checks
+        run: node tests/smoke.mjs
+      - name: Remote CLI checks
+        run: node tests/remote-client.mjs
+      - name: MCP checks
+        run: node tests/mcp.mjs
+      - name: SSH bridge checks
+        run: python3 -B tests/ssh_bridge.py
+      - name: Slurm setup checks
+        run: python3 -B tests/slurm_setup.py
+      - name: Screen and native terminal checks
+        run: python3 -B tests/screens.py
+      - name: Whitespace checks
+        run: git diff --check

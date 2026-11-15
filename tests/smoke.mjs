@@ -17,7 +17,7 @@ const project = path.join(temp, 'project with spaces');
 const home = path.join(temp, 'home');
 const log = path.join(temp, 'docker.jsonl');
 for (const dir of [fixture, mockBin, project, home]) fs.mkdirSync(dir, {recursive:true});
-for (const file of ['bin','container','config','docs','scripts','tests','VERSION','README.md','CHANGELOG.md','.gitignore','cx','install.sh','uninstall.sh']) {
+for (const file of ['bin','container','config','docs','scripts','tests','.github','VERSION','README.md','CHANGELOG.md','CONTRIBUTING.md','SUPPORT.md','SECURITY.md','CODE_OF_CONDUCT.md','AGENTS.md','.gitignore','cx','install.sh','uninstall.sh']) {
   fs.cpSync(path.join(root,file),path.join(fixture,file),{recursive:true,filter:source=>path.basename(source)!=='node_modules'});
 }
 const env = {...process.env};
@@ -222,6 +222,9 @@ check('installation works without Docker and uses installed data defaults',()=>{
   const launcher=path.join(prefix,'bin/cx'); assert.ok(fs.lstatSync(launcher).isSymbolicLink());
   assert.equal(fs.existsSync(path.join(prefix,'share/cx/program/scripts')),false);
   assert.equal(fs.existsSync(path.join(prefix,'share/cx/program/tests')),false);
+  for (const guide of ['CONTRIBUTING.md','SUPPORT.md','SECURITY.md','CODE_OF_CONDUCT.md','AGENTS.md','docs/README.md','docs/DEVELOPMENT.md','docs/GITHUB.md']) {
+    assert.ok(fs.existsSync(path.join(prefix,'share/cx/program',guide)), `missing installed guide: ${guide}`);
+  }
   run('bash',[launcher,project]); const args=lastRun();
   contains(args,`src=${home}/.codex,dst=/codex-home`);
   contains(args,`src=${home}/.local/share/cx/environments/`);
