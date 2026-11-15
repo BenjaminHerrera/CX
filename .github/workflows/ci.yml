@@ -38,7 +38,9 @@ jobs:
       - name: Wrapper, installation, and package checks
         run: node tests/smoke.mjs
       - name: Account Isolation and CLI Adapter Checks
-        run: node tests/accounts.mjs
+        run: |
+          node tests/accounts.mjs
+          node tests/codex-resume.mjs
       - name: Remote CLI checks
         run: node tests/remote-client.mjs
       - name: MCP checks

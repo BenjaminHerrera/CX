@@ -18,6 +18,13 @@ private mounts, native resume, Claude project settings/MCP, and migration.
 Existing native homes are untouched. Explicit `CX_CODEX_HOME` retains legacy
 Codex operation outside managed history sharing. Rebuild the image after upgrade.
 
+Interactive managed Codex `resume` uses cx's shared-history picker to show
+conversations across local accounts. Choose a number, use `n`/`p` for pages, or
+`q` to cancel. `resume --all` removes directory filtering; explicit IDs and
+`--last` retain native behavior. Native Codex checks still decide whether the
+selected account may resume. See [shared resume](ACCOUNTS.md#shared-codex-resume-picker).
+Rebuild the image after updating to include this picker.
+
 ## Start a session
 
 ```bash

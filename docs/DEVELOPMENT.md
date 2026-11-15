@@ -18,6 +18,7 @@ a runtime requirement. Python rendering dependencies are bundled in `bin/vendor`
 npm ci --prefix container/mcp --ignore-scripts
 node tests/smoke.mjs
 node tests/accounts.mjs
+node tests/codex-resume.mjs
 node tests/remote-client.mjs
 node tests/mcp.mjs
 python3 -B tests/ssh_bridge.py
@@ -51,9 +52,10 @@ Record exact versions and keep live subscription/API login and Docker checks as
 open gates when unavailable. Claude SSH/MCP/Slurm integration belongs to CX-2.
 The suite includes `tests/codex-account-history.mjs`, which can also run separately
 with `CX_NATIVE_HISTORY=1`. It checks native subscription-identity filtering and
-ownership rejection. Passing an API-style fixture test does not prove cross-account
-ChatGPT subscription compatibility; the current native picker restriction remains
-an explicit CX-1 blocker.
+ownership rejection with the native check enabled, plus the production shared
+history listing client. `node tests/codex-resume.mjs` covers the cx picker and
+native CLI handoff. Passing an API-style fixture test does not prove subscription
+account compatibility; report native restrictions and host tests separately.
 
 ## Component map
 

@@ -57,8 +57,11 @@ are rewritten. Directory mounts support atomic credential refresh/logout.
 Explicit `CX_CODEX_HOME` retains legacy behavior outside history sharing.
 Shared storage does not override native account restrictions: Codex 0.169.0
 filters account-scoped ChatGPT conversations by identity in its resume picker and
-can reject cross-account resume. This remains an unmet CX-1 requirement; see the
-[compatibility limitation](ACCOUNTS.md#known-codex-subscription-history-limitation).
+can reject cross-account resume when its ownership check is enabled. Managed
+interactive `resume` uses `container/cx-codex-resume.mjs` to list shared history
+through native `thread/list`, then hands the chosen ID to the real Codex CLI.
+The helper never performs the resume or changes native checks. See the
+[shared picker](ACCOUNTS.md#shared-codex-resume-picker).
 
 See [accounts](ACCOUNTS.md) for the storage tree, native compatibility checks,
 concurrency contract and open live gates. Claude SSH parity is a separate CX-2

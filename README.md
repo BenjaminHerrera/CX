@@ -61,8 +61,8 @@ cx --help                                 # Show launcher options
 Interactive launches show a combined CLI/account picker. Scripts need an explicit
 pair or an automation default. See [accounts and history](docs/ACCOUNTS.md) to add
 Claude accounts, use API keys, resume conversations, or retain a legacy home.
-Codex currently restricts account-scoped subscription history to its original
-ChatGPT identity; cross-account subscription resume remains an open CX-1 blocker.
+Managed Codex `resume` provides a shared-history picker; native Codex performs
+the selected resume and retains any account ownership restrictions.
 Claude local tasks are supported; Claude SSH parity is tracked in CX-2.
 
 Inside the container:

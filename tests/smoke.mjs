@@ -274,7 +274,7 @@ check('clean releases exclude runtime data and run after extraction',()=>{
     const archive=path.join(output,`cx-${version}-${edition}.tar.gz`);
     const listing=run('tar',['-tzf',archive]).stdout;
     assert.equal(listing.includes('/data/'),false); assert.equal(listing.includes('/environments/'),false);
-    for (const required of ['bin/cx-accounts.sh','container/cx-agent','container/cx-guidance.txt','docs/ACCOUNTS.md','tests/accounts.mjs','tests/native-history.mjs','bin/cx_screen.py','bin/vendor/pyte/screens.py','bin/vendor/pyte/LICENSE','bin/vendor/pyte/COPYING','bin/vendor/wcwidth/LICENSE','tests/screens.py']) {
+    for (const required of ['bin/cx-accounts.sh','container/cx-agent','container/cx-codex-resume.mjs','container/cx-guidance.txt','docs/ACCOUNTS.md','tests/accounts.mjs','tests/native-history.mjs','bin/cx_screen.py','bin/vendor/pyte/screens.py','bin/vendor/pyte/LICENSE','bin/vendor/pyte/COPYING','bin/vendor/wcwidth/LICENSE','tests/screens.py']) {
       assert.ok(listing.includes('/'+required), `missing renderer/source notice: ${required}`);
     }
     assert.equal(listing.includes('/__pycache__/'),false);

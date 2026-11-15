@@ -42,7 +42,7 @@ RUN apt-get update \
     && rm -f /tmp/micromamba /tmp/micromamba.sha256 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY cx-entrypoint cx-env cx-remote cx-agent /usr/local/bin/
+COPY cx-entrypoint cx-env cx-remote cx-agent cx-codex-resume.mjs /usr/local/bin/
 LABEL io.cx.accounts="1"
 COPY cx-guidance.txt /opt/cx/guidance.txt
 COPY mcp/ /opt/cx-mcp/

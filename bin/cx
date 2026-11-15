@@ -53,6 +53,8 @@ Account selection:
   cx consumes that first --; use -- -- to forward a native CLI separator.
   Login/status/logout apply only to the selected account. API-key profiles use
   Codex's native stdin login or Claude's hidden terminal prompt.
+  Managed Codex resume opens a shared-history picker (n/p pages, q cancels).
+  Explicit IDs and --last use native resume; native account checks still apply.
   Histories are shared among accounts of the same CLI; credentials/settings
   remain private. Do not edit one conversation concurrently. Claude SSH parity
   is tracked separately in CX-2. Rebuild the image after upgrading cx.

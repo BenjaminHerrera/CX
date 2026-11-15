@@ -54,6 +54,18 @@ case "$agent" in
             fi
         fi
         native_arguments "$@"
+        if [[ "${CX_MANAGED_HISTORY:-}" == 1 && -t 0 && -t 1 ]]; then
+            if selection="$(node "$(dirname -- "${BASH_SOURCE[0]}")/cx-codex-resume.mjs" "${NATIVE_ARGS[@]}")"; then
+                resume_index="${selection%%:*}"
+                resume_id="${selection#*:}"
+                [[ "$resume_index" =~ ^[0-9]+$ && "$resume_id" =~ ^[0-9a-fA-F-]{36}$ ]] || fail 'Invalid history selection.'
+                insert=$((resume_index + 1))
+                NATIVE_ARGS=("${NATIVE_ARGS[@]:0:insert}" "$resume_id" "${NATIVE_ARGS[@]:insert}")
+            else
+                selection_status=$?
+                [[ "$selection_status" == 3 ]] || exit "$selection_status"
+            fi
+        fi
         exec codex --sandbox danger-full-access "${NATIVE_ARGS[@]}" ;;
     claude)
         command -v claude >/dev/null || fail 'Claude is missing from the image; run cx --rebuild.'

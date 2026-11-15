@@ -170,6 +170,7 @@ prepare_account_mounts() {
     local shared item destination=/codex-home
     ACCOUNT_MOUNTS=(); ACCOUNT_ENV=(--env "CX_AGENT=$AGENT" --env "CX_ACCOUNT=$ACCOUNT" --env "CX_AUTH_MODE=$ACCOUNT_AUTH")
     if [[ "$LEGACY_ACCOUNT" == false ]]; then
+        ACCOUNT_ENV+=(--env CX_MANAGED_HISTORY=1)
         shared="$DATA_HOME/history/$AGENT"
         private_directory "$DATA_HOME/history"
         private_directory "$shared"

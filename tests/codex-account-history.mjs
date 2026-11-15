@@ -7,6 +7,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {pickerRequest,chooseHistory,historyClient} from '../container/cx-codex-resume.mjs';
 
 if(process.env.CX_NATIVE_HISTORY!=='1'){
   console.log('SKIP Codex subscription history: set CX_NATIVE_HISTORY=1 to run against a real Codex binary.');
@@ -69,11 +70,22 @@ try{
     assert.ok(listed.result.data.some(x=>x.id===legacy.id),'Legacy unscoped history remains discoverable');
     const unfiltered=await native.rpc('thread/list',{...params,currentAccountOnly:false});
     assert.ok(unfiltered.result?.data.some(x=>x.id===hidden.id),'History exists on disk even when native account filtering hides it');
+    const request=pickerRequest(['-c','features.cli_resume_account_check=true','-c','cli_auth_credentials_store="file"','-c','chatgpt_base_url="http://127.0.0.1:9"','resume','--all']);
+    const discovery=historyClient(request,{binary:process.env.CX_NATIVE_CODEX||'codex',env:{...clean,HOME:dir,CODEX_HOME:dir,CODEX_SQLITE_HOME:path.join(temp,'sqlite'),HTTP_PROXY:'http://127.0.0.1:9',HTTPS_PROXY:'http://127.0.0.1:9',NO_PROXY:'127.0.0.1,localhost'}});
+    try{
+      await discovery.rpc('initialize',{clientInfo:{name:'cx-history-picker',version:'1'}});
+      discovery.notify('initialized');
+      const page=await discovery.rpc('thread/list',{limit:20,currentAccountOnly:false,modelProviders:[],archived:false});
+      assert.ok(page.data.some(row=>row.id===hidden.id),'The production history client must discover the shared conversation');
+    }finally{await discovery.close();}
+    let page;
+    const selected=await chooseHistory(pickerRequest(['resume','--all']),{client:{rpc:async(method,query)=>{page=(await native.rpc(method,query)).result;return page;}},ask:async()=>String(page.data.findIndex(row=>row.id===hidden.id)+1),write:()=>{}});
+    assert.equal(selected,hidden.id,'The cx picker must discover another account\'s session through the supported listing API');
     const denied=await native.rpc('thread/resume',{threadId:hidden.id,excludeTurns:true});
     assert.match(denied.error?.message??'',/different ChatGPT account or workspace/);
     await native.close();
   }
   for(const fixture of [owned,other,legacy])assert.deepEqual(JSON.parse(fs.readFileSync(fixture.filename,'utf8').split('\n')[0]),fixture.metadata,'Creator attribution must remain unchanged');
   console.log('PASS Codex subscription policy: native picker scopes history by identity; enabled ownership checks reject cross-account resume.');
-  console.log('KNOWN CX-1 LIMITATION: shared storage and API-style fixture resume do not establish cross-account ChatGPT subscription resume.');
+  console.log('PASS cx shared discovery finds other-account sessions; native ownership checks still decide whether continuation is allowed.');
 }finally{await Promise.all(clients.map(c=>c.close()));fs.rmSync(temp,{recursive:true,force:true});}

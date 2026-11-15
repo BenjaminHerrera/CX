@@ -144,29 +144,47 @@ parity is tracked by [CX-2](https://github.com/BenjaminHerrera/CX/issues/2); Cla
 SSH launches fail clearly until that integration is implemented. Codex SSH uses
 the selected profile and retains its existing transport and authentication rules.
 
-### Known Codex Subscription History Limitation
+### Shared Codex Resume Picker
 
-Codex **0.169.0** scopes its native resume picker to the current ChatGPT account
-and workspace for account-scoped conversations. A conversation can exist in the
-shared history tree and remain visible to its original account while being hidden
-from a different account. `resume --all` removes directory filtering; it does not
-remove account filtering. When Codex's native resume ownership check is enabled,
-resuming another identity's tagged conversation by ID is also rejected.
+Codex **0.169.0** scopes its native picker to the current ChatGPT account and
+workspace for account-scoped conversations. This does not necessarily prevent
+resuming the conversation directly by ID: the user confirmed direct cross-account
+subscription resume works on their installation, although the second account's
+native picker omits the session. The earlier blanket claim that cross-account
+subscription resume was blocked was incorrect.
 
-The user reproduced this during host testing: `test-sub` still lists its session,
-while `test-sub-2`, logged into a different ChatGPT account, does not. Cross-profile
-same-account resume passed earlier. **Cross-account Codex subscription discovery
-and resume is an unmet CX-1 requirement**, not a completed check. Shared storage
-is preserved; cx does not remove creator tags, disable ownership checks, or
-impersonate another client to bypass this restriction. Use the original account
-to resume the conversation while this compatibility requirement remains blocked.
+For managed accounts, interactive `cx ... resume` now opens cx's shared-history
+picker. It calls Codex's supported `thread/list` API with `currentAccountOnly:false`,
+displays 20 recent conversations per page, and passes the selected UUID to native
+`codex resume`. Enter a number to choose, `n`/`p` to change pages, or `q` to cancel.
+The listing helper never resumes a thread or submits a model request. Native Codex
+retains the selected credentials, permissions, ownership checks and exit status.
+
+```bash
+cx --agent codex --account second /path/to/project resume
+cx --agent codex --account second /path/to/project resume --all
+cx --agent codex --account second /path/to/project resume SESSION_ID
+```
+
+The picker filters by Codex's current directory unless `--all` is supplied. Include
+`--include-non-interactive` to show scripted sessions too. Explicit IDs, `--last`,
+remote connections, unrecognized picker options, noninteractive launches, and
+legacy `CX_CODEX_HOME` sessions retain native behavior. The in-session `/resume`
+command also remains the native picker. A failed listing reports an error without
+starting a conversation. Cancellation never starts native resume. Rebuild the
+image to include the new helper.
+
+Some installations enable Codex's native resume ownership check. In that case,
+the shared picker can show a conversation that native `codex resume` then rejects
+as belonging to a different identity. cx preserves that rejection; it never removes
+creator tags, disables the check or impersonates another client to resume.
 
 The earlier loopback test used custom-provider/API-style fixture credentials and
 an unfiltered storage query; it did not establish subscription-picker behavior.
-A separate native regression now uses synthetic ChatGPT identities and immutable
-account-scoped rollout fixtures, verifies native filtered discovery for each
-identity, and confirms rejection with the ownership check enabled. Run it without
-requiring Claude or real provider accounts:
+A separate native regression uses synthetic ChatGPT identities and immutable
+account-scoped rollout fixtures. It verifies native filtered discovery, cx shared
+discovery through the real listing helper, and rejection when the native ownership
+check is enabled. Run it without Claude or real provider accounts:
 
 ```bash
 CX_NATIVE_HISTORY=1 node tests/codex-account-history.mjs
@@ -187,6 +205,9 @@ Storage/flag references: [Codex configuration source](https://github.com/openai/
 cancellation, forwarding, auth routing, refresh/logout isolation, mount boundaries,
 legacy compatibility, and task stdin/output/status using fake Docker/native CLIs.
 The existing smoke suite additionally verifies legacy installs and both archives.
+`node tests/codex-resume.mjs` covers shared-picker parsing, paging, cancellation,
+early terminal input and native CLI handoff, including preserved account checks
+and exit status.
 
 For actual binaries, without provider credentials or model requests:
 
@@ -214,7 +235,9 @@ editions, including mounts, masking, host writes and persistent storage. Native
 subscription login and status checks passed for both CLIs across separate
 containers. Live sessions and interactive same-account resume pickers also
 passed for both CLIs. These are user-reported host results; the host checkout
-SHA was not supplied.
+SHA was not supplied. The user subsequently confirmed direct resume by session
+ID under a second, different ChatGPT account succeeds. The new cx shared picker
+still needs a host retest after rebuilding the image.
 
 Live API-key login/persistence checks are **skipped at the user's request** because
 API keys are unavailable. They remain unverified, rather than passed; automated
@@ -222,7 +245,9 @@ API-key routing coverage still applies.
 
 Actual subscription credential refresh, logout isolation, live Claude cross-account
 discovery/resume and concurrent distinct conversations remain **open integration
-gates**. Codex cross-account subscription discovery/resume is **blocked by native
-account restrictions** as described above. Native tmux checks are skipped where tmux is unavailable. Do not interpret
+gates**. Host validation of the new cx shared-history picker also remains open.
+Direct cross-account Codex subscription resume passed on the user's installation;
+availability elsewhere depends on native account restrictions. Native tmux checks
+are skipped where tmux is unavailable. Do not interpret
 simulator success as completion of those live checks. CX-1 stays open while the
 remaining acceptance checks are outstanding.
