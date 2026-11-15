@@ -7,6 +7,8 @@ verification and release packaging.
 - For the multi-CLI/account feature, read `docs/V2.md`. Create implementation
   branches from the latest `origin/v2` and target PRs at `v2`. Merge `v2` into
   `main` only through the final reviewed and fully validated integration PR.
+  Use `CX-<GitHub issue number>` shorthand IDs in issue titles and lowercase
+  IDs in implementation branches, such as `feature/cx-1-account-profiles`.
 - Keep changes focused; preserve installed and portable editions and local use
   without SSH. Do not change release versions unless requested.
 - Update documentation for user-visible behavior. Add regression coverage for
