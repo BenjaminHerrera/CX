@@ -181,8 +181,12 @@ containers. Live sessions and interactive same-account resume pickers also
 passed for both CLIs. These are user-reported host results; the host checkout
 SHA was not supplied.
 
-API-key login/persistence, actual credential refresh, logout isolation, and
-live cross-account discovery/resume and concurrent distinct conversations remain
-**open integration gates**. Native tmux checks are skipped where tmux is
-unavailable. Do not interpret simulator success as completion of those live
-checks. CX-1 stays open until the outstanding acceptance checks are verified.
+Live API-key login/persistence checks are **skipped at the user's request** because
+API keys are unavailable. They remain unverified, rather than passed; automated
+API-key routing coverage still applies.
+
+Actual subscription credential refresh, logout isolation, and live cross-account
+discovery/resume and concurrent distinct conversations remain **open integration
+gates**. Native tmux checks are skipped where tmux is unavailable. Do not interpret
+simulator success as completion of those live checks. CX-1 stays open while the
+remaining acceptance checks are outstanding.
