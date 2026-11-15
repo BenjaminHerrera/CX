@@ -19,6 +19,7 @@ remain in the source distribution.
 
 ```bash
 node tests/smoke.mjs
+node tests/accounts.mjs
 node tests/remote-client.mjs
 npm ci --prefix container/mcp --ignore-scripts
 node tests/mcp.mjs
@@ -40,6 +41,15 @@ The suites use temporary fixtures, never sign in, and never send model
 requests. The wrapper suite uses fake Docker. The SSH suite requires Linux
 PTYs and Python 3.11+; it mocks FUSE operations. Passing these tests does not
 establish live Docker, SFTP, SSHFS, or authentication compatibility.
+
+## Native CLI Account Compatibility
+
+Use `CX_NATIVE_HISTORY=1 CX_NATIVE_CLAUDE=/path/to/claude node tests/native-history.mjs`
+for real native storage, selected-auth resume and concurrent distinct conversation
+checks against a loopback simulator. This suite does not establish live account
+login, provider compatibility or Docker mount behavior. See [account verification
+and open gates](ACCOUNTS.md#verification-and-open-gates). Recheck compatible CLI
+versions when changing either version override or storage topology.
 
 ## Live Docker verification
 

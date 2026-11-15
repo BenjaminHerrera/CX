@@ -37,6 +37,8 @@ jobs:
           npm ci --prefix container/mcp --ignore-scripts
       - name: Wrapper, installation, and package checks
         run: node tests/smoke.mjs
+      - name: Account Isolation and CLI Adapter Checks
+        run: node tests/accounts.mjs
       - name: Remote CLI checks
         run: node tests/remote-client.mjs
       - name: MCP checks
