@@ -23,7 +23,6 @@ files=(
     .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/feature_request.yml
     .github/ISSUE_TEMPLATE/question.yml .github/ISSUE_TEMPLATE/config.yml
     .github/PULL_REQUEST_TEMPLATE.md .github/workflows/ci.yml
-    .github/main-ruleset.json scripts/configure-github.sh
     bin/cx bin/cx-ssh-bridge.py bin/cx-slurm-setup.py bin/cx_screen.py config/config.toml
     container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
     container/mcp/package.json container/mcp/package-lock.json container/mcp/server.mjs

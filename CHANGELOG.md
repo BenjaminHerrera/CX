@@ -7,9 +7,8 @@
 - Add GitHub issue forms, a pull request template, offline CI, and maintainer
   guidance for repository settings, triage, review, and releases.
 - Include the new documentation in source archives and installed program files.
-- Provide a main-branch protection ruleset and host-side application script
-  requiring successful published CI before enabling pull-request/check rules
-  and blocking force pushes and deletion.
+- Document manual GitHub protection setup; remove the one-time setup script
+  and ruleset payload from the repository and distribution archives.
 
 ## 1.2.1 — 2026-11-09
 

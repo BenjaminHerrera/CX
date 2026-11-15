@@ -39,27 +39,22 @@ these settings automatically:
 No CODEOWNERS file is assigned by default. Add one only after actual reviewers
 agree to ownership and review responsibilities.
 
-### Apply the selected main protections
+### Configure Main Protections
 
-`.github/main-ruleset.json` requires pull requests and `Offline checks`, and
-blocks force pushes and deletion on `main`. No bypass actors are configured,
-so these restrictions apply to administrators too. It requires zero approving
-reviews and does not require resolving review threads.
+Manage protections directly in **Settings → Rules → Rulesets**. Publish the CI
+workflow and wait for its `Offline checks` job to pass before requiring that
+check. Require pull requests and block force pushes and deletion on `main`.
+Approving reviews and conversation resolution are optional additional rules.
 
-First publish the CI workflow to `main` and wait for `Offline checks` to pass.
-Then run from the checkout on a host with authenticated GitHub CLI and repository
-administration access:
+If administrators need ordinary direct pushes, separate the PR/check requirements
+from the force-push/deletion rules. Allow administrator bypass only on the former
+ruleset. Use names such as `Main Contribution Requirements` and `Main History
+Protection`. Review existing rules before making changes; other applicable
+rulesets can still block an operation.
 
-```bash
-gh auth status
-bash scripts/configure-github.sh
-```
-
-The script checks the current main commit's CI result before creating the
-ruleset. It refuses to overwrite an existing ruleset of the same name. Review
-the result under **Settings → Rules → Rulesets** and at
-<https://github.com/BenjaminHerrera/CX/rules>. Other existing rules still apply.
-Private vulnerability reporting is a separate setting.
+Verify the result under **Settings → Rules → Rulesets** and at
+<https://github.com/BenjaminHerrera/CX/rules>. Private vulnerability reporting is
+a separate setting.
 
 ## Triage
 
