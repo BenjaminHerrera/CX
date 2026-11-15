@@ -109,7 +109,7 @@ try{
   const nativeBin=path.join(temp,'bin');fs.mkdirSync(nativeBin);
   const executable=claude.includes('/')?path.resolve(claude):clean.PATH.split(path.delimiter).map(p=>path.join(p,claude)).find(p=>fs.existsSync(p));
   assert.ok(executable,'Claude binary is required');fs.symlinkSync(executable,path.join(nativeBin,'claude'));
-  const project=path.join(cwd,'main');fs.mkdirSync(project);fs.mkdirSync(path.join(cwd,'.claude'));
+  const project=path.join(cwd,'main project');fs.mkdirSync(project);fs.mkdirSync(path.join(cwd,'.claude'));
   fs.writeFileSync(path.join(project,'CLAUDE.md'),'CX_NATIVE_PROJECT_INSTRUCTION_MARKER\n');
   fs.writeFileSync(path.join(ca,'api-key'),'fixture-a');fs.writeFileSync(path.join(cb,'api-key'),'fixture-b');
   const adapterEnv=h=>({...claudeEnv(h),PATH:nativeBin+path.delimiter+clean.PATH,CX_AGENT:'claude',CX_AUTH_MODE:'api-key',CX_PROJECT_ROOT:project,CX_GUIDANCE_FILE:path.join(root,'container/cx-guidance.txt')});
@@ -123,5 +123,37 @@ try{
   await Promise.all([nativeClaude(['CX_CONCURRENT_A'],ca),nativeClaude(['CX_CONCURRENT_B'],cb)]);
   assert.equal(fs.existsSync(path.join(cb,'.credentials.json')),false);
   console.log('PASS Claude native cross-account resume, selected auth and concurrent distinct conversations.');
+
+  const agentsMarker='CX_NATIVE_AGENTS_INSTRUCTION_MARKER',claudeMarker='CX_NATIVE_CLAUDE_INSTRUCTION_MARKER',importMarker='CX_NATIVE_RELATIVE_IMPORT_MARKER';
+  const cases=[
+    {name:'agents-only',files:{'AGENTS.md':`${agentsMarker}\n@shared-rules.md\n`},agents:1,claude:0,imported:1},
+    {name:'both-files',files:{'AGENTS.md':agentsMarker,'CLAUDE.md':claudeMarker},agents:1,claude:1,imported:0},
+    {name:'explicit-import',files:{'AGENTS.md':agentsMarker,'CLAUDE.md':`@AGENTS.md\n${claudeMarker}`},agents:1,claude:1,imported:0},
+    {name:'symlink',files:{'AGENTS.md':agentsMarker},symlink:true,agents:1,claude:0,imported:0},
+    {name:'dot-claude-agents',files:{'.claude/AGENTS.md':`${agentsMarker}\n@../shared-rules.md\n`},agents:1,claude:0,imported:1},
+    {name:'excluded-agents',files:{'AGENTS.md':agentsMarker,'CLAUDE.md':claudeMarker},settings:{claudeMdExcludes:['**/AGENTS.md']},agents:0,claude:1,imported:0},
+    {name:'managed-only-memory',files:{'AGENTS.md':agentsMarker,'CLAUDE.md':claudeMarker},settings:{pluginConfigs:{'cc-plugin-agents-md@builtin':{options:{instructionFiles:'managed-only'}}}},agents:0,claude:0,imported:0},
+  ];
+  const requestFor=marker=>seen.findLast(x=>x.agent==='claude'&&JSON.stringify(x.body.messages).includes(marker));
+  for(const fixture of cases){
+    fs.rmSync(project,{recursive:true});fs.mkdirSync(path.join(project,'.claude'),{recursive:true});
+    fs.writeFileSync(path.join(project,'shared-rules.md'),importMarker);
+    for(const [file,content] of Object.entries(fixture.files))fs.writeFileSync(path.join(project,file),content);
+    if(fixture.symlink)fs.symlinkSync('AGENTS.md',path.join(project,'CLAUDE.md'));
+    const settings=path.join(ca,'settings.json');fs.writeFileSync(settings,JSON.stringify(fixture.settings||{}));
+    const snapshot=()=>fs.readdirSync(project,{recursive:true}).sort().map(file=>{const name=path.join(project,file);return [file,fs.lstatSync(name).isSymbolicLink()?fs.readlinkSync(name):fs.statSync(name).isFile()?fs.readFileSync(name,'utf8'):null];});
+    const before=snapshot(),prompt=`CX_NATIVE_CONTEXT_${fixture.name}`;
+    await nativeClaude([prompt],ca);
+    const body=JSON.stringify(requestFor(prompt)?.body);assert.ok(body,fixture.name+' must reach loopback endpoint');
+    for(const [marker,count] of [[agentsMarker,fixture.agents],[claudeMarker,fixture.claude],[importMarker,fixture.imported]])assert.equal(body.split(marker).length-1,count,fixture.name+' instruction occurrence: '+marker);
+    assert.deepEqual(snapshot(),before,'The adapter/native startup must not edit project instruction files');
+    console.log('PASS Claude native startup memory: '+fixture.name);
+  }
+  fs.rmSync(path.join(ca,'settings.json'));
+  const selectedAgentMarker='CX_NATIVE_SELECTED_AGENT_MARKER';
+  const agents=JSON.stringify({reviewer:{description:'Native option parsing fixture',prompt:selectedAgentMarker}});
+  await nativeClaude(['--','--agents',agents,'--agent','reviewer','CX_NATIVE_AGENT_ESCAPE'],ca);
+  assert.ok(JSON.stringify(requestFor('CX_NATIVE_AGENT_ESCAPE')?.body.system).includes(selectedAgentMarker),'Escaped --agent must select the native Claude agent');
+  console.log('PASS Claude native --agent interpretation through the cx escape.');
   console.log('Live provider subscription/API login, Docker mounts and interactive pickers remain separate gates.');
 }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));fs.rmSync(temp,{recursive:true,force:true});}

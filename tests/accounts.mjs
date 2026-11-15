@@ -118,18 +118,21 @@ check('interactive picker always appears, filters by CLI and handles cancellatio
 // atomic replacement/logout in two concurrently usable private directories.
 const fake=`#!/usr/bin/env node
 const fs=require('node:fs');const path=require('node:path');const a=process.argv.slice(2);
+const parsed=require('node:util').parseArgs({args:a,options:{agent:{type:'string'}},strict:false,allowPositionals:true});
 const agent=path.basename(process.argv[1]);const home=process.env[agent==='codex'?'CODEX_HOME':'CLAUDE_CONFIG_DIR'];
 if(a.includes('--help')){console.log('--system-prompt-snapshot --append-system-prompt');process.exit(0);}
 const action=agent==='codex'?a[0]:a[1];
 if(action==='login'&&a[1]!=='status'){fs.writeFileSync(home+'/refresh.tmp','fresh-'+path.basename(home));fs.renameSync(home+'/refresh.tmp',home+'/auth.json');}
 if(action==='logout')fs.rmSync(home+'/auth.json',{force:true});
-console.log(JSON.stringify({args:a,key:process.env.ANTHROPIC_API_KEY??null,openai:process.env.OPENAI_API_KEY??null,cwd:process.cwd()}));
+console.log(JSON.stringify({args:a,nativeAgent:parsed.values.agent??null,positionals:parsed.positionals,key:process.env.ANTHROPIC_API_KEY??null,openai:process.env.OPENAI_API_KEY??null,cwd:process.cwd()}));
 if(a.includes('--print')){process.stdin.pipe(process.stdout);process.exitCode=Number(process.env.CX_TEST_EXIT??0);}
 `;
 for(const cli of ['codex','claude'])fs.writeFileSync(path.join(bin,cli),fake,{mode:0o755});
-const ca=path.join(temp,'claude-a'),cb=path.join(temp,'claude-b');for(const d of [ca,cb,path.join(project,'.claude')])fs.mkdirSync(d);
-const adapterEnv={...env,CLAUDE_CONFIG_DIR:ca,CODEX_HOME:ca,CX_AGENT:'claude',CX_PROJECT_ROOT:project,CX_GUIDANCE_FILE:path.join(root,'container/cx-guidance.txt'),ANTHROPIC_API_KEY:'unrelated-fixture',OPENAI_API_KEY:'unrelated-fixture'};
-const adapter=(args,extra={},input)=>spawnSync('bash',[path.join(root,'container/cx-agent'),...args],{cwd:project,env:{...adapterEnv,...extra},input,encoding:'utf8'});
+const ca=path.join(temp,'claude-a'),cb=path.join(temp,'claude-b');
+const adapterWorkspace=path.join(temp,'adapter workspace'),adapterProject=path.join(adapterWorkspace,'main project');
+for(const d of [ca,cb,path.join(adapterWorkspace,'.claude'),path.join(adapterProject,'.claude')])fs.mkdirSync(d,{recursive:true});
+const adapterEnv={...env,CLAUDE_CONFIG_DIR:ca,CODEX_HOME:ca,CX_AGENT:'claude',CX_PROJECT_ROOT:adapterProject,CX_GUIDANCE_FILE:path.join(root,'container/cx-guidance.txt'),ANTHROPIC_API_KEY:'unrelated-fixture',OPENAI_API_KEY:'unrelated-fixture'};
+const adapter=(args,extra={},input)=>spawnSync('bash',[path.join(root,'container/cx-agent'),...args],{cwd:adapterWorkspace,env:{...adapterEnv,...extra},input,encoding:'utf8'});
 check('selected-account refresh/logout never overwrites another account',()=>{
   fs.writeFileSync(cb+'/auth.json','untouched');
   assert.equal(adapter(['--cx-auth','login']).status,0);
@@ -147,6 +150,34 @@ check('Claude exec translates print mode, forwards resume, streams stdin and ret
   r=adapter(['--cx-session','--add-dir','/other','exec','a task']);assert.equal(r.status,0,r.stderr);assert.ok(JSON.parse(r.stdout).args.includes('--print'));
   r=adapter(['--cx-session','interactive prompt']);const a=JSON.parse(r.stdout).args;
   assert.ok(a.indexOf('--add-dir')<a.indexOf('--append-system-prompt'),'variadic added directories must end at another flag before the task');
+});
+check('the wrapper escape is consumed once so native options are parsed by both CLIs',()=>{
+  // Run the exact payload emitted by the host launcher through the adapter.
+  for(const agent of ['codex','claude']){
+    for(const task of [[],['exec','a task']]){
+      clear();ok(pair(agent,agent==='codex'?'alpha':'work',...task,'--','--agent','reviewer'));
+      const host=last(),payload=host.slice(host.indexOf('--cx-session'));
+      const r=adapter(payload,{CX_AGENT:agent});assert.equal(r.status,0,r.stderr);
+      const parsed=JSON.parse(r.stdout);assert.equal(parsed.nativeAgent,'reviewer');assert.equal(parsed.args.includes('--'),false);
+    }
+  }
+  const r=adapter(['--cx-session','--','--','--agent','literal']);assert.equal(r.status,0,r.stderr);
+  const parsed=JSON.parse(r.stdout);assert.equal(parsed.nativeAgent,null);assert.ok(parsed.positionals.includes('--agent'));
+});
+check('AGENTS startup imports use an ephemeral memory file and never edit the project',()=>{
+  const agents=path.join(adapterProject,'AGENTS.md'),claude=path.join(adapterProject,'CLAUDE.md');
+  fs.writeFileSync(agents,'CX_AGENTS_FIXTURE\n');
+  fs.writeFileSync(claude,'CX_CLAUDE_FIXTURE\n@AGENTS.md\n');
+  const before=fs.readdirSync(adapterProject,{recursive:true});
+  const r=adapter(['--cx-session','prompt']);assert.equal(r.status,0,r.stderr);
+  const bridge=fs.readFileSync(path.join(adapterWorkspace,'.claude/CLAUDE.md'),'utf8');
+  assert.equal(bridge,`@${agents.replaceAll(' ','\\ ')}\n`);
+  assert.equal(bridge.includes('CX_AGENTS_FIXTURE'),false);
+  assert.deepEqual(fs.readdirSync(adapterProject,{recursive:true}),before);
+  assert.equal(fs.readFileSync(claude,'utf8'),'CX_CLAUDE_FIXTURE\n@AGENTS.md\n');
+  fs.unlinkSync(agents);fs.unlinkSync(claude);
+  assert.equal(adapter(['--cx-session','prompt']).status,0);
+  assert.equal(fs.existsSync(path.join(adapterWorkspace,'.claude/CLAUDE.md')),false);
 });
 check('API-key auth is selected privately and never supplied as native arguments',()=>{
   fs.writeFileSync(ca+'/api-key','selected-fixture');

@@ -41,6 +41,11 @@ loader. Common Docker, workspace, limits and environment policy remain in the
 launcher/entrypoint. Claude project settings are read through ephemeral native
 project-source links; common guidance appends to the default prompt and native
 prompt snapshots are disabled so resume receives current context.
+An ephemeral native memory file imports the project's `AGENTS.md` files because
+additional-directory discovery loads only Claude memory files. Native import
+deduplication, relative resolution, exclusions and managed restrictions remain in
+effect. The wrapper's first `--` is consumed at the final CLI adapter boundary;
+subsequent arguments become native options, and a second `--` remains native.
 
 Managed homes default to `CX_DATA_HOME` (`~/.local/share/cx/data`, or portable
 `bundle/data`). Only one profile home plus one CLI history tree is mounted.

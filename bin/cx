@@ -50,6 +50,7 @@ Account selection:
   Interactive launches show a CLI/account picker unless both are explicit.
   Scripts require a complete pair or an automation default; native --profile
   stays a CLI option. Wrapper parsing stops at -- (use it for Claude --agent).
+  cx consumes that first --; use -- -- to forward a native CLI separator.
   Login/status/logout apply only to the selected account. API-key profiles use
   Codex's native stdin login or Claude's hidden terminal prompt.
   Histories are shared among accounts of the same CLI; credentials/settings

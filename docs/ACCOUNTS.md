@@ -41,8 +41,12 @@ than managed account credentials; explicit legacy mode retains its home mount.
 
 `exec` maps to Codex `exec` or Claude `--print`, preserving stdin, output, and
 exit status. Native options stay native: `--profile` still belongs to Codex.
-The wrapper stops parsing at `--`. For Claude's own named subagent option, use
-`cx --agent claude --account work . -- --agent reviewer`. Pass native conversation
+The wrapper stops parsing at `--` and consumes that delimiter before invoking the
+native CLI. For Claude's own named subagent option, use
+`cx --agent claude --account work . -- --agent reviewer`. The native CLI receives
+`--agent reviewer` as an option. To pass a native end-of-options delimiter as well,
+use `-- --`, for example `cx --agent claude --account work . -- -- "--agent literal"`
+to treat `--agent literal` as prompt text. Pass native conversation
 resume options, for example:
 
 ```bash
@@ -118,9 +122,15 @@ Both CLIs start at `/workspace`, preserving `main/`, `cx-external/`, `remote/`,
 ignore masks, added files, environment selection, and resource limits. Claude
 adds `main/` and enables native additional-directory instruction discovery. Its
 project/local settings are linked into ephemeral `/workspace/.claude` so native
-source precedence and managed restrictions apply. Project MCP is passed through
-native `--mcp-config`; user MCP remains enabled. The wrapper does not edit the
-repository or copy project instruction text into another memory file.
+source precedence and managed restrictions apply. Additional-directory discovery
+loads `CLAUDE.md` but omits `AGENTS.md`. An ephemeral `.claude/CLAUDE.md` therefore
+imports `main/AGENTS.md` and `main/.claude/AGENTS.md` when present. Native memory
+loading resolves relative imports from the original file, applies exclusions and
+managed-only settings, and deduplicates files already imported or symlinked from
+`CLAUDE.md`. Both instruction files can load together without duplicate content.
+Project MCP is passed through native `--mcp-config`; user MCP remains enabled.
+The wrapper writes only the container's ephemeral import file, never project
+files or copies of their instruction text.
 
 Claude receives the common cx guidance as an addition to its default prompt.
 `--system-prompt-snapshot off` ensures resume renders current session guidance.
@@ -155,6 +165,13 @@ On 2026-11-15, Codex **0.169.0** and Claude **2.1.323** passed native cross-acco
 resume with selected fixture credentials and concurrent distinct conversation
 writes against a loopback model simulator. This validates native storage/transport
 compatibility, not provider subscription or billing policy.
+
+The native regression suite also verifies startup instructions for AGENTS-only
+projects, both instruction files, explicit imports, symlinks, `.claude/AGENTS.md`,
+native exclusions and managed-only memory settings, including projects with
+spaces in their paths. It checks that each instruction appears once in the model
+request and that startup does not edit the project. An escaped `--agent` is tested
+with an actual native agent definition, rather than just checking forwarded args.
 
 Live Docker build/mount behavior, interactive native history pickers, subscription
 and API-key login/refresh/persistence with consenting accounts remain **open

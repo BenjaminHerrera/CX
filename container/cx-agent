@@ -8,6 +8,20 @@ shift
 agent="${CX_AGENT:-codex}"
 auth="${CX_AUTH_MODE:-subscription}"
 
+native_arguments() {
+    # The first -- belongs to cx. Consume it only at the final adapter boundary,
+    # after every host wrapper has stopped parsing. A second -- remains native.
+    NATIVE_ARGS=()
+    local escaped=false argument
+    for argument in "$@"; do
+        if [[ "$escaped" == false && "$argument" == -- ]]; then
+            escaped=true
+            continue
+        fi
+        NATIVE_ARGS+=("$argument")
+    done
+}
+
 # Docker does not forward host auth variables. Also clear image/environment
 # leftovers before selecting the account's explicit native auth mechanism.
 unset OPENAI_API_KEY CODEX_API_KEY CODEX_ACCESS_TOKEN ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN
@@ -39,7 +53,8 @@ case "$agent" in
                 fail 'Cannot verify Codex shared-history compatibility; rebuild the image.'
             fi
         fi
-        exec codex --sandbox danger-full-access "$@" ;;
+        native_arguments "$@"
+        exec codex --sandbox danger-full-access "${NATIVE_ARGS[@]}" ;;
     claude)
         command -v claude >/dev/null || fail 'Claude is missing from the image; run cx --rebuild.'
         profile="${CLAUDE_CONFIG_DIR:?Missing CLAUDE_CONFIG_DIR}"
@@ -78,13 +93,30 @@ case "$agent" in
         project="${CX_PROJECT_ROOT:-/workspace/main}"
         # Native project/local settings keep their native source and precedence.
         # Only this ephemeral container directory is written; source files are
-        # read through main so ignore masks apply. Additional-dir discovery loads
-        # memory once; do not copy CLAUDE.md into the parent as well.
+        # read through main so ignore masks apply.
         for item in settings.json settings.local.json; do
             if [[ -f "$project/.claude/$item" ]]; then
                 ln -s -- "$project/.claude/$item" ".claude/$item"
             fi
         done
+        # Additional-directory discovery omits AGENTS.md. Import those files
+        # through native memory loading, which keeps import resolution, excludes,
+        # managed restrictions and path deduplication. Never copy their text or
+        # edit project files. CLAUDE.md still loads from its original location.
+        memory_bridge=.claude/CLAUDE.md
+        memory_imports=()
+        for agents_file in "$project/AGENTS.md" "$project/.claude/AGENTS.md"; do
+            if [[ -f "$agents_file" ]]; then
+                memory_imports+=("@${agents_file// /\\ }")
+            fi
+        done
+        if ((${#memory_imports[@]})); then
+            bridge_temp="$(mktemp .claude/.cx-memory.XXXXXX)"
+            printf '%s\n' "${memory_imports[@]}" >"$bridge_temp"
+            mv -- "$bridge_temp" "$memory_bridge"
+        else
+            rm -f -- "$memory_bridge"
+        fi
         export CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1
         extra=(--add-dir "$project")
         if [[ -f "$project/.mcp.json" ]]; then extra+=(--mcp-config "$project/.mcp.json"); fi
@@ -108,8 +140,9 @@ case "$agent" in
             break
         done
         args+=("$@")
+        native_arguments "${args[@]}"
         guidance="$(cat "${CX_GUIDANCE_FILE:-/opt/cx/guidance.txt}")"
         exec claude "${extra[@]}" --dangerously-skip-permissions --system-prompt-snapshot off \
-            --append-system-prompt "$guidance" "${args[@]}" ;;
+            --append-system-prompt "$guidance" "${NATIVE_ARGS[@]}" ;;
     *) fail 'Unknown CLI adapter.' ;;
 esac
