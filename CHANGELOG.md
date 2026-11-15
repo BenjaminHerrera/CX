@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Establish the `v2` integration workflow for multi-CLI/account development,
+  including CI on integration pushes and implementation PRs targeting `v2`.
 - Simplify the README and add a documentation index, contributor and development
   guides, support/security/conduct policies, and repository instructions for agents.
 - Add GitHub issue forms, a pull request template, offline CI, and maintainer

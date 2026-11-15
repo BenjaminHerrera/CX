@@ -18,6 +18,8 @@ best effort; no response-time commitment is implied.
 ## Development workflow
 
 1. Fork the repository and branch from `main`.
+   For the v2 multi-CLI/account work, branch from the latest `origin/v2` and
+   target implementation PRs at `v2`; see [the v2 workflow](docs/V2.md).
 2. Follow [local setup](docs/DEVELOPMENT.md#local-setup).
 3. Make a focused change. Preserve local-only use, both distribution editions,
    existing settings, and SSH command ownership rules.

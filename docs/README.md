@@ -17,6 +17,7 @@
 |---|---|
 | [Contributing](../CONTRIBUTING.md) | Issues, branches, PRs, review, licensing |
 | [Development](DEVELOPMENT.md) | Setup, component map, workflows, validation |
+| [v2 Integration](V2.md) | Multi-CLI/account scope, implementation branches, model guidance, final merge gates |
 | [Maintenance](MAINTAINING.md) | Offline/live checks, packaging, notices |
 | [GitHub maintenance](GITHUB.md) | Templates, CI, settings, triage, releases |
 | [Agent guidance](../AGENTS.md) | Instructions for coding agents |

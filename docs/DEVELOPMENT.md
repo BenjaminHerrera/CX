@@ -3,6 +3,10 @@
 Read [CONTRIBUTING.md](../CONTRIBUTING.md) for issue and PR processes, then use
 [architecture](ARCHITECTURE.md) to understand persistence and access boundaries.
 
+For the multi-CLI/account update, follow the [v2 integration workflow](V2.md).
+Implementation branches start from the current `origin/v2` head and PRs merge
+into `v2`. The final `v2` → `main` PR waits for full integration validation.
+
 ## Local setup
 
 Use a Linux/WSL2 checkout with Bash 4+, GNU coreutils, Git, Node.js 24/npm, and
