@@ -236,8 +236,10 @@ subscription login and status checks passed for both CLIs across separate
 containers. Live sessions and interactive same-account resume pickers also
 passed for both CLIs. These are user-reported host results; the host checkout
 SHA was not supplied. The user subsequently confirmed direct resume by session
-ID under a second, different ChatGPT account succeeds. The new cx shared picker
-still needs a host retest after rebuilding the image.
+ID under a second, different ChatGPT account succeeds. After the picker update
+and rebuild instructions, the user also confirmed the other account's session
+is visible in the new cx shared-history picker. Continuing the selected session
+through this new picker remains to be confirmed separately.
 
 Live API-key login/persistence checks are **skipped at the user's request** because
 API keys are unavailable. They remain unverified, rather than passed; automated
@@ -245,7 +247,8 @@ API-key routing coverage still applies.
 
 Actual subscription credential refresh, logout isolation, live Claude cross-account
 discovery/resume and concurrent distinct conversations remain **open integration
-gates**. Host validation of the new cx shared-history picker also remains open.
+gates**. Shared-picker discovery passed on the user's host; continuation through
+the new picker remains open.
 Direct cross-account Codex subscription resume passed on the user's installation;
 availability elsewhere depends on native account restrictions. Native tmux checks
 are skipped where tmux is unavailable. Do not interpret
