@@ -23,11 +23,11 @@ files=(
     .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/feature_request.yml
     .github/ISSUE_TEMPLATE/question.yml .github/ISSUE_TEMPLATE/config.yml
     .github/PULL_REQUEST_TEMPLATE.md .github/workflows/ci.yml
-    bin/cx bin/cx-accounts.sh bin/cx-ssh-bridge.py bin/cx-slurm-setup.py bin/cx_screen.py config/config.toml
-    container/cx-agent container/cx-guidance.txt container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
+    bin/cx bin/cx-ssh-bridge.py bin/cx-slurm-setup.py bin/cx_screen.py config/config.toml
+    container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
     container/mcp/package.json container/mcp/package-lock.json container/mcp/server.mjs
-    tests/accounts.mjs tests/native-history.mjs tests/mcp.mjs tests/slurm_setup.py
-    docs/ACCOUNTS.md docs/INSTALL.md docs/USAGE.md docs/ARCHITECTURE.md docs/MAINTAINING.md
+    tests/mcp.mjs tests/slurm_setup.py
+    docs/INSTALL.md docs/USAGE.md docs/ARCHITECTURE.md docs/MAINTAINING.md
     scripts/package.sh scripts/verify-docker.sh scripts/cx-interactive-hook.sh tests/smoke.mjs tests/ssh_bridge.py tests/screens.py tests/remote-client.mjs
     # Bundled pure Python sources and notices; no installed binaries or caches.
     bin/vendor/README.md
@@ -102,9 +102,9 @@ for edition in install portable; do
         cp -p -- "$root/$file" "$bundle/$file"
     done
     if [[ "$edition" == install ]]; then
-        printf 'cx %s — install edition\nStart with: ./install.sh\nThen: cx accounts add --agent codex --account personal --auth subscription\nSign in: cx --agent codex --account personal --login\nRead README.md and docs/INSTALL.md first.\n' "$version" > "$bundle/START-HERE.txt"
+        printf 'cx %s — install edition\nStart with: ./install.sh\nThen: cx --login\nRead README.md and docs/INSTALL.md first.\n' "$version" > "$bundle/START-HERE.txt"
     else
-        printf 'cx %s — portable edition\nStart with: ./cx --build\nThen: ./cx accounts add --agent codex --account personal --auth subscription\nSign in: ./cx --agent codex --account personal --login\nRun: ./cx /path/to/project (outside this bundle)\nRead README.md and docs/INSTALL.md first.\n' "$version" > "$bundle/START-HERE.txt"
+        printf 'cx %s — portable edition\nStart with: ./cx --build\nThen: ./cx --login\nRun: ./cx /path/to/project (outside this bundle)\nRead README.md and docs/INSTALL.md first.\n' "$version" > "$bundle/START-HERE.txt"
     fi
     (cd -- "$bundle"; sha256sum -- "${files[@]}" START-HERE.txt > MANIFEST.sha256)
     tar -czf "$output/$name.tar.gz" -C "$stage" "$name"

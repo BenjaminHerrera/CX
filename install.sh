@@ -70,4 +70,4 @@ case ":$PATH:" in
     *) printf 'Add this to your shell profile, then open a new terminal:\n  export PATH=%q:"$PATH"\n' "$prefix/bin" ;;
 esac
 if [[ "$build" == false ]]; then printf 'Build next: %q --build\n' "$launcher"; fi
-printf 'Create an account: %q accounts add --agent codex --account personal --auth subscription\nThen sign in: %q --agent codex --account personal --login\nRun a project: %q /path/to/project\n' "$launcher" "$launcher" "$launcher"
+printf 'Then sign in: %q --login\nRun a project: %q /path/to/project\n' "$launcher" "$launcher"

@@ -613,7 +613,7 @@ class Bridge:
         # Preserve system instructions even for installations retaining an older config.
         overrides = ['-c', 'developer_instructions=' + json.dumps(instructions, ensure_ascii=False)]
         if os.environ.get('CX_SSH_MCP', '1') == '1':
-            user_root = Path(os.environ.get('CX_SELECTED_PROFILE', os.environ.get('CX_CODEX_HOME', str(Path.home() / '.codex'))))
+            user_root = Path(os.environ.get('CX_CODEX_HOME', str(Path.home() / '.codex')))
             candidates = [config_root / 'config.toml', user_root / 'config.toml']
             project = Path(self.launcher[1])
             candidates += [parent / '.codex/config.toml' for parent in (project, *project.parents)]

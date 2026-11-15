@@ -1,7 +1,6 @@
 FROM node:24-bookworm-slim
 
 ARG CODEX_VERSION=latest
-ARG CLAUDE_VERSION=2.1.323
 ARG MICROMAMBA_VERSION=2.9.0-0
 ARG TARGETARCH
 
@@ -36,28 +35,21 @@ RUN apt-get update \
     && printf '%s  %s\n' "$(cat /tmp/micromamba.sha256)" /tmp/micromamba | sha256sum -c - \
     && install -m 0755 /tmp/micromamba /usr/local/bin/micromamba \
     && npm install --global "@openai/codex@${CODEX_VERSION}" \
-    && npm install --global "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
-    && claude --version \
     && npm cache clean --force \
     && rm -f /tmp/micromamba /tmp/micromamba.sha256 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY cx-entrypoint cx-env cx-remote cx-agent /usr/local/bin/
-LABEL io.cx.accounts="1"
-COPY cx-guidance.txt /opt/cx/guidance.txt
+COPY cx-entrypoint cx-env cx-remote /usr/local/bin/
 COPY mcp/ /opt/cx-mcp/
 RUN cd /opt/cx-mcp && npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # The actual UID/GID is supplied by `docker run`.
-RUN chmod 0755 /usr/local/bin/cx-entrypoint /usr/local/bin/cx-env /usr/local/bin/cx-remote /usr/local/bin/cx-agent \
-    && mkdir -p /workspace/main /workspace/cx-external /workspace/remote /workspace/.claude /cx-env /codex-home /claude-home /cx-history /home/codex \
+RUN chmod 0755 /usr/local/bin/cx-entrypoint /usr/local/bin/cx-env /usr/local/bin/cx-remote \
+    && mkdir -p /workspace/main /workspace/cx-external /workspace/remote /cx-env /codex-home /home/codex \
     && chmod 1777 /workspace /cx-env /codex-home /home/codex
 
 ENV HOME=/home/codex
 ENV CODEX_HOME=/codex-home
-ENV CLAUDE_CONFIG_DIR=/claude-home
-ENV DISABLE_AUTOUPDATER=1
-ENV DISABLE_UPDATES=1
 ENV MAMBA_ROOT_PREFIX=/cx-env
 ENV PAGER=less
 ENV LESS=-FRX
