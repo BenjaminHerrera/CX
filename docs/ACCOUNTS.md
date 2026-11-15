@@ -239,17 +239,22 @@ SHA was not supplied. The user subsequently confirmed direct resume by session
 ID under a second, different ChatGPT account succeeds. After the picker update
 and rebuild instructions, the user also confirmed the other account's session
 is visible in the new cx shared-history picker and that selecting it successfully
-continues the conversation using the second account.
+continues the conversation using the second account. Codex concurrent distinct
+conversations and logout isolation also passed: both accounts operated independently,
+and logging out the second profile left the first authenticated.
 
 Live API-key login/persistence checks are **skipped at the user's request** because
 API keys are unavailable. They remain unverified, rather than passed; automated
 API-key routing coverage still applies.
 
-Actual subscription credential refresh, logout isolation, live Claude cross-account
-discovery/resume and concurrent distinct conversations remain **open integration
-gates**. Both shared-picker discovery and continuation passed on the user's host.
-Direct cross-account Codex subscription resume passed on the user's installation;
-availability elsewhere depends on native account restrictions. Native tmux checks
-are skipped where tmux is unavailable. Do not interpret
-simulator success as completion of those live checks. CX-1 stays open while the
-remaining acceptance checks are outstanding.
+Live Claude cross-account discovery/resume, concurrency between different accounts,
+and logout isolation between different accounts are **skipped** because the user
+has no second account with Claude Code access. These remain unverified by live
+accounts; fixture coverage remains available.
+
+Actual automatic subscription credential refresh remains **unverified** for both
+CLIs. Direct cross-account Codex subscription resume and the shared picker passed
+on the user's installation; availability elsewhere depends on native account
+restrictions. Native tmux checks are skipped where tmux is unavailable. Do not
+interpret simulator success or a requested skip as a live pass. CX-1 stays open
+and the PR stays draft until explicitly approved for a status change or merge.
