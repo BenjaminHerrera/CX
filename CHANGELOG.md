@@ -4,6 +4,23 @@
 
 - Establish the `v2` integration workflow for multi-CLI/account development,
   including CI on integration pushes and implementation PRs targeting `v2`.
+- Add named Codex/Claude accounts, explicit subscription/API-key login, an
+  interactive combined picker, and noninteractive automation defaults.
+- Isolate profile credentials, settings, plugins and caches while sharing native
+  conversation history and resume metadata within each CLI. Preserve explicit
+  `CX_CODEX_HOME` legacy mode; leave existing native homes untouched.
+- Build Claude Code 2.1.323 alongside Codex, disable Claude self-updates, add
+  `CX_CLAUDE_VERSION` and `CX_DATA_HOME`, and translate common `exec` tasks.
+- Load Claude project instructions/settings/MCP without wrapper repository edits,
+  append cx guidance and refresh prompt context on resume. Reject root bypass.
+- Load AGENTS-only project instructions at startup through native imports with
+  deduplication; consume wrapper escapes so forwarded native options are parsed.
+- Add shared Codex history discovery for interactive managed `resume`, then hand
+  the selected ID to native Codex while preserving ownership checks. Direct
+  cross-account subscription resume was confirmed by the user; picker host
+  validation remains open.
+- Add account/adapter and real-CLI loopback regression suites. Live provider
+  login and Docker checks remain open gates; Claude SSH parity belongs to CX-2.
 - Simplify the README and add a documentation index, contributor and development
   guides, support/security/conduct policies, and repository instructions for agents.
 - Add GitHub issue forms, a pull request template, offline CI, and maintainer

@@ -32,6 +32,41 @@ That launcher resolves its real path. `program/config` links to the preserved
 `PREFIX/share/cx/config`, so upgrades replace code independently of settings.
 Portable mode reaches the same launcher through the top-level `cx` wrapper.
 
+## Account Adapters and Shared History
+
+`bin/cx-accounts.sh` owns host metadata, combined CLI/account selection, and
+selected-profile/history mounts. `container/cx-agent` contains the two built-in
+adapters for authentication, task flags and native launches; it has no plugin
+loader. Common Docker, workspace, limits and environment policy remain in the
+launcher/entrypoint. Claude project settings are read through ephemeral native
+project-source links; common guidance appends to the default prompt and native
+prompt snapshots are disabled so resume receives current context.
+An ephemeral native memory file imports the project's `AGENTS.md` files because
+additional-directory discovery loads only Claude memory files. Native import
+deduplication, relative resolution, exclusions and managed restrictions remain in
+effect. The wrapper's first `--` is consumed at the final CLI adapter boundary;
+subsequent arguments become native options, and a second `--` remains native.
+
+Managed homes default to `CX_DATA_HOME` (`~/.local/share/cx/data`, or portable
+`bundle/data`). Only one profile home plus one CLI history tree is mounted.
+Codex sessions/archives/index/history/locks are linked into shared storage and
+`CODEX_SQLITE_HOME` selects shared native SQLite metadata. Claude shares native
+`projects/` with configuration private in `CLAUDE_CONFIG_DIR`. No credentials or
+settings are copied between accounts, and no databases or historical attribution
+are rewritten. Directory mounts support atomic credential refresh/logout.
+Explicit `CX_CODEX_HOME` retains legacy behavior outside history sharing.
+Shared storage does not override native account restrictions: Codex 0.169.0
+filters account-scoped ChatGPT conversations by identity in its resume picker and
+can reject cross-account resume when its ownership check is enabled. Managed
+interactive `resume` uses `container/cx-codex-resume.mjs` to list shared history
+through native `thread/list`, then hands the chosen ID to the real Codex CLI.
+The helper never performs the resume or changes native checks. See the
+[shared picker](ACCOUNTS.md#shared-codex-resume-picker).
+
+See [accounts](ACCOUNTS.md) for the storage tree, native compatibility checks,
+concurrency contract and open live gates. Claude SSH parity is a separate CX-2
+integration; Codex SSH reserves MCP names against the selected profile config.
+
 ## Session data flow
 
 ```mermaid
@@ -68,7 +103,8 @@ SSH supervision runs on the host; development environments live in `/cx-env`.
 | `/workspace/main` | Selected local project | Read/write; host changes persist |
 | `/workspace/cx-external/...` | `--add-dir` and `--add-file` sources | Read/write; host changes persist |
 | `/workspace/remote` | Optional host SSHFS mount | Read-only by default; rw edits affect the server |
-| `/codex-home` | `CX_CODEX_HOME` | Persistent credentials, preferences, and sessions |
+| `/codex-home` or `/claude-home` | Selected private profile | Persistent selected-account credentials, settings and caches |
+| `/cx-history` | Selected CLI history | Shared native history and resume metadata |
 | `/cx-env` | Workspace subfolder of `CX_ENV_HOME` | Persistent environments and selection |
 | `/etc/codex` | Package configuration directory | Read-only system configuration |
 | `/cx-ssh/bridge.sock` | Private host socket, SSH mode only | Serialized command requests and output |

@@ -1,6 +1,6 @@
-# cx — Codex in Docker
+# cx — Codex and Claude Code in Docker
 
-Run Codex against your local project in a disposable Docker container, with
+Run Codex or Claude Code against your local project in a disposable Docker container, with
 persistent settings and development environments. Connect to an SSH host for
 remote commands, file access, and interactive Slurm CPU/GPU sessions.
 
@@ -10,17 +10,18 @@ remote commands, file access, and interactive Slurm CPU/GPU sessions.
 ## Features
 
 - A consistent workspace for your project, extra directories, and individual files.
-- Installed and portable editions with persistent Codex settings and environments.
+- Named accounts with private credentials/settings and shared history within each CLI.
+- Installed and portable editions with persistent development environments.
 - Optional SSH mode with separate terminal screens, tracked commands, and MCP tools.
 - Optional SSHFS browsing/editing and per-server Slurm interactive setup.
 
-cx is an independent wrapper for Codex CLI, not an official OpenAI product.
+cx is an independent wrapper; it is not an official OpenAI or Anthropic product.
 
 ## Requirements
 
 Linux or WSL2 with Bash 4+, GNU coreutils, `sed`, `tar`/`gzip`, a running
 **local Docker daemon** accessible to your user, internet access, and an account
-with Codex access. Default container limits are 8 GB memory and 4 CPUs;
+with access to the selected CLI. Claude permission bypass requires a non-root user. Default container limits are 8 GB memory and 4 CPUs;
 [these are configurable](docs/USAGE.md#settings).
 
 SSH additionally requires host Python 3.11+, OpenSSH, an interactive terminal,
@@ -37,7 +38,8 @@ cd CX
 ./install.sh
 export PATH="$HOME/.local/bin:$PATH"  # Add to your shell profile if needed
 cx --doctor
-cx --login
+cx accounts add --agent codex --account personal --auth subscription
+cx --agent codex --account personal --login
 cx /path/to/project
 ```
 
@@ -49,12 +51,19 @@ portable archives, upgrades, rollback, and removal.
 
 ```bash
 cx .                                      # Open the current project
-cx . exec "Run the tests and fix failures"  # Run a non-interactive task
+cx --agent codex --account personal . exec "Run the tests and fix failures"  # Run a non-interactive task
 cx . --add-dir ../shared                   # Share another writable directory
 cx . --add-file ~/notes.md                 # Share one existing writable file
 cx --shell                                # Open a container shell
 cx --help                                 # Show launcher options
 ```
+
+Interactive launches show a combined CLI/account picker. Scripts need an explicit
+pair or an automation default. See [accounts and history](docs/ACCOUNTS.md) to add
+Claude accounts, use API keys, resume conversations, or retain a legacy home.
+Managed Codex `resume` provides a shared-history picker; native Codex performs
+the selected resume and retains any account ownership restrictions.
+Claude local tasks are supported; Claude SSH parity is tracked in CX-2.
 
 Inside the container:
 

@@ -4,6 +4,9 @@
 !cx-entrypoint
 !cx-env
 !cx-remote
+!cx-agent
+!cx-codex-resume.mjs
+!cx-guidance.txt
 !mcp/
 !mcp/package.json
 !mcp/package-lock.json
