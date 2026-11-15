@@ -4,19 +4,33 @@ Examples below use an installed `cx`. For portable use, replace it with the
 absolute path to the bundle's `cx` file. Paths containing spaces are supported;
 quote them. Paths used in Docker mounts cannot contain commas.
 
+## Accounts and CLI Selection
+
+Create a fresh account with `cx accounts add --agent codex --account personal
+--auth subscription`, then explicitly log in with `cx --agent codex --account
+personal --login`. Use `--agent claude` for Claude Code. Interactive launches
+show a CLI/account picker; scripts require a complete pair or a saved
+`cx accounts default --agent codex --account personal` selection. Native
+`--profile` is unchanged and wrapper parsing stops at `--`.
+
+[Accounts and shared history](ACCOUNTS.md) describes API-key authentication,
+private mounts, native resume, Claude project settings/MCP, and migration.
+Existing native homes are untouched. Explicit `CX_CODEX_HOME` retains legacy
+Codex operation outside managed history sharing. Rebuild the image after upgrade.
+
 ## Start a session
 
 ```bash
 cx /path/to/project
 cd /path/to/project
 cx .
-cx . exec "Explain the test failures"
-printf '%s\n' 'Summarize this repository' | cx . exec -
+cx --agent codex --account personal . exec "Explain the test failures"
+printf '%s\n' 'Summarize this repository' | cx --agent codex --account personal . exec -
 ```
 
 The optional first directory selects the local project. cx handles its own
 commands, `--add-dir`, `--add-file`, and SSH options; other arguments pass to
-Codex. Use an explicit project directory if a Codex argument could also name
+the selected CLI. Use an explicit project directory if a native argument could also name
 an existing directory. Paths in prompts and other Codex arguments are not
 translated automatically: use the appropriate `/workspace/main`,
 `/workspace/cx-external`, or `/workspace/remote` container path.
@@ -28,7 +42,7 @@ are discarded when the process exits.
 
 ## Workspace directory layout
 
-Both Codex sessions and `cx --shell` start at `/workspace`:
+Both CLI sessions and `cx --shell` start at `/workspace`:
 
 ```text
 /workspace/
@@ -46,7 +60,7 @@ Use `cd main` for local project commands, `cd cx-external/NAME` for an added
 directory, or `cd remote` to browse a mounted SSH project. The `/workspace`
 parent and unused placeholders are read-only; create project files in the
 mounted directories. Remote command execution continues to use server paths.
-`cx ... exec` automatically adds `--skip-git-repo-check`, because the browser
+For Codex, `cx ... exec` automatically adds `--skip-git-repo-check`, because the browser
 parent is above the selected project repository.
 
 After upgrading, rebuild the image to create this layout. Update scripts that
@@ -73,8 +87,9 @@ ancestors/children.
 `cx --shell` uses the current directory as its workspace and accepts
 `--add-dir` and `--add-file` options. It starts Bash after environment setup.
 `exit` leaves it.
-The shell has the same project, credentials, and environment mounts; it does
-not run Codex or load the Codex system instructions.
+The shell shares project and environment mounts and uses an empty persistent
+home without managed account credentials. Explicit legacy mode keeps its home
+mount. It does not run an assistant or load assistant instructions.
 
 ## Add individual files
 
@@ -194,16 +209,18 @@ permission gate. A human running shell commands controls those changes directly.
 |---|---|---|
 | `CX_IMAGE` | `local/codex-isolated:latest` | Image to build and run |
 | `CX_CODEX_VERSION` | `latest` | npm package version for builds only |
-| `CX_CODEX_HOME` | `~/.codex` | Writable Codex credentials, settings, and session data |
+| `CX_CLAUDE_VERSION` | `2.1.323` | Claude npm version for builds only |
+| `CX_DATA_HOME` | `~/.local/share/cx/data` | Managed profiles, shared native history and automation default |
+| `CX_CODEX_HOME` | Unset | Explicit legacy Codex home; bypasses managed accounts/history |
 | `CX_ENV_HOME` | `~/.local/share/cx/environments` | Workspace environment stores |
 | `CX_ENV_NAME` | Saved selection, else `default` | Session environment override |
 | `CX_CONFIG_DIR` | Package `config/` | Directory containing system `config.toml` |
 | `CX_SLURM_CONFIG` | `$XDG_CONFIG_HOME/cx/slurm-servers.json`, else `~/.config/cx/slurm-servers.json` | Host file holding shared directories keyed by SSH alias |
-| `CX_MEMORY` | `8g` | Normal Codex container memory limit |
-| `CX_CPUS` | `4` | Normal Codex container CPU limit |
-| `CX_PIDS` | `1024` | Normal Codex container process limit |
+| `CX_MEMORY` | `8g` | Assistant container memory limit |
+| `CX_CPUS` | `4` | Assistant container CPU limit |
+| `CX_PIDS` | `1024` | Assistant container process limit |
 
-Portable defaults for `CX_CODEX_HOME` and `CX_ENV_HOME` are `data/codex` and
+Portable defaults for `CX_DATA_HOME` and `CX_ENV_HOME` are `data/` and
 `data/environments` under the bundle. Explicit variables override these defaults.
 Use absolute paths for directory overrides. Shell and login utility containers
 retain their original behavior and do not apply the three resource limits.
@@ -222,12 +239,12 @@ Persistent Codex preferences belong in the active credential store's
 `config.toml`. For example:
 
 ```toml
-# ~/.codex/config.toml for the default installed edition
+# ~/.local/share/cx/data/profiles/codex/NAME/home/config.toml
 model = "YOUR_MODEL"
 ```
 
 Replace the placeholder with a model your account supports. For portable use,
-edit `data/codex/config.toml`. The package's separate `config/config.toml` is
+edit `data/profiles/codex/NAME/home/config.toml`. The package's separate `config/config.toml` is
 mounted at `/etc/codex/config.toml` during Codex workspace runs and provides the
 persistent environment instructions. Installed configuration is stored at
 `PREFIX/share/cx/config/config.toml` and is preserved across upgrades.

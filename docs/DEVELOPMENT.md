@@ -17,6 +17,7 @@ a runtime requirement. Python rendering dependencies are bundled in `bin/vendor`
 ```bash
 npm ci --prefix container/mcp --ignore-scripts
 node tests/smoke.mjs
+node tests/accounts.mjs
 node tests/remote-client.mjs
 node tests/mcp.mjs
 python3 -B tests/ssh_bridge.py
@@ -33,6 +34,21 @@ To try the source launcher on a Docker host, use `./bin/cx --build`, then
 `./bin/cx /path/to/disposable/project`. The top-level `./cx` is the portable
 entry point and selects private bundle-local `data/`; choose a project outside
 that bundle. Do not use real credentials for automated tests.
+
+## CLI Account Development
+
+Read [accounts and native history](ACCOUNTS.md) before changing selection, auth or
+storage seams. `tests/accounts.mjs` uses fake CLIs and a PTY for picker/filtering,
+credential refresh/logout isolation, argument boundaries and task I/O. The
+existing smoke suite preserves explicit legacy-home behavior and verifies both
+archives. Add new runtime sources to both Docker's context allowlist and the
+release allowlist.
+
+`CX_NATIVE_HISTORY=1 CX_NATIVE_CLAUDE=/path/to/claude node tests/native-history.mjs`
+checks actual CLI resume and concurrent distinct writes with fixture auth against
+a loopback model simulator. It uses disposable homes and never logs into providers.
+Record exact versions and keep live subscription/API login and Docker checks as
+open gates when unavailable. Claude SSH/MCP/Slurm integration belongs to CX-2.
 
 ## Component map
 
