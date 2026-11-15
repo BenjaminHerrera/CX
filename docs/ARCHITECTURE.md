@@ -55,6 +55,10 @@ Codex sessions/archives/index/history/locks are linked into shared storage and
 settings are copied between accounts, and no databases or historical attribution
 are rewritten. Directory mounts support atomic credential refresh/logout.
 Explicit `CX_CODEX_HOME` retains legacy behavior outside history sharing.
+Shared storage does not override native account restrictions: Codex 0.169.0
+filters account-scoped ChatGPT conversations by identity in its resume picker and
+can reject cross-account resume. This remains an unmet CX-1 requirement; see the
+[compatibility limitation](ACCOUNTS.md#known-codex-subscription-history-limitation).
 
 See [accounts](ACCOUNTS.md) for the storage tree, native compatibility checks,
 concurrency contract and open live gates. Claude SSH parity is a separate CX-2

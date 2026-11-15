@@ -15,6 +15,8 @@
   append cx guidance and refresh prompt context on resume. Reject root bypass.
 - Load AGENTS-only project instructions at startup through native imports with
   deduplication; consume wrapper escapes so forwarded native options are parsed.
+- Record Codex's native subscription-account history restrictions and cover them
+  with synthetic identity tests; cross-account subscription resume remains blocked.
 - Add account/adapter and real-CLI loopback regression suites. Live provider
   login and Docker checks remain open gates; Claude SSH parity belongs to CX-2.
 - Simplify the README and add a documentation index, contributor and development

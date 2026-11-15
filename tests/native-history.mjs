@@ -83,7 +83,8 @@ async function discoverCodex(binary,env,threadId){
   try{
     const initialized=await rpc('initialize',{clientInfo:{name:'cx-history-check',version:'1.0.0'}});
     assert.ok(initialized.result);
-    const listed=await rpc('thread/list',{limit:100,modelProviders:[],sourceKinds:['exec']});
+    // This checks shared storage, not the subscription-scoped native picker.
+    const listed=await rpc('thread/list',{limit:100,modelProviders:[],sourceKinds:['exec'],currentAccountOnly:false});
     assert.ok(listed.result?.data.some(x=>x.id===threadId),'Codex B must discover A in native history');
   }finally{clearTimeout(timer);p.kill();await new Promise(resolve=>p.once('exit',resolve));}
 }
@@ -100,7 +101,8 @@ try{
   assert.ok(seen.some(x=>x.agent==='codex'&&x.key==='Bearer fixture-b'&&JSON.stringify(x.body).includes('CX_ACCOUNT_A_MARKER')),'Codex B must resume A using B auth');
   await Promise.all([run(codex,[...config,'exec','--skip-git-repo-check','CX_CONCURRENT_A'],codexEnv(a)),run(codex,[...config,'exec','--skip-git-repo-check','CX_CONCURRENT_B'],codexEnv(b))]);
   assert.ok(fs.readdirSync(path.join(shared,'codex/sqlite')).some(x=>x.endsWith('.sqlite')));
-  console.log('PASS Codex native cross-account resume, selected auth and concurrent distinct conversations.');
+  console.log('PASS Codex custom-provider/API-style fixture resume and concurrent distinct conversations; subscription policy is tested separately.');
+  console.log((await run(process.execPath,[path.join(root,'tests/codex-account-history.mjs')],{CX_NATIVE_HISTORY:'1',CX_NATIVE_CODEX:codex})).trim());
 
   const [ca,cb]=homes('claude',[['projects',true]]);
   const claudeEnv=h=>({HOME:h,CLAUDE_CONFIG_DIR:h,ANTHROPIC_API_KEY:h===ca?'fixture-a':'fixture-b',ANTHROPIC_BASE_URL:endpoint,DISABLE_AUTOUPDATER:'1',DISABLE_UPDATES:'1',CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:'1'});

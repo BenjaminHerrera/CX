@@ -49,6 +49,11 @@ checks actual CLI resume and concurrent distinct writes with fixture auth agains
 a loopback model simulator. It uses disposable homes and never logs into providers.
 Record exact versions and keep live subscription/API login and Docker checks as
 open gates when unavailable. Claude SSH/MCP/Slurm integration belongs to CX-2.
+The suite includes `tests/codex-account-history.mjs`, which can also run separately
+with `CX_NATIVE_HISTORY=1`. It checks native subscription-identity filtering and
+ownership rejection. Passing an API-style fixture test does not prove cross-account
+ChatGPT subscription compatibility; the current native picker restriction remains
+an explicit CX-1 blocker.
 
 ## Component map
 

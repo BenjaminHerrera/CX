@@ -104,8 +104,9 @@ credentials remain under private `CLAUDE_CONFIG_DIR=/claude-home`. History links
 are container paths; use the host's `history/` tree for backups. Unexpected
 existing history paths fail instead of being moved or overwritten.
 
-Different accounts can run **distinct** conversations concurrently. Resume uses
-the selected account's credentials. No cross-CLI conversion, account attribution
+Different accounts can run **distinct** conversations concurrently. Supported
+resume operations use the selected account's credentials and remain subject to
+native account ownership restrictions (see below). No cross-CLI conversion, account attribution
 rewriting, raw database merging, provider-policy bypass, or simultaneous editing
 of one conversation is provided. Native cleanup/archive/delete actions can affect
 the shared history; use the CLI's normal controls and back up the history tree
@@ -143,6 +144,38 @@ parity is tracked by [CX-2](https://github.com/BenjaminHerrera/CX/issues/2); Cla
 SSH launches fail clearly until that integration is implemented. Codex SSH uses
 the selected profile and retains its existing transport and authentication rules.
 
+### Known Codex Subscription History Limitation
+
+Codex **0.169.0** scopes its native resume picker to the current ChatGPT account
+and workspace for account-scoped conversations. A conversation can exist in the
+shared history tree and remain visible to its original account while being hidden
+from a different account. `resume --all` removes directory filtering; it does not
+remove account filtering. When Codex's native resume ownership check is enabled,
+resuming another identity's tagged conversation by ID is also rejected.
+
+The user reproduced this during host testing: `test-sub` still lists its session,
+while `test-sub-2`, logged into a different ChatGPT account, does not. Cross-profile
+same-account resume passed earlier. **Cross-account Codex subscription discovery
+and resume is an unmet CX-1 requirement**, not a completed check. Shared storage
+is preserved; cx does not remove creator tags, disable ownership checks, or
+impersonate another client to bypass this restriction. Use the original account
+to resume the conversation while this compatibility requirement remains blocked.
+
+The earlier loopback test used custom-provider/API-style fixture credentials and
+an unfiltered storage query; it did not establish subscription-picker behavior.
+A separate native regression now uses synthetic ChatGPT identities and immutable
+account-scoped rollout fixtures, verifies native filtered discovery for each
+identity, and confirms rejection with the ownership check enabled. Run it without
+requiring Claude or real provider accounts:
+
+```bash
+CX_NATIVE_HISTORY=1 node tests/codex-account-history.mjs
+```
+
+Upstream references for the tested version: [native resume picker](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/tui/src/resume_picker.rs),
+[local account filtering](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/thread-store/src/local_history_account.rs),
+and [resume ownership check](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/app-server/src/request_processors/thread_resume_account.rs).
+
 Storage/flag references: [Codex configuration source](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/mod.rs),
 [Claude environment variables](https://code.claude.com/docs/en/env-vars),
 [Claude CLI reference](https://code.claude.com/docs/en/cli-reference), and
@@ -161,10 +194,12 @@ For actual binaries, without provider credentials or model requests:
 CX_NATIVE_HISTORY=1 CX_NATIVE_CLAUDE=/path/to/claude node tests/native-history.mjs
 ```
 
-On 2026-11-15, Codex **0.169.0** and Claude **2.1.323** passed native cross-account
-resume with selected fixture credentials and concurrent distinct conversation
-writes against a loopback model simulator. This validates native storage/transport
-compatibility, not provider subscription or billing policy.
+On 2026-11-15, Codex **0.169.0** passed shared-storage discovery/resume with
+custom-provider/API-style fixture credentials and concurrent distinct conversation
+writes against a loopback model simulator. Claude **2.1.323** passed corresponding
+native discovery/resume checks with fixture API credentials. These tests validate
+storage/transport compatibility, not subscription account policy; they do not
+establish cross-account Codex subscription resume.
 
 The native regression suite also verifies startup instructions for AGENTS-only
 projects, both instruction files, explicit imports, symlinks, `.claude/AGENTS.md`,
@@ -185,8 +220,9 @@ Live API-key login/persistence checks are **skipped at the user's request** beca
 API keys are unavailable. They remain unverified, rather than passed; automated
 API-key routing coverage still applies.
 
-Actual subscription credential refresh, logout isolation, and live cross-account
+Actual subscription credential refresh, logout isolation, live Claude cross-account
 discovery/resume and concurrent distinct conversations remain **open integration
-gates**. Native tmux checks are skipped where tmux is unavailable. Do not interpret
+gates**. Codex cross-account subscription discovery/resume is **blocked by native
+account restrictions** as described above. Native tmux checks are skipped where tmux is unavailable. Do not interpret
 simulator success as completion of those live checks. CX-1 stays open while the
 remaining acceptance checks are outstanding.
