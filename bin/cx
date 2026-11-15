@@ -10,7 +10,7 @@ DOCKER_TERMINAL_ARGS=(-i)
 if [[ -t 0 && -t 1 ]]; then DOCKER_TERMINAL_ARGS+=(-t); fi
 
 readonly IMAGE="${CX_IMAGE:-local/codex-isolated:latest}"
-readonly HOST_CODEX_HOME="${CX_CODEX_HOME:-$HOME/.codex}"
+HOST_CODEX_HOME="${CX_CODEX_HOME:-$HOME/.codex}"
 readonly HOST_ENV_HOME="${CX_ENV_HOME:-$HOME/.local/share/cx/environments}"
 readonly REQUESTED_ENV_NAME="${CX_ENV_NAME:-}"
 readonly CONTAINER_MEMORY="${CX_MEMORY:-8g}"
@@ -20,7 +20,10 @@ readonly CONTAINER_PIDS="${CX_PIDS:-1024}"
 usage() {
     cat <<'EOF'
 Usage:
-  cx [directory] [codex arguments...]
+  cx [--agent codex|claude --account NAME] [directory] [native CLI arguments...]
+  cx accounts list [--agent codex|claude]
+  cx accounts add --agent codex|claude --account NAME --auth subscription|api-key
+  cx accounts default --agent codex|claude --account NAME
 
 Examples:
   cx .
@@ -31,7 +34,9 @@ Examples:
   cx . --ssh delta --remote-dir /remote/project --ssh-mount
   cx . --model YOUR_MODEL
   cx . exec "Run the test suite and fix failures"
-  cx --login
+  cx accounts add --agent codex --account personal --auth subscription
+  cx --agent codex --account personal --login
+  cx --agent claude --account work . exec "Run the tests"
   cx --auth-status
   cx --logout
   cx --setup-slurm SSH_ALIAS --shared-dir /shared/path/cx [--job-id-pattern REGEX]
@@ -41,10 +46,20 @@ Examples:
   cx --doctor                Check local prerequisites and paths
   cx --version
 
+Account selection:
+  Interactive launches show a CLI/account picker unless both are explicit.
+  Scripts require a complete pair or an automation default; native --profile
+  stays a CLI option. Wrapper parsing stops at -- (use it for Claude --agent).
+  Login/status/logout apply only to the selected account. API-key profiles use
+  Codex's native stdin login or Claude's hidden terminal prompt.
+  Histories are shared among accounts of the same CLI; credentials/settings
+  remain private. Do not edit one conversation concurrently. Claude SSH parity
+  is tracked separately in CX-2. Rebuild the image after upgrading cx.
+
 Codex configuration:
   -c, --enable, --disable, and --search are per-run overrides. Codex runs
   those sessions in embedded mode. For persistent settings, edit
-  CX_CODEX_HOME/config.toml (default: ~/.codex/config.toml).
+  the selected profile's config.toml. Explicit CX_CODEX_HOME selects legacy mode.
 
 Environment:
   SSH MCP tools are registered automatically; --no-ssh-mcp uses CLI tools only.
@@ -59,8 +74,11 @@ Environment:
 
   CX_CONFIG_DIR    System config folder, default: package/config
   CX_CODEX_VERSION Codex npm version used by --build/--rebuild, default: latest
+  CX_CLAUDE_VERSION Claude npm version used by builds, default: 2.1.323
+  CX_DATA_HOME     Managed profiles/history, default: ~/.local/share/cx/data
+                   Portable default: bundle/data
   CX_IMAGE         Container image name
-  CX_CODEX_HOME    Host Codex directory, default: ~/.codex
+  CX_CODEX_HOME    Explicit legacy Codex home; bypasses managed accounts/history
   CX_ENV_HOME      Persistent environment storage, default: ~/.local/share/cx/environments
   CX_ENV_NAME      Named environment override for this session
   CX_MEMORY        Container memory limit, default: 8g
@@ -105,6 +123,8 @@ die() {
     printf 'cx: %s\n' "$*" >&2
     exit 1
 }
+
+source "$CX_ROOT/bin/cx-accounts.sh"
 
 require_docker() {
     command -v docker >/dev/null 2>&1 ||
@@ -187,6 +207,14 @@ prepare_environment_mount() {
           "$codex_home_path" == "$environment_home/"* ]]; then
         die "CX_ENV_HOME cannot overlap the Codex credential directory: $environment_home"
     fi
+
+    local private_path
+    for private_path in "$DATA_HOME/profiles" "$DATA_HOME/history" "$DATA_HOME/shell-home"; do
+        private_path="$(realpath -m -- "$private_path")"
+        if [[ "$environment_home" == "$private_path" || "$environment_home" == "$private_path/"* || "$private_path" == "$environment_home/"* ]]; then
+            die "CX_ENV_HOME cannot overlap managed account/history storage."
+        fi
+    done
 
     mkdir -p -- "$environment_home"
     chmod 700 -- "$environment_home"
@@ -340,6 +368,7 @@ register_additional_file() {
     [[ "$requested" == /* ]] || requested="${workspace}/${requested}"
     [[ -f "$requested" ]] || die "--add-file requires an existing regular file: $requested"
     host_path="$(realpath -e -- "$requested")"
+    reject_private_overlap "$host_path" file
     [[ -r "$host_path" && -w "$host_path" ]] || die "--add-file requires a readable, writable file: $host_path"
     codex_home_path="$(canonical_directory "$HOST_CODEX_HOME")"
     [[ "$host_path" != "$codex_home_path/"* ]] || die "Refusing to expose a Codex credential file through --add-file: $host_path"
@@ -371,6 +400,7 @@ register_additional_directory() {
 
     [[ "$host_path" != "/" ]] ||
         die "Refusing to add the host root directory."
+    reject_private_overlap "$host_path" directory
 
     codex_home_path="$(canonical_directory "$HOST_CODEX_HOME")"
     if [[ "$host_path" == "$codex_home_path" ||
@@ -502,11 +532,17 @@ run_container() {
 
     prepare_environment_mount "$workspace"
     prepare_workspace_mounts "$workspace" "$@"
-    prepare_browser_exec
+    if [[ "$AGENT" == codex ]]; then prepare_browser_exec; fi
+    if [[ "$AGENT" == claude && "$uid" == 0 ]]; then
+        die "Claude permission bypass requires a non-root host UID."
+    fi
 
     # --cx-shell performs the image's environment setup without adding a -c
     # override to Codex; the mounted system config supplies those instructions.
     local -a ssh_args=()
+    if [[ "$AGENT" == claude ]]; then
+        ssh_args+=(--tmpfs "/workspace/.claude:rw,nosuid,nodev,size=16m,mode=700,uid=${uid},gid=${gid}")
+    fi
     if [[ -n "${CX_SSH_BRIDGE_DIR:-}" ]]; then
         if [[ "${CX_SSH_MCP:-1}" == 1 ]]; then
             docker run --rm --entrypoint node "$IMAGE" -e \
@@ -536,7 +572,8 @@ run_container() {
         "${ADDITIONAL_MOUNT_ARGS[@]}" \
         "${IGNORE_MOUNT_ARGS[@]}" \
         "${ENVIRONMENT_DOCKER_ARGS[@]}" \
-        --mount "type=bind,src=${HOST_CODEX_HOME},dst=/codex-home" \
+        "${ACCOUNT_MOUNTS[@]}" \
+        "${ACCOUNT_ENV[@]}" \
         --mount "type=bind,src=${config_directory},dst=/etc/codex,readonly" \
         --tmpfs "/tmp:rw,nosuid,nodev,noexec,size=1g,mode=1777" \
         --tmpfs "/home/codex:rw,nosuid,nodev,size=512m,mode=700,uid=${uid},gid=${gid}" \
@@ -552,7 +589,7 @@ run_container() {
         --env TERM="${TERM:-xterm-256color}" \
         --env COLORTERM \
         "$IMAGE" \
-        --cx-shell -c 'exec codex --sandbox danger-full-access "$@"' cx \
+        --cx-session \
         "${CODEX_ARGS[@]}"; then
         docker_status=0
     else
@@ -569,7 +606,8 @@ run_codex_utility() {
 
     docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
         --user "${uid}:${gid}" \
-        --mount "type=bind,src=${HOST_CODEX_HOME},dst=/codex-home" \
+        "${ACCOUNT_MOUNTS[@]}" \
+        "${ACCOUNT_ENV[@]}" \
         --tmpfs "/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777" \
         --tmpfs "/home/codex:rw,nosuid,nodev,size=128m,mode=700,uid=${uid},gid=${gid}" \
         --read-only \
@@ -661,6 +699,7 @@ run_shell() {
 
 validate_workspace() {
     local workspace="$1" codex_home_path
+    reject_private_overlap "$workspace" directory
     codex_home_path="$(canonical_directory "$HOST_CODEX_HOME")"
     [[ "$workspace" != "/" ]] || die "Refusing to expose the host root directory."
     if [[ "$workspace" == "$codex_home_path" ||
@@ -677,8 +716,10 @@ build_image() {
     [[ "${1:-}" != "fresh" ]] || build_args+=(--no-cache)
     docker build "${build_args[@]}" \
         --build-arg "CODEX_VERSION=${CX_CODEX_VERSION:-latest}" \
+        --build-arg "CLAUDE_VERSION=${CX_CLAUDE_VERSION:-2.1.323}" \
         -t "$IMAGE" "$BUILD_DIRECTORY"
     docker run --rm "$IMAGE" --version
+    docker run --rm --entrypoint claude "$IMAGE" --version
     docker run --rm --entrypoint bwrap "$IMAGE" --version
     printf 'cx: built %s\n' "$IMAGE"
 }
@@ -714,6 +755,10 @@ doctor() {
 }
 
 main() {
+    umask 077
+    if [[ "${1:-}" == accounts ]]; then shift; accounts_command "$@"; return; fi
+    account_options "$@"
+    set -- "${SELECTION_ARGS[@]}"
     case "${1:-}" in
         -h|--help) usage; return ;;
         --version) printf 'cx %s\n' "$VERSION"; return ;;
@@ -731,11 +776,26 @@ main() {
         --rebuild) build_image fresh; return ;;
     esac
     ensure_image
-    ensure_codex_home
+    if [[ "${1:-}" != --shell ]]; then
+        select_account
+        [[ "$LEGACY_ACCOUNT" == true ]] || private_directory "$HOST_CODEX_HOME"
+        ensure_codex_home
+        prepare_account_mounts
+        local image_protocol
+        image_protocol="$(docker image inspect --format '{{index .Config.Labels "io.cx.accounts"}}' "$IMAGE")"
+        [[ "$image_protocol" == 1 ]] || die "Image lacks account/Claude support. Run cx --rebuild."
+    else
+        # Shells need no account selection and expose no managed credentials.
+        check_data_home
+        HOST_CODEX_HOME="${CX_CODEX_HOME:-$DATA_HOME/shell-home}"
+        ensure_codex_home
+    fi
     case "${1:-}" in
-        --login) run_codex_utility login --device-auth; return ;;
-        --auth-status) run_codex_utility login status; return ;;
-        --logout) run_codex_utility logout; return ;;
+        --login|--auth-status|--logout)
+            (($# == 1)) || die "Authentication actions accept selection options only."
+            local action="${1#--}"
+            [[ "$action" != auth-status ]] || action=status
+            run_codex_utility --cx-auth "$action"; return ;;
         --shell)
             local shell_workspace
             shell_workspace="$(canonical_directory ".")"
@@ -785,6 +845,7 @@ main() {
         command -v fusermount3 >/dev/null || command -v fusermount >/dev/null || die "--ssh-mount requires fusermount3 or fusermount on the host."
     fi
     if [[ "$saw_ssh" == true ]]; then
+        [[ "$AGENT" == codex ]] || die "Claude SSH integration is tracked in CX-2; local Claude sessions are supported."
         [[ "$ssh_host" != -* ]] || die "Invalid SSH host."
         [[ -z "${CX_SSH_BRIDGE_DIR:-}" ]] || die "Nested SSH bridges are unsupported."
         command -v python3 >/dev/null || die "SSH mode requires Python 3 on the host."
@@ -794,8 +855,10 @@ main() {
         local slurm_interactive_dir slurm_job_pattern
         slurm_interactive_dir="$(python3 "$CX_ROOT/bin/cx-slurm-setup.py" --lookup "$ssh_host")" || die "Cannot read Slurm configuration for $ssh_host."
         slurm_job_pattern="$(python3 "$CX_ROOT/bin/cx-slurm-setup.py" --lookup-pattern "$ssh_host")" || die "Cannot read Slurm job-ID pattern for $ssh_host."
-        exec env "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
-            "$CX_ROOT/bin/cx" "$workspace" "${forwarded[@]}"
+        local -a ssh_selection=()
+        [[ "$LEGACY_ACCOUNT" == true ]] || ssh_selection=(--agent "$AGENT" --account "$ACCOUNT")
+        exec env "CX_SELECTED_PROFILE=$HOST_CODEX_HOME" "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
+            "$CX_ROOT/bin/cx" "$workspace" "${ssh_selection[@]}" "${forwarded[@]}"
     fi
     run_container "$workspace" "${forwarded[@]}"
 }

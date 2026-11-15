@@ -62,24 +62,39 @@ accidental changes; they do not authenticate an untrusted publisher.
 ./install.sh
 export PATH="$HOME/.local/bin:$PATH"
 cx --doctor
-cx --login
+cx accounts add --agent codex --account personal --auth subscription
+cx --agent codex --account personal --login
 cx /path/to/project
 ```
 
 The export above affects this terminal. Add it to your shell profile for future
 terminals. The first build downloads the Node base image, Linux tools,
-Micromamba, and the Codex npm package. It can take several minutes. A failed
+Micromamba, and both CLI npm packages. It can take several minutes. A failed
 build stops installation before changing the installed program.
 
 Use `./install.sh --prefix /some/writable/location` for a different installation
 prefix. Add that prefix's `bin` directory to PATH. Prefix selection changes
 **program and system configuration** locations; the default credential and
-environment paths stay under your home directory. Override `CX_CODEX_HOME`
-and `CX_ENV_HOME` if desired.
+environment paths stay under your home directory. Override `CX_DATA_HOME`
+and `CX_ENV_HOME` if desired. Explicit `CX_CODEX_HOME` selects legacy Codex mode.
 
 Use `./install.sh --no-build` to copy the program without accessing Docker or
 networks. Then run `cx --build` when Docker is available. The installer never
 installs dependencies on the host.
+
+## Account Migration and Image Rebuild
+
+Rebuild the image after this update. Fresh managed profiles do not import existing
+native credentials or history. Create profiles and sign in explicitly as shown
+above; see [accounts and history](ACCOUNTS.md) for storage paths and open live
+validation gates. To retain an existing native Codex home, explicitly set
+`CX_CODEX_HOME="$HOME/.codex"`; for an older portable bundle, use its `data/codex`
+path. Legacy mode cannot be combined with managed selection or Claude.
+
+The image defaults to Claude 2.1.323; set `CX_CLAUDE_VERSION` before building for
+an override. `CX_CODEX_VERSION` remains supported. Both Claude self-update paths
+are disabled; update through an image rebuild. Claude permission bypass requires
+a non-root host UID. No package release version is assigned by this feature.
 
 ## Portable edition
 
@@ -87,11 +102,12 @@ installs dependencies on the host.
 tar -xzf cx-1.2.1-portable.tar.gz
 cd cx-1.2.1-portable
 ./cx --build
-./cx --login
+./cx accounts add --agent codex --account personal --auth subscription
+./cx --agent codex --account personal --login
 ./cx /path/to/project
 ```
 
-The launcher uses `data/codex` and `data/environments` beside itself. They are
+The launcher uses `data/profiles`, `data/history` and `data/environments` beside itself. They are
 created on first use. The image lives in Docker's storage, outside the bundle.
 You can relocate the bundle and continue using the same credentials and
 workspace environments on a compatible host. Keep Unix permissions intact.
@@ -211,8 +227,9 @@ mv "$HOME/.local/bin/cx" "$HOME/.local/bin/cx.original"
 ./install.sh
 ```
 
-The new default installed edition reuses `~/.codex` and
-`~/.local/share/cx/environments`. The old Dockerfile, environments, and
+The installed edition preserves `~/.local/share/cx/environments` and creates
+fresh account homes under `~/.local/share/cx/data`. To reuse `~/.codex`, explicitly
+set `CX_CODEX_HOME="$HOME/.codex"` (legacy mode). The old Dockerfile, environments, and
 `~/.local/bin/cx-config` directory are left in place. To retain customized
 system instructions, copy the old `cx-config/config.toml` into
 `~/.local/share/cx/config/config.toml` after installation. Review that file
