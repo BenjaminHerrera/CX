@@ -8,6 +8,9 @@ verification and release packaging.
   without SSH. Do not change release versions unless requested.
 - Update documentation for user-visible behavior. Add regression coverage for
   consequential behavior changes using existing suites and fixtures.
+- Use standard English title case for GitHub issue and PR titles, rule/ruleset
+  names, workflow/job display names, and release titles. Follow the examples
+  and capitalization rules in `docs/DEVELOPMENT.md#github-titles-and-names`.
 - Preserve serialized remote command ownership, manual authentication, bounded
   output, and unknown-outcome handling. Never replay uncertain commands.
 - Use simulated SSH/Slurm fixtures for routine checks. Live authentication,

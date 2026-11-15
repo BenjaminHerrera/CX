@@ -73,6 +73,26 @@ Poll tracked IDs after timeouts; never replay uncertain commands through another
 transport. Readiness must match the Slurm job ID and startup token; check the
 physical hostname separately. Remote mounts stay on the initial login host.
 
+## GitHub titles and names
+
+Use standard English title case for human-facing GitHub issue and pull request
+titles, rule/ruleset names, workflow and job display names, and release titles.
+Capitalize the first and last words and major words (nouns, pronouns, verbs,
+adjectives, and adverbs). Keep articles, coordinating conjunctions, and short
+prepositions lowercase unless they start or end the title. Do not simply
+capitalize every word. Preserve acronyms and established spelling such as
+`SSH`, `MCP`, `GPU`, `GitHub`, `Codex`, and `cx`.
+
+Examples: `Fix SSH Session Switching`, `Add Support for Remote Files`,
+`cx Main Protections`, and `Offline Checks`. Preserve any issue-template prefix,
+such as `[Bug]: Fix SSH Session Switching`.
+
+This convention applies to display text. Keep branch names, labels, file paths,
+command names, and machine identifiers in their existing conventions. When
+renaming a workflow/job or ruleset, update matching required-check contexts,
+setup-script lookups, examples, and documentation together. Do not rename
+existing GitHub objects solely as part of an unrelated change.
+
 ## Documentation and releases
 
 Keep examples generic; site-specific functions and scheduler policy belong to

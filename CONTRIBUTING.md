@@ -29,6 +29,8 @@ best effort; no response-time commitment is implied.
    validation, compatibility, limitations, and related issues.
 
 Use clear imperative commit subjects and existing Bash, Python, and Node styles.
+Use [standard English title case](docs/DEVELOPMENT.md#github-titles-and-names)
+for GitHub issue/PR titles and other human-facing GitHub names.
 Avoid unrelated reformatting. Never commit runtime data, credentials, generated
 archives, `node_modules`, or local environments.
 

@@ -1,5 +1,10 @@
 # GitHub maintenance
 
+Use [standard English title case](DEVELOPMENT.md#github-titles-and-names) for
+issue and PR titles, rule/ruleset names, workflow/job display names, and release
+titles. Preserve product spelling and keep matching configuration references
+consistent when renaming a display name.
+
 ## Repository files
 
 - `.github/ISSUE_TEMPLATE/`: structured bug, feature, and question forms.
