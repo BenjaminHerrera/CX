@@ -173,7 +173,16 @@ spaces in their paths. It checks that each instruction appears once in the model
 request and that startup does not edit the project. An escaped `--agent` is tested
 with an actual native agent definition, rather than just checking forwarded args.
 
-Live Docker build/mount behavior, interactive native history pickers, subscription
-and API-key login/refresh/persistence with consenting accounts remain **open
-integration gates**. Native tmux checks are skipped where tmux is unavailable.
-Do not interpret offline success as completion of those live checks.
+The user reported successful host validation with Codex **0.169.0** and Claude
+**2.1.323**: `scripts/verify-docker.sh --build` passed for installed and portable
+editions, including mounts, masking, host writes and persistent storage. Native
+subscription login and status checks passed for both CLIs across separate
+containers. Live sessions and interactive same-account resume pickers also
+passed for both CLIs. These are user-reported host results; the host checkout
+SHA was not supplied.
+
+API-key login/persistence, actual credential refresh, logout isolation, and
+live cross-account discovery/resume and concurrent distinct conversations remain
+**open integration gates**. Native tmux checks are skipped where tmux is
+unavailable. Do not interpret simulator success as completion of those live
+checks. CX-1 stays open until the outstanding acceptance checks are verified.
