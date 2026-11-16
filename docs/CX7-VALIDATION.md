@@ -1,9 +1,12 @@
 # CX-7 Session Menu Validation
 
-The implementation branch starts at `origin/v2` `9178f86`. It carries the
+Historical record: the implementation branch started at `origin/v2` `9178f86`. It carried the
 unmerged session-removal/import prerequisite (`feb08f4`, cherry-picked as
-`c9c5fa7`) so menu deletion reuses that backend. Neither integration branch nor
-release version is changed. Merge still requires explicit user approval.
+`c9c5fa7`) so menu deletion reuses that backend. The work is now merged through
+[PR #8](https://github.com/BenjaminHerrera/CX/pull/8) and
+[PR #9](https://github.com/BenjaminHerrera/CX/pull/9). The package version was
+not bumped. Use [Sessions](SESSIONS.md) for current user instructions; the
+evidence and live-check limitations below remain a historical record.
 
 ## Implementation and Safety Decisions
 

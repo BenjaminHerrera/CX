@@ -1,7 +1,7 @@
 # Getting help
 
-Start with [installation](docs/INSTALL.md), [usage](docs/USAGE.md), and
-[troubleshooting](docs/USAGE.md#troubleshooting). `cx --help`, `cx --version`,
+Start with the [handbook](docs/README.md), [GitHub Wiki](https://github.com/BenjaminHerrera/CX/wiki), and
+[troubleshooting](docs/TROUBLESHOOTING.md). `cx --help`, `cx --version`,
 and `cx --doctor` identify options and missing prerequisites.
 
 If needed, [open an issue](https://github.com/BenjaminHerrera/CX/issues/new/choose).

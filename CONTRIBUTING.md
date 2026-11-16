@@ -17,9 +17,9 @@ best effort; no response-time commitment is implied.
 
 ## Development workflow
 
-1. Fork the repository and branch from `main`.
-   For the v2 multi-CLI/account work, branch from the latest `origin/v2` and
-   target implementation PRs at `v2`; see [the v2 workflow](docs/V2.md).
+1. Fork the repository and branch from the latest `origin/main`.
+   Target implementation and documentation PRs at `main`. The former `v2`
+   integration has landed; its [history](docs/V2.md) is retained for context.
 2. Follow [local setup](docs/DEVELOPMENT.md#local-setup).
 3. Make a focused change. Preserve local-only use, both distribution editions,
    existing settings, and SSH command ownership rules.
@@ -27,6 +27,9 @@ best effort; no response-time commitment is implied.
    and report skipped or unavailable live checks.
 5. Update the relevant guides. Add user-visible changes under `Unreleased` in
    the changelog; maintainers assign release versions.
+   Keep user walkthroughs in the [handbook](docs/README.md) and run
+   `node scripts/docs.mjs --check`. The wiki is generated from these sources;
+   see [wiki maintenance](docs/GITHUB.md#wiki-publication) before publishing.
 6. Open a PR using the template. Explain the problem, resulting behavior,
    validation, compatibility, limitations, and related issues.
 

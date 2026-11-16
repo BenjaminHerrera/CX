@@ -20,6 +20,9 @@ files=(
     VERSION README.md CHANGELOG.md .gitignore cx install.sh uninstall.sh
     CONTRIBUTING.md SUPPORT.md SECURITY.md CODE_OF_CONDUCT.md AGENTS.md
     docs/README.md docs/DEVELOPMENT.md docs/GITHUB.md docs/V2.md
+    docs/GETTING-STARTED.md docs/SESSIONS.md docs/WORKSPACES.md docs/SSH.md
+    docs/SLURM.md docs/IMPORTING.md docs/UPGRADING.md docs/TROUBLESHOOTING.md
+    scripts/docs.mjs
     .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/feature_request.yml
     .github/ISSUE_TEMPLATE/question.yml .github/ISSUE_TEMPLATE/config.yml
     .github/PULL_REQUEST_TEMPLATE.md .github/workflows/ci.yml

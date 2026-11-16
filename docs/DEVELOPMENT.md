@@ -3,9 +3,9 @@
 Read [CONTRIBUTING.md](../CONTRIBUTING.md) for issue and PR processes, then use
 [architecture](ARCHITECTURE.md) to understand persistence and access boundaries.
 
-For the multi-CLI/account update, follow the [v2 integration workflow](V2.md).
-Implementation branches start from the current `origin/v2` head and PRs merge
-into `v2`. The final `v2` → `main` PR waits for full integration validation.
+The multi-CLI and session-menu integration has merged into `main`. Start new
+branches from the current `origin/main` and target PRs at `main`. The
+[v2 record](V2.md) explains the historical scope and integration decisions.
 
 ## Local setup
 
@@ -17,6 +17,7 @@ a runtime requirement. Python rendering dependencies are bundled in `bin/vendor`
 ```bash
 npm ci --prefix container/mcp --ignore-scripts
 node tests/smoke.mjs
+node scripts/docs.mjs --check
 node tests/accounts.mjs
 node tests/sessions.mjs
 node tests/session-menu.mjs
@@ -55,7 +56,8 @@ release allowlist.
 checks actual CLI resume and concurrent distinct writes with fixture auth against
 a loopback model simulator. It uses disposable homes and never logs into providers.
 Record exact versions and keep live subscription/API login and Docker checks as
-open gates when unavailable. Claude SSH/MCP/Slurm live integration validation belongs to CX-2.
+open gates when unavailable. The historical CX-2 record retains SSH/MCP/Slurm
+live-check limitations; do not infer a live pass from the merge.
 The suite includes `tests/codex-account-history.mjs`, which can also run separately
 with `CX_NATIVE_HISTORY=1`. It checks native subscription-identity filtering and
 ownership rejection with the native check enabled, plus the production shared
@@ -117,7 +119,8 @@ rebuilds these projections from durable rollout records.
 - **Slurm:** run `slurm_setup.py`, `ssh_bridge.py`, and `mcp.mjs`. Use fixtures
   routinely; live CPU/GPU allocation needs explicit authorization.
 - **Documentation/packaging:** check local links and `git diff --check`; run
-  `smoke.mjs` when changing distribution files or scripts.
+  `node scripts/docs.mjs --check` and generate a wiki preview. Run `smoke.mjs`
+  when changing distribution files or scripts. See [wiki publication](GITHUB.md#wiki-publication).
 
 The [maintenance guide](MAINTAINING.md) explains coverage and live checklists.
 A skipped test is not a pass. Record the environment and limits of validation.

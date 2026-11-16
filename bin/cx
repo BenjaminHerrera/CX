@@ -58,11 +58,11 @@ Account selection:
   cx consumes that first --; use -- -- to forward a native CLI separator.
   Login/status/logout apply only to the selected account. API-key profiles use
   Codex's native stdin login or Claude's hidden terminal prompt.
-  Managed Codex resume opens a shared-history picker (n/p pages, q cancels).
+  Managed interactive resume opens Sessions for either CLI.
   Explicit IDs and --last use native resume; native account checks still apply.
   Histories are shared among accounts of the same CLI; credentials/settings
-  remain private. Do not edit one conversation concurrently. Claude SSH parity
-  is tracked separately in CX-2. Rebuild the image after upgrading cx.
+  remain private. Do not edit one conversation concurrently. Both CLIs use
+  the shared SSH/MCP bridge. Rebuild the image after upgrading cx.
 
 Codex configuration:
   -c, --enable, --disable, and --search are per-run overrides. Codex runs
@@ -72,8 +72,9 @@ Codex configuration:
 Environment:
   SSH MCP tools are registered automatically; --no-ssh-mcp uses CLI tools only.
   SSH mode supports Codex and Claude through the same bridge and MCP adapter.
-  SSH mode uses host SSH configuration and requires host Python 3.11+, OpenSSH,
-  an interactive terminal, and a remote Bash shell. Ctrl-] r opens SSH;
+  Managed interactive local and SSH sessions require host Python 3.11+.
+  SSH also uses host OpenSSH configuration, an interactive terminal, and a
+  remote Bash shell. Ctrl-] r opens SSH;
   Ctrl-] c hands control to the assistant. Ctrl-] q exits CX.
   Ctrl-] s opens Sessions in managed interactive local and SSH sessions.
   / searches; Tab and Left/Right change CLI/status/sort; Ctrl-O changes density.
@@ -81,8 +82,8 @@ Environment:
   Arrows/Page keys move; Enter queues resume; r renames; d/Delete confirms
   deletion shared by all accounts of that CLI; Esc/q closes; f refreshes.
   Queued resume waits for a clean native assistant exit; no text is injected.
-  SSH and Codex use separate saved screens with a full-width top bar:
-  green for SSH and blue for Codex. No tmux installation is required.
+  SSH and the assistant use separate saved screens with a full-width top bar:
+  green for SSH and blue for the assistant/Sessions. No tmux is required.
   --ssh-mount exposes --remote-dir at /workspace/remote read-only; --ssh-mount=rw
   allows writes. Mounting additionally requires host sshfs and fusermount3
   (or fusermount), and an absolute --remote-dir.
@@ -100,6 +101,10 @@ Environment:
   CX_CPUS          Container CPU limit, default: 4
   CX_PIDS          Container process limit, default: 1024
   CX_SLURM_CONFIG  Host file for per-SSH-alias Slurm settings, default: ~/.config/cx/slurm-servers.json
+
+Documentation:
+  https://github.com/BenjaminHerrera/CX/wiki
+  The package's docs/README.md is the offline handbook.
 
 Workspace layout:
   Sessions start at /workspace, containing main/, cx-external/, and remote/.

@@ -1,5 +1,12 @@
 # Installation and distribution
 
+[Handbook home](README.md) · [First installation walkthrough](GETTING-STARTED.md) · [Upgrade and backup walkthrough](UPGRADING.md)
+
+The multi-CLI/session-menu integration is merged into `main`. Use a checkout
+of `main` for the current source installation. The examples below also cover
+packaged editions when archives are available; they do not imply that a GitHub
+release has been published. `VERSION` remains `1.2.1`.
+
 ## 1. Prepare Docker
 
 Install Docker for your Linux distribution using its official installation
@@ -98,7 +105,7 @@ path. Legacy mode cannot be combined with managed selection or Claude.
 The image defaults to Claude 2.1.323; set `CX_CLAUDE_VERSION` before building for
 an override. `CX_CODEX_VERSION` remains supported. Both Claude self-update paths
 are disabled; update through an image rebuild. Claude permission bypass requires
-a non-root host UID. No package release version is assigned by this feature.
+a non-root host UID. The integration did not assign a new package release version.
 
 ## Portable edition
 
@@ -156,8 +163,8 @@ new image. Version 1.2.1 also requires the remote startup hook for interactive
 CPU/GPU sessions; see [interactive setup](USAGE.md#interactive-cpu-and-gpu-sessions).
 Run `cx --setup-slurm SSH_ALIAS --shared-dir /shared/path/cx` on the host to
 install it and save a separate location per SSH alias. Interactive allocations
-now require explicit setup instead of an Alpine-specific fallback. To migrate
-an existing Alpine installation, rerun setup with the desired existing or new
+now require explicit setup instead of a site-specific fallback. To migrate
+an existing managed installation, rerun setup with the desired existing or new
 shared cx root; the installer recognizes and upgrades previous managed hooks.
 Restart active sessions after upgrading. Setup does not need Docker.
 If you use `./install.sh --no-build`, run `cx --build` afterward,
