@@ -11,33 +11,6 @@ MCP_GUIDANCE = (' Use cx_ssh MCP ssh_status first; submit remote commands with s
                 'then ssh_interactive_close. Readiness requires the Slurm ID and startup token; verify hostname separately. '
                 'Do not send input while authenticating or waiting for readiness.')
 
-def check_claude_conflicts(launcher, profile):
-    def reserved(value):
-        return isinstance(value, dict) and ('cx_ssh' in value.get('mcpServers', {}) or
-               any(reserved(child) for child in value.values()))
-    project = Path(launcher[1])
-    candidates = [profile / '.claude.json', profile / 'settings.json', project / '.mcp.json',
-                  project / '.claude/settings.json', project / '.claude/settings.local.json']
-    inline = []
-    for index, arg in enumerate(launcher[2:], 2):
-        if arg in ('--mcp-config', '--settings') and index + 1 < len(launcher):
-            for value in launcher[index + 1:]:
-                if value.startswith('-'):
-                    break
-                inline.append(value)
-        elif arg.startswith(('--mcp-config=', '--settings=')):
-            inline.append(arg.split('=', 1)[1])
-    for value in inline:
-        if value.lstrip().startswith('{'):
-            if reserved(json.loads(value)):
-                raise ValueError('MCP server cx_ssh is reserved by cx; rename it or use --no-ssh-mcp.')
-        else:
-            candidate = Path(value)
-            candidates.append(candidate if candidate.is_absolute() else project / candidate)
-    for candidate in candidates:
-        if candidate.is_file() and reserved(json.loads(candidate.read_text())):
-            raise ValueError('MCP server cx_ssh is reserved by cx; rename it in ' + str(candidate) + ' or use --no-ssh-mcp.')
-
 def ssh_overrides(*, agent, launcher, host, directory, interactive_root, mount_path, mount_mode, config_root, profile, mcp_enabled):
     instructions = tomllib.loads((config_root / 'config.toml').read_text()).get('developer_instructions', '')
     instructions += (' SSH mode is active. Run cx-remote status first. Use cx-remote exec with one quoted '
@@ -69,7 +42,6 @@ def ssh_overrides(*, agent, launcher, host, directory, interactive_root, mount_p
                          'instructions that restrict local tools to the local workspace.')
     if agent == 'claude':
         if mcp_enabled:
-            check_claude_conflicts(launcher, profile)
             instructions += MCP_GUIDANCE
         return [], {'CX_SSH_INSTRUCTIONS': instructions}
     # Preserve system instructions even for installations retaining an older config.

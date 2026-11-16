@@ -15,7 +15,7 @@ Object.assign(env,{HOME:home,CX_DATA_HOME:data,PATH:`${bin}:${process.env.PATH}`
 fs.writeFileSync(path.join(bin,'docker'),`#!/usr/bin/env node
 const fs=require('node:fs');const args=process.argv.slice(2);
 fs.appendFileSync(process.env.CX_TEST_LOG,JSON.stringify(args)+'\\n');
-if(args[0]==='image'&&args.includes('--format'))console.log(process.env.CX_TEST_OLD_IMAGE||(process.env.CX_TEST_OLD_SSH_IMAGE&&args.some(a=>a.includes('io.cx.ssh-agents')))?'0':'1');
+if(args[0]==='image'&&args.includes('--format'))console.log(args.some(a=>a.includes('io.cx.ssh-agents'))?(process.env.CX_TEST_OLD_SSH_IMAGE?'1':'2'):(process.env.CX_TEST_OLD_IMAGE?'0':'1'));
 if(args[0]==='run'&&process.env.CX_TEST_EXIT)process.exit(Number(process.env.CX_TEST_EXIT));
 `,{mode:0o755});
 const launcher=path.join(root,'bin/cx');
@@ -205,6 +205,66 @@ check('Claude SSH registration and current resume context are session-only',()=>
   assert.ok(args[args.indexOf('--append-system-prompt')+1].includes(context));
   const fallback=adapter(['--cx-session','prompt'],{CX_SSH_SOCKET:'/cx-ssh/bridge.sock',CX_SSH_INSTRUCTIONS:context,CX_SSH_MCP:'0'});
   assert.equal(JSON.parse(fallback.stdout).args.some(a=>a.includes('cx_ssh')),false);
+});
+const sshEnv={CX_SSH_SOCKET:'/cx-ssh/bridge.sock',CX_SSH_MCP:'1'};
+const conflict=JSON.stringify({mcpServers:{cx_ssh:{command:'fixture'}}});
+check('Claude SSH checks absolute container-visible configs and preserves other servers',()=>{
+  const config=path.join(adapterProject,'custom-mcp.json');
+  fs.writeFileSync(config,conflict);
+  try {
+    for(const args of [['--mcp-config',config],['--mcp-config='+config],['--settings',config],['--settings='+config],['--mcp-config',conflict]]){
+      const r=adapter(['--cx-session',...args],sshEnv);
+      assert.notEqual(r.status,0);assert.match(r.stderr,/cx_ssh is reserved/);assert.equal(r.stdout,'');
+    }
+    assert.equal(adapter(['--cx-session','--mcp-config',config],{...sshEnv,CX_SSH_MCP:'0'}).status,0);
+    // Variadic MCP configs must inspect every file, unlike --settings.
+    const r=adapter(['--cx-session','--mcp-config','{"mcpServers":{}}',config],sshEnv);
+    assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+    const other=JSON.stringify({mcpServers:{other:{command:'fixture'}}});
+    fs.writeFileSync(config,other);
+    const allowed=adapter(['--cx-session','--mcp-config',config,'--resume','fixture'],sshEnv);
+    assert.equal(allowed.status,0,allowed.stderr);assert.ok(JSON.parse(allowed.stdout).args.includes(config));
+    assert.equal(fs.readFileSync(config,'utf8'),other);
+  } finally {fs.unlinkSync(config);}
+});
+check('Claude SSH settings takes one value and leaves exec Markdown tasks intact',()=>{
+  const settings=path.join(adapterWorkspace,'settings.json'),readme=path.join(adapterWorkspace,'README.md');
+  fs.writeFileSync(settings,'{}');fs.writeFileSync(readme,'# A normal Markdown task\n');
+  try {
+    const r=adapter(['--cx-session','--settings','settings.json','exec','README.md'],sshEnv);
+    assert.equal(r.status,0,r.stderr);
+    const args=JSON.parse(r.stdout).args;
+    assert.deepEqual(args.slice(args.indexOf('--settings')),['--settings','settings.json','--print','README.md']);
+    // Prompt text and a second -- are literal, even if they look like options.
+    for(const args of [['literal prompt','--settings','README.md'],['--','--','--settings','README.md']]){
+      const r=adapter(['--cx-session',...args],sshEnv);assert.equal(r.status,0,r.stderr);
+    }
+  } finally {fs.unlinkSync(settings);fs.unlinkSync(readme);}
+});
+check('Claude SSH excludes inactive projects while retaining active user and project conflicts',()=>{
+  const user=path.join(ca,'.claude.json');
+  try {
+    fs.writeFileSync(user,JSON.stringify({projects:{'/another-project':JSON.parse(conflict)}}));
+    let r=adapter(['--cx-session','prompt'],sshEnv);assert.equal(r.status,0,r.stderr);
+    fs.writeFileSync(user,JSON.stringify({projects:{[adapterWorkspace]:JSON.parse(conflict)}}));
+    r=adapter(['--cx-session','prompt'],sshEnv);assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+    fs.writeFileSync(user,conflict);
+    r=adapter(['--cx-session','prompt'],sshEnv);assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+  } finally {fs.rmSync(user,{force:true});}
+  const projectMcp=path.join(adapterProject,'.mcp.json');
+  try {
+    fs.writeFileSync(projectMcp,conflict);
+    const r=adapter(['--cx-session','prompt'],sshEnv);assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+  } finally {fs.unlinkSync(projectMcp);}
+  for(const file of [path.join(ca,'settings.json'),path.join(adapterProject,'.claude/settings.json'),path.join(adapterProject,'.claude/settings.local.json')]){
+    try {
+      fs.writeFileSync(file,conflict);
+      const r=adapter(['--cx-session','prompt'],sshEnv);assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+    } finally {
+      fs.unlinkSync(file);
+      for(const name of ['settings.json','settings.local.json'])fs.rmSync(path.join(adapterWorkspace,'.claude',name),{force:true});
+    }
+  }
 });
 console.log(`\n${checks} account/adapter checks passed; no live provider authentication.`);
 } finally {fs.rmSync(temp,{recursive:true,force:true});}

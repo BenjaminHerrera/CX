@@ -4,6 +4,8 @@
 
 - Add Claude SSH launch guidance and session-only cx_ssh MCP registration through
   built-in agent adapters. Preserve shared command tracking and native ownership.
+- Validate Claude SSH MCP conflicts against container-visible paths and active
+  project configuration; preserve single-value settings and task arguments.
 - Identify the selected agent/account in the blue assistant terminal bar.
 
 - Establish the `v2` integration workflow for multi-CLI/account development,

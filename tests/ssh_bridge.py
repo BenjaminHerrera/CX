@@ -365,7 +365,7 @@ class MCPRegistrationTests(unittest.TestCase):
                 self.assertFalse(any('mcp_servers.cx_ssh' in arg for arg in bridge.spawn.call_args.args[0]))
 
 
-    def test_claude_context_reserved_names_and_account_bar(self):
+    def test_claude_context_and_account_bar(self):
         with tempfile.TemporaryDirectory(dir=ROOT, prefix='.cx-test-claude-') as directory:
             root = Path(directory)
             (root / 'config.toml').write_text('developer_instructions="base"\n')
@@ -385,10 +385,7 @@ class MCPRegistrationTests(unittest.TestCase):
                 self.assertIn('Never replay', env['CX_SSH_INSTRUCTIONS'])
                 self.assertIn('ssh_interactive_start', env['CX_SSH_INSTRUCTIONS'])
                 bridge.terminal.switch.assert_called_with(bridge.local, 'CLAUDE / work')
-                (root / '.mcp.json').write_text('{"mcpServers":{"cx_ssh":{"command":"other"}}}')
                 bridge.local = None
-                with self.assertRaisesRegex(ValueError, 'reserved'):
-                    bridge.start_local()
                 os.environ['CX_SSH_MCP'] = '0'
                 bridge.start_local()
                 self.assertNotIn('ssh_interactive_start', bridge.spawn.call_args.args[1]['CX_SSH_INSTRUCTIONS'])

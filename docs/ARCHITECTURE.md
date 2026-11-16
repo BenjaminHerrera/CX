@@ -75,6 +75,10 @@ Codex receives its existing configuration overrides. Claude receives current
 session instructions in the container environment and registers the same stdio
 MCP adapter with session-only `--mcp-config`. Existing user/project servers remain
 configured; `cx_ssh` is reserved and conflicts fail before assistant startup.
+`container/cx-claude-config.mjs` validates Claude configs inside the container so
+absolute paths, bind mounts and ignore masks match the CLI view. It scans the
+active user/project sources and explicit config arguments, excluding unrelated
+project entries saved in the account config.
 `--no-ssh-mcp` retains the command-line bridge and manual authentication guidance.
 Both assistants reuse command tracking, cancellation and Slurm readiness matching.
 The assistant bar shows the selected CLI/account. See [validation](CX2-VALIDATION.md)

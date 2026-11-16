@@ -42,9 +42,9 @@ RUN apt-get update \
     && rm -f /tmp/micromamba /tmp/micromamba.sha256 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY cx-entrypoint cx-env cx-remote cx-agent cx-codex-resume.mjs /usr/local/bin/
+COPY cx-entrypoint cx-env cx-remote cx-agent cx-codex-resume.mjs cx-claude-config.mjs /usr/local/bin/
 LABEL io.cx.accounts="1"
-LABEL io.cx.ssh-agents="1"
+LABEL io.cx.ssh-agents="2"
 COPY cx-guidance.txt /opt/cx/guidance.txt
 COPY mcp/ /opt/cx-mcp/
 RUN cd /opt/cx-mcp && npm ci --omit=dev --ignore-scripts && npm cache clean --force

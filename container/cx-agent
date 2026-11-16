@@ -156,6 +156,11 @@ case "$agent" in
         done
         args+=("$@")
         native_arguments "${args[@]}"
+        if [[ -n "${CX_SSH_SOCKET:-}" && "${CX_SSH_MCP:-1}" == 1 ]]; then
+            # Validate the effective container view, after masks/overlays and cx
+            # task translation. Never resolve container paths on the host.
+            node "$(dirname -- "${BASH_SOURCE[0]}")/cx-claude-config.mjs" "${NATIVE_ARGS[@]}"
+        fi
         guidance="$(cat "${CX_GUIDANCE_FILE:-/opt/cx/guidance.txt}")"
         if [[ -n "${CX_SSH_INSTRUCTIONS:-}" ]]; then guidance+=" ${CX_SSH_INSTRUCTIONS}"; fi
         exec claude "${extra[@]}" --dangerously-skip-permissions --system-prompt-snapshot off \

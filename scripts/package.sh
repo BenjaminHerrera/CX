@@ -24,7 +24,7 @@ files=(
     .github/ISSUE_TEMPLATE/question.yml .github/ISSUE_TEMPLATE/config.yml
     .github/PULL_REQUEST_TEMPLATE.md .github/workflows/ci.yml
     bin/cx bin/cx_agent.py bin/cx-accounts.sh bin/cx-ssh-bridge.py bin/cx-slurm-setup.py bin/cx_screen.py config/config.toml
-    container/cx-agent container/cx-codex-resume.mjs container/cx-guidance.txt container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
+    container/cx-agent container/cx-claude-config.mjs container/cx-codex-resume.mjs container/cx-guidance.txt container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
     container/mcp/package.json container/mcp/package-lock.json container/mcp/server.mjs
     tests/accounts.mjs tests/codex-resume.mjs tests/native-history.mjs tests/codex-account-history.mjs tests/mcp.mjs tests/slurm_setup.py
     docs/CX2-VALIDATION.md docs/ACCOUNTS.md docs/INSTALL.md docs/USAGE.md docs/ARCHITECTURE.md docs/MAINTAINING.md
