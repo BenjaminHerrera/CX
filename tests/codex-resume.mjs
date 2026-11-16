@@ -34,6 +34,7 @@ await check('picker supports pagination, cancellation, EOF and safe terminal lab
   const pages={start:{data:[{id:first,preview:'first\x1b[31m\nspoof'}],nextCursor:'next'},next:{data:[{id:second,name:'second'}],nextCursor:null}};
   const choices=['invalid','n','p','n','1'];let output='';
   const result=await chooseHistory(pickerRequest(['resume','--all']),{client:{rpc:async(method,params)=>{assert.equal(method,'thread/list');return pages[params.cursor||'start'];}},ask:async()=>choices.shift(),write:text=>output+=text});
+  assert.ok(output.includes(`[${first}]`));assert.ok(output.includes(`[${second}]`));
   assert.equal(result,second);assert.equal(output.includes('\x1b'),false);assert.ok(output.includes('Choose a listed number'));
   for(const answer of ['q',null])assert.equal(await chooseHistory(pickerRequest(['resume']),{client:{rpc:async()=>pages.start},ask:async()=>answer,write:()=>{}}),null);
 });

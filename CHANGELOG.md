@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add a standalone native session import script for Codex and Claude, with
+  dry run, custom paths, duplicate/conflict handling, private independent copies
+  and index merging. Preserve native originals and exclude credentials/settings;
+  validate durable backing files for SQLite-projected/paginated histories
+  instead of rejecting every cached session. Add explicit `--skip-unavailable`
+  for missing/truncated rollouts and dependent histories; never merge databases.
+- Add `cx sessions remove ID` for managed Codex and Claude histories, with
+  CLI disambiguation, native Codex deletion, transcript/index cleanup and
+  protection against unrelated-session deletion. Show full IDs in the CX
+  Codex resume picker.
 - Add `cx accounts remove NAME` with CLI disambiguation, matching automation
   default cleanup, and preservation of shared conversation history.
 - Add Claude SSH launch guidance and session-only cx_ssh MCP registration through

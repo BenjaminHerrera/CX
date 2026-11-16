@@ -25,6 +25,7 @@ Usage:
   cx accounts add --agent codex|claude --account NAME --auth subscription|api-key
   cx accounts default --agent codex|claude --account NAME
   cx accounts remove NAME [--agent codex|claude]
+  cx sessions remove ID [--agent codex|claude]
 
 Examples:
   cx .
@@ -37,6 +38,7 @@ Examples:
   cx . exec "Run the test suite and fix failures"
   cx accounts add --agent codex --account personal --auth subscription
   cx accounts remove personal
+  cx sessions remove 01234567-89ab-cdef-0123-456789abcdef
   cx --agent codex --account personal --login
   cx --agent claude --account work . exec "Run the tests"
   cx --auth-status
@@ -763,9 +765,49 @@ doctor() {
     return "$failed"
 }
 
+sessions_command() {
+    [[ "${1:-}" == remove ]] || die "Usage: cx sessions remove ID [--agent codex|claude]"
+    shift
+    account_options "$@"
+    ((${#SELECTION_ARGS[@]} == 1)) && [[ -z "$ACCOUNT" ]] || die "Usage: cx sessions remove ID [--agent codex|claude]"
+    local session_id="${SELECTION_ARGS[0]}" cli directory destination found=false
+    [[ "$session_id" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || die "Use the full session UUID."
+    [[ -z "${CX_CODEX_HOME:-}" ]] || die "Session removal supports managed history only. Unset CX_CODEX_HOME first."
+    check_data_home
+    [[ ! -L "$DATA_HOME/history" ]] || die "Refusing symlinked history storage."
+    local -a history_mounts=() history_env=()
+    for cli in codex claude; do
+        [[ -z "$AGENT" || "$AGENT" == "$cli" ]] || continue
+        directory="$DATA_HOME/history/$cli"
+        [[ ! -L "$directory" ]] || die "Refusing symlinked history storage: $cli"
+        [[ ! -e "$directory" || -d "$directory" ]] || die "Invalid history storage: $cli"
+        [[ -d "$directory" ]] || continue
+        destination=/cx-history
+        [[ "$cli" != claude ]] || destination=/cx-claude-history
+        history_mounts+=(--mount "type=bind,src=$directory,dst=$destination")
+        history_env+=(--env "CX_SESSION_${cli^^}_HISTORY=$destination")
+        found=true
+    done
+    [[ "$found" == true ]] || die "No managed session history found."
+    require_docker
+    ensure_image
+    local -a selection=()
+    [[ -z "$AGENT" ]] || selection=(--agent "$AGENT")
+    docker run --rm --user "$(id -u):$(id -g)" \
+        --network none --read-only --cap-drop ALL --security-opt no-new-privileges=true \
+        --tmpfs "/tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777" \
+        --tmpfs "/codex-home:rw,nosuid,nodev,size=16m,mode=700,uid=$(id -u),gid=$(id -g)" \
+        "${history_mounts[@]}" "${history_env[@]}" \
+        --mount "type=bind,src=$CX_ROOT/container/cx-sessions.mjs,dst=/opt/cx-session-tools/cx-sessions.mjs,readonly" \
+        --mount "type=bind,src=$CX_ROOT/container/cx-codex-resume.mjs,dst=/opt/cx-session-tools/cx-codex-resume.mjs,readonly" \
+        --env HOME=/tmp/cx-home --env CODEX_HOME=/codex-home --env CODEX_SQLITE_HOME=/cx-history/sqlite \
+        --entrypoint node "$IMAGE" /opt/cx-session-tools/cx-sessions.mjs remove "$session_id" "${selection[@]}"
+}
+
 main() {
     umask 077
     if [[ "${1:-}" == accounts ]]; then shift; accounts_command "$@"; return; fi
+    if [[ "${1:-}" == sessions ]]; then shift; sessions_command "$@"; return; fi
     account_options "$@"
     set -- "${SELECTION_ARGS[@]}"
     case "${1:-}" in

@@ -274,7 +274,7 @@ check('clean releases exclude runtime data and run after extraction',()=>{
     const archive=path.join(output,`cx-${version}-${edition}.tar.gz`);
     const listing=run('tar',['-tzf',archive]).stdout;
     assert.equal(listing.includes('/data/'),false); assert.equal(listing.includes('/environments/'),false);
-    for (const required of ['bin/cx-accounts.sh','container/cx-agent','container/cx-claude-config.mjs','container/cx-codex-resume.mjs','container/cx-guidance.txt','docs/ACCOUNTS.md','tests/accounts.mjs','tests/native-history.mjs','bin/cx_screen.py','bin/vendor/pyte/screens.py','bin/vendor/pyte/LICENSE','bin/vendor/pyte/COPYING','bin/vendor/wcwidth/LICENSE','tests/screens.py']) {
+    for (const required of ['scripts/import-sessions.mjs','tests/import-sessions.mjs','container/cx-sessions.mjs','tests/sessions.mjs','bin/cx-accounts.sh','container/cx-agent','container/cx-claude-config.mjs','container/cx-codex-resume.mjs','container/cx-guidance.txt','docs/ACCOUNTS.md','tests/accounts.mjs','tests/native-history.mjs','bin/cx_screen.py','bin/vendor/pyte/screens.py','bin/vendor/pyte/LICENSE','bin/vendor/pyte/COPYING','bin/vendor/wcwidth/LICENSE','tests/screens.py']) {
       assert.ok(listing.includes('/'+required), `missing renderer/source notice: ${required}`);
     }
     assert.equal(listing.includes('/__pycache__/'),false);
@@ -284,7 +284,11 @@ check('clean releases exclude runtime data and run after extraction',()=>{
     const bundle=path.join(extract,`cx-${version}-${edition}`);
     run('sha256sum',['-c','MANIFEST.sha256'],{cwd:bundle});
     assert.match(run('bash',[path.join(bundle,'cx'),'--version']).stdout,new RegExp(version.replaceAll('.', '\\.')));
-    if (edition === 'install') run('bash',[path.join(bundle,'install.sh'),'--no-build','--prefix',path.join(temp,'archive install')]);
+    run(process.execPath,[path.join(bundle,'scripts/import-sessions.mjs'),'--help']);
+    if (edition === 'install') {
+      run('bash',[path.join(bundle,'install.sh'),'--no-build','--prefix',path.join(temp,'archive install')]);
+      run(process.execPath,[path.join(temp,'archive install/share/cx/program/bin/cx-import-sessions.mjs'),'--help']);
+    }
     else { reset(); run('bash',[path.join(bundle,'cx'),project],{env:{...env,CX_CODEX_HOME:path.join(bundle,'data/codex')}}); contains(lastRun(),`src=${bundle}/data/codex`); }
   }
 });

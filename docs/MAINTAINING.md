@@ -20,6 +20,8 @@ remain in the source distribution.
 ```bash
 node tests/smoke.mjs
 node tests/accounts.mjs
+node tests/sessions.mjs
+node tests/import-sessions.mjs
 node tests/remote-client.mjs
 npm ci --prefix container/mcp --ignore-scripts
 node tests/mcp.mjs
@@ -30,6 +32,8 @@ python3 -B tests/screens.py
 
 | Suite | Coverage |
 |---|---|
+| `import-sessions.mjs` | Copy-only native history migration, dry run, independent copies, archive/compression deduplication, conflicts, metadata merge, SQLite/WAL and missing/truncated rollout checks; opt-in native discovery and paginated resume |
+| `sessions.mjs` | Exact-ID removal, CLI collisions, transcript/index preservation, symlink refusal and native error handling; opt-in native Codex fixtures cover archives, descendants and SQLite cleanup |
 | `smoke.mjs` | Shell syntax, Docker argument generation, workspace layout, file/directory mounts, masking, piped tasks, credential/path rejection, install/upgrade/removal, environments, packaging, and extracted editions |
 | `screens.py` | Saved screen isolation, full-width bars, normal/alternate scrollback, pinned history, resize, Unicode, dim text and background shading, indexed/RGB colors, underline styles, standalone imports, and optional native VT tests |
 | `slurm_setup.py` | Fake SSH server setup, separate aliases, paths with spaces, job-ID patterns, idempotence, hook discovery, configuration privacy, and refusal of unmanaged hooks |

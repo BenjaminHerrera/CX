@@ -17,6 +17,93 @@ digits, dots, underscores or hyphens and start with a letter or digit. The same
 name may exist once per CLI. `cx accounts list` shows names and modes, never
 secrets; `--agent` filters the list. Adding an existing name fails.
 
+## Import Existing Native Sessions
+
+From a source checkout or extracted release, run this on the host with Node 24:
+
+```bash
+# Stop native Codex/Claude and CX sessions before either command.
+node scripts/import-sessions.mjs --dry-run
+node scripts/import-sessions.mjs
+```
+
+The script copies file-backed native conversations into CX's shared history.
+It leaves originals in place and does not import credentials, settings, plugins,
+private caches, Claude project memory, account profiles or automation defaults.
+Sign in to a CX account separately. This needs no Docker, provider access or
+additional npm packages. Installed editions also include the standalone script
+at `PREFIX/share/cx/program/bin/cx-import-sessions.mjs` (default prefix `~/.local`).
+
+Defaults are `CODEX_HOME` or `~/.codex`, `CLAUDE_CONFIG_DIR` or `~/.claude`, and
+`CX_DATA_HOME` or `~/.local/share/cx/data`. For portable mode, **explicitly point
+at the bundle's `data/` directory**. Override paths or import just one CLI:
+
+```bash
+node scripts/import-sessions.mjs --agent codex --codex-home /backup/.codex \
+  --data-home /path/to/portable-cx/data --dry-run
+node scripts/import-sessions.mjs --agent claude --claude-home /backup/.claude
+```
+
+Codex imports active and archived rollouts (including Zstandard-compressed
+files), plus matching `history.jsonl` and `session_index.jsonl` rows. Claude
+imports project transcripts, their session/subagent folders and matching
+`sessions-index.json` entries; imported index paths point at CX's shared mount.
+IDs, transcript bytes, original project paths and account attribution stay
+unchanged. These remain native conversations within their original CLI; no
+Codex/Claude conversion or provider ownership bypass occurs.
+
+Identical content is skipped, including an existing Codex rollout in a different
+archive location or compression format. Existing CX names/index entries win.
+A different version of the same session causes the default import to stop
+before publishing files. `--on-conflict skip` keeps those CX sessions and imports
+the rest; dependent Codex fork histories are also skipped when their source
+ancestor conflicts. No overwrite option is provided. Symlinked history entries,
+overlapping native/CX roots, malformed indexes and missing ancestor rollouts
+are refused. New files/directories use private permissions.
+
+SQLite databases are **never copied or merged**. Legacy and paginated Codex
+sessions are supported when their durable rollouts and ancestor history are
+available. SQLite history records alone do not make a session unimportable:
+native Codex rebuilds its history projections from rollouts when resuming.
+The importer checks private state/WAL snapshots, complete JSONL records,
+paginated ordinals, current rollout references, cached byte checkpoints and
+ancestor prefix lengths before
+copying. These checks use decompressed byte lengths for compressed rollouts.
+
+If a backing file is missing or shorter than its cached history, the default
+import stops before publishing any files and reports the affected IDs. Restore
+the complete rollouts, or explicitly import only recoverable conversations:
+
+```bash
+node scripts/import-sessions.mjs --skip-unavailable --dry-run
+node scripts/import-sessions.mjs --skip-unavailable
+```
+
+Skipped sessions and dependent fork histories are reported individually; their
+source data is left untouched. Unknown transcript formats and malformed JSON still
+fail instead of being guessed. SQLite-only display settings, such as paginated
+thread names and pins that are absent from exported indexes, are not migrated.
+Existing CX sessions with SQLite history but missing backing rollouts are
+treated as conflicts; incoming files cannot silently replace that history.
+
+A separate database location is read from `CODEX_SQLITE_HOME`, or from
+`--codex-sqlite-home DIR`. When `--codex-home` is explicit, the SQLite default is
+that selected home. Existing CX SQLite metadata is left to native discovery;
+Codex 0.169.0 discovery in an initialized store and reconstruction of paginated
+user/assistant history on native resume are tested with plain and compressed
+rollouts. Provider account restrictions still apply.
+
+Keep all writers stopped for the whole import. The script stages copies, checks
+for changes and holds a lock against other imports; it does not lock native or
+CX clients. An interrupted publish can leave a subset imported; with writers
+stopped, rerun to finish safely. A killed process can leave `.import-sessions.lock`
+and a private `.import-sessions-*` staging directory in the chosen data root.
+Confirm the importer has exited before removing its leftover lock/staging files.
+
+Reopen CX after importing. Original project paths may differ from `/workspace`;
+use Codex `resume --all` or Claude's explicit `--resume SESSION_ID` when the
+native picker filters by project. Native account restrictions still apply.
+
 ## Remove an Account
 
 Close sessions using the profile, then run on the host:
@@ -35,6 +122,45 @@ ambiguous names fail without deleting a profile. Symlinked profile directories
 are refused. Removal works without Docker or provider access, does not stop
 running sessions, and does not invoke provider logout or revoke remote tokens.
 Use the profile's `--logout` action first if you also want native logout.
+
+## Remove a Session
+
+Stop all sessions for the affected CLI, then run on the host:
+
+```bash
+cx sessions remove 01234567-89ab-cdef-0123-456789abcdef
+cx sessions remove 01234567-89ab-cdef-0123-456789abcdef --agent claude
+```
+
+Use the full UUID from the CLI's session information or transcript filename.
+The updated CX Codex resume picker also shows full IDs; rebuild the image to
+update that picker. Shortened IDs and paths are refused. CX discovers the CLI
+automatically; if the same UUID exists under both CLIs, `--agent` is required.
+
+Deletion is permanent and affects **all CX accounts sharing that CLI's history**.
+Back up `CX_DATA_HOME/history` with writers stopped first if you need recovery.
+Codex uses native `thread/delete` to remove transcripts, SQLite metadata and
+spawned descendants, plus matching shared history/index rows. Native reference
+and writer checks remain in effect. Claude removal deletes the matching project
+transcripts, their session/subagent folders and matching session-index entries.
+Other conversations, account profiles, project files and shared project memory
+are preserved. Private profile logs/caches and provider-side data are outside
+this command's scope.
+
+The command needs Docker and an existing CX image, but no login, network access,
+host Node/Python, or account selection. It mounts only managed shared history
+and read-only maintenance code. Installed, portable and `CX_DATA_HOME` paths
+are supported; explicit legacy `CX_CODEX_HOME` is refused. It does not stop
+running sessions. Avoid concurrent writers throughout deletion.
+
+Symlinked history and invalid Claude index files are refused. Codex deletion
+requires the native `thread/delete` API (tested with 0.169.0); unsupported images
+fail rather than falling back to database edits. Multiple `state_*.sqlite`
+versions are refused because their relationship records may disagree: back up
+the history and retain the state database used by your installed Codex version
+before retrying. A failure during native deletion or file updates can leave a
+partial result. Inspect the history and error before taking further action;
+CX never retries an uncertain deletion automatically.
 
 ## Selection and Automation
 
@@ -223,6 +349,10 @@ Storage/flag references: [Codex configuration source](https://github.com/openai/
 cancellation, forwarding, auth routing, refresh/logout isolation, mount boundaries,
 legacy compatibility, and task stdin/output/status using fake Docker/native CLIs.
 The existing smoke suite additionally verifies legacy installs and both archives.
+`node tests/sessions.mjs` covers removal, cross-CLI collisions, history/index
+cleanup and refusal of unsafe paths. `CX_NATIVE_HISTORY=1 node tests/sessions.mjs`
+also verifies deletion with a real installed Codex binary, temporary transcripts
+and SQLite databases, without provider login or model requests.
 `node tests/codex-resume.mjs` covers shared-picker parsing, paging, cancellation,
 early terminal input and native CLI handoff, including preserved account checks
 and exit status.

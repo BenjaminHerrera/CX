@@ -73,6 +73,27 @@ check('invalid, missing and extra removal arguments do not delete profiles',()=>
     assert.equal(fs.existsSync(path.join(data,'profiles/codex/alpha/auth-mode')),true);
   }
 });
+check('session removal mounts only shared histories and read-only tools without login or networking',()=>{
+  const id='01234567-89ab-cdef-0123-456789abcdef';
+  for(const agent of ['codex','claude'])fs.mkdirSync(path.join(data,'history',agent),{recursive:true});
+  clear();ok(['sessions','remove',id]);
+  let a=last();assert.deepEqual(a.slice(-2),['remove',id]);
+  assert.ok(a.includes('none'));assert.equal(a[a.indexOf('--network')+1],'none');
+  assert.equal(a[a.indexOf('--entrypoint')+1],'node');
+  for(const agent of ['codex','claude'])assert.ok(a.some(x=>x.startsWith(`type=bind,src=${data}/history/${agent},`)));
+  assert.equal(a.some(x=>x.includes('/profiles/')||x.includes('dst=/workspace/main')||x.includes('API_KEY')),false);
+  assert.equal(a.filter(x=>x.includes('cx-session-tools/')&&x.endsWith(',readonly')).length,2);
+  clear();ok(['sessions','remove',id,'--agent','claude']);a=last();
+  assert.deepEqual(a.slice(-4),['remove',id,'--agent','claude']);
+  assert.equal(a.some(x=>x.startsWith(`type=bind,src=${data}/history/codex,`)),false);
+  for(const args of [[],['remove'],['remove','short'],['remove',id,'extra'],['remove',id,'--account','alpha'],['list']]){
+    clear();assert.notEqual(run(['sessions',...args]).status,0);assert.equal(calls().length,0);
+  }
+  clear();assert.notEqual(run(['sessions','remove',id],{CX_CODEX_HOME:path.join(temp,'legacy')}).status,0);assert.equal(calls().length,0);
+  fs.renameSync(path.join(data,'history'),path.join(data,'history-backup'));fs.symlinkSync(path.join(data,'history-backup'),path.join(data,'history'));
+  try{clear();assert.notEqual(run(['sessions','remove',id]).status,0);assert.equal(calls().length,0);}
+  finally{fs.unlinkSync(path.join(data,'history'));fs.renameSync(path.join(data,'history-backup'),path.join(data,'history'));}
+});
 check('removal refuses symlinked storage and invalid metadata without touching targets',()=>{
   const isolated=path.join(temp,'remove storage'),outside=path.join(temp,'outside removal');
   fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'auth-mode'),'subscription\n');fs.writeFileSync(path.join(outside,'sentinel'),'keep');
@@ -142,12 +163,14 @@ check('managed data cannot be exposed through an environment store or unexpected
   fs.rmdirSync(sessions);fs.symlinkSync('/cx-history/sessions',sessions);
 });
 check('fresh portable and installed editions select their managed data defaults',()=>{
-  const bundle=path.join(temp,'portable');fs.mkdirSync(path.join(bundle,'bin'),{recursive:true});
-  for(const name of ['cx','VERSION','bin/cx','bin/cx-accounts.sh','config'])fs.cpSync(path.join(root,name),path.join(bundle,name),{recursive:true});
+  const bundle=path.join(temp,'portable');fs.mkdirSync(path.join(bundle,'bin'),{recursive:true});fs.mkdirSync(path.join(bundle,'container'));
+  for(const name of ['cx','VERSION','bin/cx','bin/cx-accounts.sh','container/cx-sessions.mjs','container/cx-codex-resume.mjs','config'])fs.cpSync(path.join(root,name),path.join(bundle,name),{recursive:true});
   const portable=(args)=>spawnSync('bash',[path.join(bundle,'cx'),...args],{cwd:project,env:{...env,CX_DATA_HOME:''},encoding:'utf8'});
   let r=portable(['accounts','add','--agent','codex','--account','fresh','--auth','subscription']);assert.equal(r.status,0,r.stderr);
   clear();r=portable(['--agent','codex','--account','fresh',project]);assert.equal(r.status,0,r.stderr);
   assert.ok(last().includes(`type=bind,src=${bundle}/data/profiles/codex/fresh/home,dst=/codex-home`));
+  clear();r=portable(['sessions','remove','01234567-89ab-cdef-0123-456789abcdef']);assert.equal(r.status,0,r.stderr);
+  assert.ok(last().includes(`type=bind,src=${bundle}/data/history/codex,dst=/cx-history`));
   assert.equal(fs.existsSync(path.join(bundle,'data/codex')),false);
   r=portable(['accounts','remove','fresh']);assert.equal(r.status,0,r.stderr);
   assert.equal(fs.existsSync(path.join(bundle,'data/profiles/codex/fresh')),false);
@@ -157,6 +180,8 @@ check('fresh portable and installed editions select their managed data defaults'
   r=installed(['accounts','add','--agent','claude','--account','fresh','--auth','subscription']);assert.equal(r.status,0,r.stderr);
   clear();r=installed(['--agent','claude','--account','fresh',project]);assert.equal(r.status,0,r.stderr);
   assert.ok(last().includes(`type=bind,src=${home}/.local/share/cx/data/profiles/claude/fresh/home,dst=/claude-home`));
+  clear();r=installed(['sessions','remove','01234567-89ab-cdef-0123-456789abcdef']);assert.equal(r.status,0,r.stderr);
+  assert.ok(last().some(x=>x.startsWith(`type=bind,src=${prefix}/share/cx/program/container/cx-sessions.mjs,`)));
   assert.equal(fs.existsSync(path.join(home,'.claude')),false);
   r=installed(['accounts','remove','fresh']);assert.equal(r.status,0,r.stderr);
   assert.equal(fs.existsSync(path.join(home,'.local/share/cx/data/profiles/claude/fresh')),false);

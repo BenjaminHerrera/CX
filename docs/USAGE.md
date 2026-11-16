@@ -17,8 +17,17 @@ Remove a local profile with `cx accounts remove NAME`. If both CLIs have that
 name, add `--agent codex` or `--agent claude`. Close its sessions first. Shared
 history is preserved; see [account removal](ACCOUNTS.md#remove-an-account).
 
+Delete a shared conversation with `cx sessions remove SESSION_ID`, optionally
+adding `--agent codex` or `--agent claude` to disambiguate. Use a full UUID and
+stop sessions for that CLI first. This permanently removes the conversation
+from all accounts sharing its history; see [session removal](ACCOUNTS.md#remove-a-session).
+
 [Accounts and shared history](ACCOUNTS.md) describes API-key authentication,
 private mounts, native resume, Claude project settings/MCP, and migration.
+To copy existing native conversations, preview with
+`node scripts/import-sessions.mjs --dry-run`, then run without `--dry-run`.
+See [native session import](ACCOUNTS.md#import-existing-native-sessions) for
+Node requirements, portable paths, conflict handling and SQLite limitations.
 Existing native homes are untouched. Explicit `CX_CODEX_HOME` retains legacy
 Codex operation outside managed history sharing. Rebuild the image after upgrade.
 

@@ -85,7 +85,9 @@ installs dependencies on the host.
 ## Account Migration and Image Rebuild
 
 Rebuild the image after this update. Fresh managed profiles do not import existing
-native credentials or history. Create profiles and sign in explicitly as shown
+native credentials or history automatically. To copy conversations separately,
+use the [native session importer](ACCOUNTS.md#import-existing-native-sessions).
+Create profiles and sign in explicitly as shown
 above; see [accounts and history](ACCOUNTS.md) for storage paths and open live
 validation gates. To retain an existing native Codex home, explicitly set
 `CX_CODEX_HOME="$HOME/.codex"`; for an older portable bundle, use its `data/codex`

@@ -55,6 +55,13 @@ Codex sessions/archives/index/history/locks are linked into shared storage and
 settings are copied between accounts, and no databases or historical attribution
 are rewritten. Directory mounts support atomic credential refresh/logout.
 Explicit `CX_CODEX_HOME` retains legacy behavior outside history sharing.
+The optional host `scripts/import-sessions.mjs` copies native file-backed
+histories into this managed layout. It preserves originals and attribution,
+merges only history/index records, and never imports credentials or databases.
+SQLite-projected native conversations import from validated durable rollouts;
+native resume reconstructs their projections. Missing or truncated backing
+history is refused unless explicitly skipped. See
+[import behavior](ACCOUNTS.md#import-existing-native-sessions).
 Shared storage does not override native account restrictions: Codex 0.169.0
 filters account-scoped ChatGPT conversations by identity in its resume picker and
 can reject cross-account resume when its ownership check is enabled. Managed
@@ -87,6 +94,14 @@ The assistant bar shows the selected CLI/account. See [validation](CX2-VALIDATIO
 for open live integration gates; fixtures do not prove live terminal or site parity.
 
 ## Session data flow
+
+`cx sessions remove ID` starts a separate, network-disabled Node utility in the
+existing image. The host mounts `cx-sessions.mjs` and its app-server client
+read-only, alongside only the requested CLI histories; no profiles or project
+directories are exposed. Codex uses a temporary empty home linked to shared
+history and native deletion with exact-lookup guards. Claude deletes exact-ID
+transcripts/session folders and filters project indexes. Both affect shared
+history across accounts. See [session removal](ACCOUNTS.md#remove-a-session).
 
 ```mermaid
 flowchart TD

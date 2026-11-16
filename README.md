@@ -56,11 +56,13 @@ cx . --add-dir ../shared                   # Share another writable directory
 cx . --add-file ~/notes.md                 # Share one existing writable file
 cx --shell                                # Open a container shell
 cx --help                                 # Show launcher options
+cx sessions remove SESSION_ID              # Delete a shared conversation by full ID
 ```
 
 Interactive launches show a combined CLI/account picker. Scripts need an explicit
 pair or an automation default. See [accounts and history](docs/ACCOUNTS.md) to add
-Claude accounts, use API keys, resume conversations, or retain a legacy home.
+Claude accounts, use API keys, import native conversations, resume sessions, or
+retain a legacy home.
 Remove a profile with `cx accounts remove NAME`; shared history is preserved.
 Managed Codex `resume` provides a shared-history picker; native Codex performs
 the selected resume and retains any account ownership restrictions.

@@ -18,6 +18,8 @@ a runtime requirement. Python rendering dependencies are bundled in `bin/vendor`
 npm ci --prefix container/mcp --ignore-scripts
 node tests/smoke.mjs
 node tests/accounts.mjs
+node tests/sessions.mjs
+node tests/import-sessions.mjs
 node tests/codex-resume.mjs
 node tests/remote-client.mjs
 node tests/mcp.mjs
@@ -58,6 +60,33 @@ ownership rejection with the native check enabled, plus the production shared
 history listing client. `node tests/codex-resume.mjs` covers the cx picker and
 native CLI handoff. Passing an API-style fixture test does not prove subscription
 account compatibility; report native restrictions and host tests separately.
+
+Session deletion uses `container/cx-sessions.mjs`, mounted read-only by the host
+launcher in a network-disabled container with histories only. It reuses the
+Codex app-server client and native `thread/delete`; never replace that operation
+with direct database writes. `tests/sessions.mjs` covers file/index isolation,
+collision handling, native failures and unsafe paths. Set `CX_NATIVE_HISTORY=1`
+to add real Codex fixture deletion, SQLite cleanup, spawned descendants and
+preservation of similar UUIDs in the other storage namespace. Keep the exact
+lookup guards: native 0.169.0 can fuzzy-match a different rollout when an ID is
+absent from active or archived storage (see the [native lookup implementation](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/rollout/src/list.rs)). The helper reads the single native state
+database for descendant IDs and refuses conflicting database versions.
+
+`scripts/import-sessions.mjs` is a host Node 24 maintenance utility, also
+installed as `program/bin/cx-import-sessions.mjs`. It uses only built-in modules,
+copies allowed history paths, snapshots native SQLite for read-only integrity
+checks, and never merges databases or imports credentials. Additions need
+source/package coverage, not Docker build inputs. `tests/import-sessions.mjs`
+checks dry runs, repeat imports, conflicts/dependencies, indexes, compressed
+rollouts, independent copies, path boundaries, source preservation and WAL
+snapshots. SQLite cache rows are not evidence that a rollout is unimportable.
+Check backing files, ordinals, projection offsets and ancestor lengths; require
+`--skip-unavailable` before omitting unavailable histories and their descendants.
+`CX_NATIVE_HISTORY=1` adds real Codex discovery in an initialized shared store,
+plus paginated resume that compares native turns/items before and after import,
+with temporary homes and no provider login or model requests. Codex's
+[materialization pipeline](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/thread-store/src/local/thread_history_materialization.rs)
+rebuilds these projections from durable rollout records.
 
 ## Component map
 
