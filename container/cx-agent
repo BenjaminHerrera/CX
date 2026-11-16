@@ -131,6 +131,9 @@ case "$agent" in
         fi
         export CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1
         extra=(--add-dir "$project")
+        if [[ -n "${CX_SSH_SOCKET:-}" && "${CX_SSH_MCP:-1}" == 1 ]]; then
+            extra+=(--mcp-config '{"mcpServers":{"cx_ssh":{"command":"node","args":["/opt/cx-mcp/server.mjs"],"env":{"CX_SSH_SOCKET":"/cx-ssh/bridge.sock"}}}}')
+        fi
         if [[ -f "$project/.mcp.json" ]]; then extra+=(--mcp-config "$project/.mcp.json"); fi
         # cx exec is the common task verb; all remaining native args stay intact.
         # A lone '-' means read the task from stdin, which Claude does natively.
@@ -140,7 +143,7 @@ case "$agent" in
                 case "$1" in
                     --) parsing=false ;;
                     exec|e) args+=(--print); shift; [[ "${1:-}" != - ]] || shift; break ;;
-                    --model|--settings|--mcp-config|--append-system-prompt|--system-prompt|--agent|--resume|-r|--output-format|--input-format|--add-dir|--max-turns|--max-budget-usd|--effort|--permission-mode|--setting-sources|--system-prompt-snapshot|--system-prompt-file|--append-system-prompt-file|--session-id|--plugin-dir|--fallback-model|--json-schema)
+                    --model|--settings|--mcp-config|--append-system-prompt|--system-prompt|--agent|--agents|--name|-n|--resume|-r|--output-format|--input-format|--add-dir|--max-turns|--max-budget-usd|--effort|--permission-mode|--setting-sources|--system-prompt-snapshot|--system-prompt-file|--append-system-prompt-file|--session-id|--plugin-dir|--fallback-model|--json-schema)
                         # --resume can omit its value for the interactive picker.
                         args+=("$1"); shift
                         if (($#)) && [[ "$1" != -* ]]; then args+=("$1"); shift; fi
@@ -153,7 +156,13 @@ case "$agent" in
         done
         args+=("$@")
         native_arguments "${args[@]}"
+        if [[ -n "${CX_SSH_SOCKET:-}" && "${CX_SSH_MCP:-1}" == 1 ]]; then
+            # Validate the effective container view, after masks/overlays and cx
+            # task translation. Never resolve container paths on the host.
+            CX_CLAUDE_HELP="$help" node "$(dirname -- "${BASH_SOURCE[0]}")/cx-claude-config.mjs" "${NATIVE_ARGS[@]}"
+        fi
         guidance="$(cat "${CX_GUIDANCE_FILE:-/opt/cx/guidance.txt}")"
+        if [[ -n "${CX_SSH_INSTRUCTIONS:-}" ]]; then guidance+=" ${CX_SSH_INSTRUCTIONS}"; fi
         exec claude "${extra[@]}" --dangerously-skip-permissions --system-prompt-snapshot off \
             --append-system-prompt "$guidance" "${NATIVE_ARGS[@]}" ;;
     *) fail 'Unknown CLI adapter.' ;;

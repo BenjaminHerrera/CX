@@ -66,6 +66,7 @@ Codex configuration:
 
 Environment:
   SSH MCP tools are registered automatically; --no-ssh-mcp uses CLI tools only.
+  SSH mode supports Codex and Claude through the same bridge and MCP adapter.
   SSH mode uses host SSH configuration and requires host Python 3.11+, OpenSSH,
   an interactive terminal, and a remote Bash shell. Ctrl-] r opens SSH;
   Ctrl-] c hands control to Codex. Ctrl-] q exits the SSH-mode session.
@@ -547,12 +548,15 @@ run_container() {
         ssh_args+=(--tmpfs "/workspace/.claude:rw,nosuid,nodev,size=16m,mode=700,uid=${uid},gid=${gid}")
     fi
     if [[ -n "${CX_SSH_BRIDGE_DIR:-}" ]]; then
+        if [[ "$AGENT" == claude ]]; then
+            [[ "$(docker image inspect --format '{{index .Config.Labels "io.cx.ssh-agents"}}' "$IMAGE")" == 2 ]] || die "Image lacks Claude SSH support. Run cx --rebuild."
+        fi
         if [[ "${CX_SSH_MCP:-1}" == 1 ]]; then
             docker run --rm --entrypoint node "$IMAGE" -e \
                 'require("node:fs").accessSync("/opt/cx-mcp/server.mjs"); require.resolve("/opt/cx-mcp/node_modules/@modelcontextprotocol/sdk/package.json")' \
                 || die "SSH MCP adapter missing from image. Run cx --rebuild, or use --ssh HOST --no-ssh-mcp."
         fi
-        ssh_args=(--mount "type=bind,src=${CX_SSH_BRIDGE_DIR},dst=/cx-ssh,readonly"
+        ssh_args+=(--env "CX_SSH_INSTRUCTIONS=${CX_SSH_INSTRUCTIONS:-}" --env "CX_SSH_MCP=${CX_SSH_MCP:-1}" --mount "type=bind,src=${CX_SSH_BRIDGE_DIR},dst=/cx-ssh,readonly"
             --env CX_SSH_SOCKET=/cx-ssh/bridge.sock --env "CX_SSH_HOST=${CX_SSH_HOST}")
     fi
     if [[ -n "${CX_SSH_MOUNT_PATH:-}" ]]; then
@@ -848,7 +852,6 @@ main() {
         command -v fusermount3 >/dev/null || command -v fusermount >/dev/null || die "--ssh-mount requires fusermount3 or fusermount on the host."
     fi
     if [[ "$saw_ssh" == true ]]; then
-        [[ "$AGENT" == codex ]] || die "Claude SSH integration is tracked in CX-2; local Claude sessions are supported."
         [[ "$ssh_host" != -* ]] || die "Invalid SSH host."
         [[ -z "${CX_SSH_BRIDGE_DIR:-}" ]] || die "Nested SSH bridges are unsupported."
         command -v python3 >/dev/null || die "SSH mode requires Python 3 on the host."
@@ -860,7 +863,7 @@ main() {
         slurm_job_pattern="$(python3 "$CX_ROOT/bin/cx-slurm-setup.py" --lookup-pattern "$ssh_host")" || die "Cannot read Slurm job-ID pattern for $ssh_host."
         local -a ssh_selection=()
         [[ "$LEGACY_ACCOUNT" == true ]] || ssh_selection=(--agent "$AGENT" --account "$ACCOUNT")
-        exec env "CX_SELECTED_PROFILE=$HOST_CODEX_HOME" "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
+        exec env "CX_AGENT=$AGENT" "CX_ACCOUNT=$ACCOUNT" "CX_SELECTED_PROFILE=$HOST_CODEX_HOME" "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
             "$CX_ROOT/bin/cx" "$workspace" "${ssh_selection[@]}" "${forwarded[@]}"
     fi
     run_container "$workspace" "${forwarded[@]}"

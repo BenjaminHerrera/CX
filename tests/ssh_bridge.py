@@ -365,6 +365,32 @@ class MCPRegistrationTests(unittest.TestCase):
                 self.assertFalse(any('mcp_servers.cx_ssh' in arg for arg in bridge.spawn.call_args.args[0]))
 
 
+    def test_claude_context_and_account_bar(self):
+        with tempfile.TemporaryDirectory(dir=ROOT, prefix='.cx-test-claude-') as directory:
+            root = Path(directory)
+            (root / 'config.toml').write_text('developer_instructions="base"\n')
+            with patch.dict(os.environ, CX_AGENT='claude', CX_ACCOUNT='work', CX_CONFIG_DIR=directory,
+                            CX_SELECTED_PROFILE=directory, CX_SSH_MCP='1'):
+                bridge = module.Bridge('new-host', '/current/path', ['/cx', directory, '--resume'])
+                bridge.runtime = directory
+                bridge.mount_files = Mock()
+                bridge.spawn = Mock(return_value=(100, object()))
+                bridge.resize = Mock()
+                bridge.terminal.switch = Mock()
+                bridge.start_local()
+                args, env = bridge.spawn.call_args.args
+                self.assertEqual(args, ['/cx', directory, '--resume'])
+                self.assertIn('new-host', env['CX_SSH_INSTRUCTIONS'])
+                self.assertIn('/current/path', env['CX_SSH_INSTRUCTIONS'])
+                self.assertIn('Never replay', env['CX_SSH_INSTRUCTIONS'])
+                self.assertIn('ssh_interactive_start', env['CX_SSH_INSTRUCTIONS'])
+                bridge.terminal.switch.assert_called_with(bridge.local, 'CLAUDE / work')
+                bridge.local = None
+                os.environ['CX_SSH_MCP'] = '0'
+                bridge.start_local()
+                self.assertNotIn('ssh_interactive_start', bridge.spawn.call_args.args[1]['CX_SSH_INSTRUCTIONS'])
+
+
 class TrackedCommandTests(unittest.TestCase):
     def setUp(self):
         self.bridge = module.Bridge('host', '/project', [])

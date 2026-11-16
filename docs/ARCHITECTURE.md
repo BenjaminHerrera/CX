@@ -67,6 +67,25 @@ See [accounts](ACCOUNTS.md) for the storage tree, native compatibility checks,
 concurrency contract and open live gates. Claude SSH parity is a separate CX-2
 integration; Codex SSH reserves MCP names against the selected profile config.
 
+## Agent-Neutral SSH Launch
+
+The host adapter module `bin/cx_agent.py` builds CLI-specific session overrides;
+the supervisor retains PTYs, filesystem lifecycle and command ownership only.
+Codex receives its existing configuration overrides. Claude receives current
+session instructions in the container environment and registers the same stdio
+MCP adapter with session-only `--mcp-config`. Existing user/project servers remain
+configured; `cx_ssh` is reserved and conflicts fail before assistant startup.
+`container/cx-claude-config.mjs` validates Claude configs inside the container so
+absolute paths, bind mounts and ignore masks match the CLI view. It scans the
+active user/project sources and explicit config arguments, excluding unrelated
+project entries saved in the account config. Native option arity comes from
+the installed CLI's help, including aliases, optional and variadic values;
+unknown arity fails explicitly rather than silently skipping later configs.
+`--no-ssh-mcp` retains the command-line bridge and manual authentication guidance.
+Both assistants reuse command tracking, cancellation and Slurm readiness matching.
+The assistant bar shows the selected CLI/account. See [validation](CX2-VALIDATION.md)
+for open live integration gates; fixtures do not prove live terminal or site parity.
+
 ## Session data flow
 
 ```mermaid

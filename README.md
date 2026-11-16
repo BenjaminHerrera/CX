@@ -63,7 +63,8 @@ pair or an automation default. See [accounts and history](docs/ACCOUNTS.md) to a
 Claude accounts, use API keys, resume conversations, or retain a legacy home.
 Managed Codex `resume` provides a shared-history picker; native Codex performs
 the selected resume and retains any account ownership restrictions.
-Claude local tasks are supported; Claude SSH parity is tracked in CX-2.
+Both CLIs support SSH/MCP/Slurm through the shared bridge. Live parity validation
+is tracked in CX-2.
 
 Inside the container:
 

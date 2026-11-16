@@ -15,7 +15,7 @@ Object.assign(env,{HOME:home,CX_DATA_HOME:data,PATH:`${bin}:${process.env.PATH}`
 fs.writeFileSync(path.join(bin,'docker'),`#!/usr/bin/env node
 const fs=require('node:fs');const args=process.argv.slice(2);
 fs.appendFileSync(process.env.CX_TEST_LOG,JSON.stringify(args)+'\\n');
-if(args[0]==='image'&&args.includes('--format'))console.log(process.env.CX_TEST_OLD_IMAGE?'0':'1');
+if(args[0]==='image'&&args.includes('--format'))console.log(args.some(a=>a.includes('io.cx.ssh-agents'))?(process.env.CX_TEST_OLD_SSH_IMAGE?'1':'2'):(process.env.CX_TEST_OLD_IMAGE?'0':'1'));
 if(args[0]==='run'&&process.env.CX_TEST_EXIT)process.exit(Number(process.env.CX_TEST_EXIT));
 `,{mode:0o755});
 const launcher=path.join(root,'bin/cx');
@@ -120,7 +120,23 @@ const fake=`#!/usr/bin/env node
 const fs=require('node:fs');const path=require('node:path');const a=process.argv.slice(2);
 const parsed=require('node:util').parseArgs({args:a,options:{agent:{type:'string'}},strict:false,allowPositionals:true});
 const agent=path.basename(process.argv[1]);const home=process.env[agent==='codex'?'CODEX_HOME':'CLAUDE_CONFIG_DIR'];
-if(a.includes('--help')){console.log('--system-prompt-snapshot --append-system-prompt');process.exit(0);}
+if(a.includes('--help')){console.log([
+  'Options:',
+  '  --system-prompt-snapshot <on|off>  Snapshot behavior',
+  '  --append-system-prompt <prompt>  Append guidance',
+  '  --system-prompt <prompt>  Set guidance',
+  '  --settings <file-or-json>  Session settings',
+  '  --mcp-config <configs...>  MCP configs',
+  '  --add-dir <directories...>  Additional directories',
+  '  -r, --resume [value]  Resume a conversation',
+  '  -p, --print  Print output',
+  '  -n, --name <name>  Session name',
+  '  --agents <json-or-file>  Agent definitions',
+  '  --output-format <format>  Output format',
+  '  -d, --debug [filter]  Optional debug filter',
+  '  --tools <tools...>  Tool list',
+  '  --future-native-option <value>  Simulate another installed native option'
+].join('\\n'));process.exit(0);}
 const action=agent==='codex'?a[0]:a[1];
 if(action==='login'&&a[1]!=='status'){fs.writeFileSync(home+'/refresh.tmp','fresh-'+path.basename(home));fs.renameSync(home+'/refresh.tmp',home+'/auth.json');}
 if(action==='logout')fs.rmSync(home+'/auth.json',{force:true});
@@ -179,6 +195,13 @@ check('AGENTS startup imports use an ephemeral memory file and never edit the pr
   assert.equal(adapter(['--cx-session','prompt']).status,0);
   assert.equal(fs.existsSync(path.join(adapterWorkspace,'.claude/CLAUDE.md')),false);
 });
+check('Claude SSH keeps its native project overlay and rejects old images',()=>{
+  clear();ok(pair('claude','work'),{CX_SSH_BRIDGE_DIR:temp,CX_SSH_HOST:'fixture',CX_SSH_INSTRUCTIONS:'current context',CX_SSH_MCP:'1'});
+  assert.ok(last().some(a=>a.startsWith('/workspace/.claude:')));
+  assert.ok(last().includes('CX_SSH_INSTRUCTIONS=current context'));
+  const failed=run(pair('claude','work'),{CX_SSH_BRIDGE_DIR:temp,CX_SSH_HOST:'fixture',CX_TEST_OLD_SSH_IMAGE:'1'});
+  assert.notEqual(failed.status,0);assert.match(failed.stderr,/lacks Claude SSH support/);
+});
 check('API-key auth is selected privately and never supplied as native arguments',()=>{
   fs.writeFileSync(ca+'/api-key','selected-fixture');
   const r=adapter(['--cx-auth','status'],{CX_AUTH_MODE:'api-key'});assert.equal(r.status,0,r.stderr);
@@ -189,6 +212,93 @@ check('API-key auth is selected privately and never supplied as native arguments
   assert.equal(routed.status,0,routed.stderr);assert.deepEqual(JSON.parse(routed.stdout).args,['login','--with-api-key']);
   routed=adapter(['--cx-auth','login'],{CX_AGENT:'codex',CX_AUTH_MODE:'subscription'});
   assert.equal(routed.status,0,routed.stderr);assert.deepEqual(JSON.parse(routed.stdout).args,['login','--device-auth']);
+});
+check('Claude SSH registration and current resume context are session-only',()=>{
+  const context='Current SSH host: fixture-new-host. Never replay uncertain commands.';
+  const r=adapter(['--cx-session','--resume','fixture'],{CX_SSH_SOCKET:'/cx-ssh/bridge.sock',CX_SSH_INSTRUCTIONS:context,CX_SSH_MCP:'1'});
+  assert.equal(r.status,0,r.stderr);const args=JSON.parse(r.stdout).args;
+  assert.ok(args.includes('--mcp-config'));assert.ok(args.some(a=>a.includes('cx_ssh')&&a.includes('/opt/cx-mcp/server.mjs')));
+  assert.ok(args[args.indexOf('--append-system-prompt')+1].includes(context));
+  const fallback=adapter(['--cx-session','prompt'],{CX_SSH_SOCKET:'/cx-ssh/bridge.sock',CX_SSH_INSTRUCTIONS:context,CX_SSH_MCP:'0'});
+  assert.equal(JSON.parse(fallback.stdout).args.some(a=>a.includes('cx_ssh')),false);
+});
+const sshEnv={CX_SSH_SOCKET:'/cx-ssh/bridge.sock',CX_SSH_MCP:'1'};
+const conflict=JSON.stringify({mcpServers:{cx_ssh:{command:'fixture'}}});
+check('Claude SSH checks absolute container-visible configs and preserves other servers',()=>{
+  const config=path.join(adapterProject,'custom-mcp.json');
+  fs.writeFileSync(config,conflict);
+  try {
+    for(const args of [['--mcp-config',config],['--mcp-config='+config],['--settings',config],['--settings='+config],['--mcp-config',conflict]]){
+      const r=adapter(['--cx-session',...args],sshEnv);
+      assert.notEqual(r.status,0);assert.match(r.stderr,/cx_ssh is reserved/);assert.equal(r.stdout,'');
+    }
+    assert.equal(adapter(['--cx-session','--mcp-config',config],{...sshEnv,CX_SSH_MCP:'0'}).status,0);
+    // Variadic MCP configs must inspect every file, unlike --settings.
+    const r=adapter(['--cx-session','--mcp-config','{"mcpServers":{}}',config],sshEnv);
+    assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+    const other=JSON.stringify({mcpServers:{other:{command:'fixture'}}});
+    fs.writeFileSync(config,other);
+    const allowed=adapter(['--cx-session','--mcp-config',config,'--resume','fixture'],sshEnv);
+    assert.equal(allowed.status,0,allowed.stderr);assert.ok(JSON.parse(allowed.stdout).args.includes(config));
+    assert.equal(fs.readFileSync(config,'utf8'),other);
+  } finally {fs.unlinkSync(config);}
+});
+check('Claude SSH settings takes one value and leaves exec Markdown tasks intact',()=>{
+  const settings=path.join(adapterWorkspace,'settings.json'),readme=path.join(adapterWorkspace,'README.md');
+  fs.writeFileSync(settings,'{}');fs.writeFileSync(readme,'# A normal Markdown task\n');
+  try {
+    const r=adapter(['--cx-session','--settings','settings.json','exec','README.md'],sshEnv);
+    assert.equal(r.status,0,r.stderr);
+    const args=JSON.parse(r.stdout).args;
+    assert.deepEqual(args.slice(args.indexOf('--settings')),['--settings','settings.json','--print','README.md']);
+    // Required prompt values and a second -- are literal, even if they look like options.
+    for(const args of [['--system-prompt','--settings','README.md'],['--','--','--settings','README.md']]){
+      const r=adapter(['--cx-session',...args],sshEnv);assert.equal(r.status,0,r.stderr);
+    }
+  } finally {fs.unlinkSync(settings);fs.unlinkSync(readme);}
+});
+check('Claude SSH excludes inactive projects while retaining active user and project conflicts',()=>{
+  const user=path.join(ca,'.claude.json');
+  try {
+    fs.writeFileSync(user,JSON.stringify({projects:{'/another-project':JSON.parse(conflict)}}));
+    let r=adapter(['--cx-session','prompt'],sshEnv);assert.equal(r.status,0,r.stderr);
+    fs.writeFileSync(user,JSON.stringify({projects:{[adapterWorkspace]:JSON.parse(conflict)}}));
+    r=adapter(['--cx-session','prompt'],sshEnv);assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+    fs.writeFileSync(user,conflict);
+    r=adapter(['--cx-session','prompt'],sshEnv);assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+  } finally {fs.rmSync(user,{force:true});}
+  const projectMcp=path.join(adapterProject,'.mcp.json');
+  try {
+    fs.writeFileSync(projectMcp,conflict);
+    const r=adapter(['--cx-session','prompt'],sshEnv);assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+  } finally {fs.unlinkSync(projectMcp);}
+  for(const file of [path.join(ca,'settings.json'),path.join(adapterProject,'.claude/settings.json'),path.join(adapterProject,'.claude/settings.local.json')]){
+    try {
+      fs.writeFileSync(file,conflict);
+      const r=adapter(['--cx-session','prompt'],sshEnv);assert.notEqual(r.status,0);assert.match(r.stderr,/reserved/);
+    } finally {
+      fs.unlinkSync(file);
+      for(const name of ['settings.json','settings.local.json'])fs.rmSync(path.join(adapterWorkspace,'.claude',name),{force:true});
+    }
+  }
+});
+check('Claude SSH checks configs after native option values and preserves argument boundaries',()=>{
+  const config=path.join(adapterWorkspace,'conflicting.json');fs.writeFileSync(config,conflict);
+  try {
+    for(const prefix of [[],['--name','Review Session'],['-n','Review Session'],['--name=Review Session'],
+      ['--agents','{}'],['--agents={}'],['--future-native-option','arbitrary value'],
+      ['--debug','filter'],['--debug'],['--tools','Read','Edit'],['a prompt']]){
+      const r=adapter(['--cx-session','--print',...prefix,'--mcp-config',config],sshEnv);
+      assert.notEqual(r.status,0,JSON.stringify(prefix));assert.match(r.stderr,/cx_ssh is reserved/);assert.equal(r.stdout,'');
+    }
+    const task=adapter(['--cx-session','--name','Review Session','--agents','{}','exec','a task'],sshEnv);
+    assert.equal(task.status,0,task.stderr);assert.ok(JSON.parse(task.stdout).args.includes('--print'));
+    for(const args of [['--system-prompt','--mcp-config'],['--','--','--mcp-config',config]]){
+      const r=adapter(['--cx-session',...args],sshEnv);assert.equal(r.status,0,r.stderr);
+    }
+    const unknown=adapter(['--cx-session','--not-in-native-help','value','--mcp-config',config],sshEnv);
+    assert.notEqual(unknown.status,0);assert.match(unknown.stderr,/Cannot validate Claude option/);
+  } finally {fs.unlinkSync(config);}
 });
 console.log(`\n${checks} account/adapter checks passed; no live provider authentication.`);
 } finally {fs.rmSync(temp,{recursive:true,force:true});}
