@@ -39,6 +39,10 @@ opens Sessions. The menu has its own saved screen and a blue header; SSH keeps
 its green header. Python 3.11+ is required on the host for interactive managed
 sessions. Legacy `CX_CODEX_HOME` keeps native behavior and has no CX session menu.
 
+The blue banner says only `Sessions`. The current assistant and account are
+labeled below the title, separately from filters and shortcuts. Local assistant
+banners advertise Sessions instead of an unavailable SSH screen.
+
 The layout follows Codex's resume picker: a title, search field, filter controls,
 spaced session records, relative update times and a position indicator. The
 selected row has a cyan `›` cursor; `*` marks the active conversation separately.

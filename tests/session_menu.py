@@ -221,11 +221,42 @@ class MenuTests(unittest.TestCase):
             self.assertIn('› 計画',text)
             self.assertIn('Enter resume',text)
             self.assertIn('1 / 2',text)
+            self.assertIn('Assistant: Codex',text)
+            self.assertIn('Account: work',text)
         self.menu.handle(b'd')
         text='\n'.join(self.bridge.terminal.display.pane(self.menu.owner).screen.display)
         self.assertIn(ID,text)
         self.assertIn('ALL accounts',text)
         self.assertIn('cannot be undone',text)
+
+    def test_menu_banner_is_simple_and_prior_header_is_restored(self):
+        display=self.bridge.terminal.display
+        display.notice('A transient transport notice')
+        self.assertEqual(display.header().strip(),'Sessions')
+        self.menu.close()
+        self.bridge.terminal.switch(self.bridge.local,'CODEX / work')
+        self.assertIn('CODEX / work',display.header())
+        self.assertIn('Ctrl-] r: SSH',display.header())
+        self.menu.open()
+        self.assertEqual(display.header().strip(),'Sessions')
+
+    def test_local_banners_offer_sessions_without_an_ssh_shortcut(self):
+        spec=importlib.util.spec_from_file_location('local_bridge',ROOT/'bin/cx-session-supervisor.py')
+        local_module=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(local_module)
+        bridge=local_module.LocalBridge('','',['/cx','/project'])
+        self.assertNotIn('SSH',bridge.terminal.display.header())
+        bridge.spawn=Mock(return_value=(88,Mock()))
+        bridge.resize=Mock()
+        bridge.start_local()
+        self.assertIn('Ctrl-] s: Sessions',bridge.terminal.display.header())
+        self.assertNotIn('SSH',bridge.terminal.display.header())
+
+    def test_transport_notice_is_visible_below_the_compact_menu_banner(self):
+        module.Bridge.notice(self.bridge,'SSH disconnected; command outcome unknown.')
+        self.assertEqual(self.bridge.terminal.display.header().strip(),'Sessions')
+        screen=self.bridge.terminal.display.pane(self.menu.owner).screen
+        self.assertIn('SSH disconnected; command outcome unknown.','\n'.join(screen.display))
 
     def test_worker_startup_failure_keeps_terminal_and_remote_state(self):
         remote = self.bridge.remote = (99, Mock())

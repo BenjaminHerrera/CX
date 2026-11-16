@@ -373,6 +373,10 @@ class Bridge:
                              'SSH' if focus == 'remote' else self.assistant_label)
 
     def notice(self, message):
+        if self.menu and self.menu.opened:
+            self.menu.message = message
+            self.menu.draw()
+            return
         if self.terminal.display.enabled:
             self.terminal.display.notice(message)
         else:

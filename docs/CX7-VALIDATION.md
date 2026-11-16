@@ -48,7 +48,7 @@ allocation identity and a real local PTY keystroke/restoration test.
 
 Validated locally: 27 account/adapter checks, 25 smoke/install/package checks,
 17 removal checks including native Codex deletion, 6 menu backend checks including
-native discovery/naming, 18 menu/PTY tests, 60 SSH bridge tests, 26 screen tests
+native discovery/naming, 21 menu/PTY tests, 60 SSH bridge tests, 26 screen tests
 including tmux, 9 Slurm tests, 8 shared-picker checks, 18 import checks, and the
 remote-client/MCP suites. Shell/Node syntax and git diff --check also pass. Fixture coverage does not establish the live gates below.
 
@@ -84,3 +84,11 @@ named Guardian review, source-tagged internal sessions, opt-in discovery, Unicod
 search/action-key isolation, filter controls, density and 118/80/38-column layouts.
 The native fixture checks still pass without model requests; live terminal gates
 above remain open.
+
+
+The banner follow-up separates the plain blue Sessions title from labeled
+assistant/account context in the body. Local assistant banners show the Sessions
+shortcut rather than SSH. Per-pane header settings restore when the menu closes;
+transport notices remain visible in the menu body instead of expanding the bar.
+Regressions cover compact banner text, account context at narrow widths, restored
+SSH headers, correct local hints and visible disconnect/unknown-outcome notices.

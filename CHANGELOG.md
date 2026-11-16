@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Simplify the Sessions banner and separate assistant/account labels from filter
+  controls. Show local session shortcuts without SSH hints, and keep transport
+  notices visible below the menu banner.
+
 - Restyle Sessions after Codex's resume picker: searchable named rows, relative
   update times, CLI/status/sort controls, density toggle and a position footer.
   Hide internal Codex reviewer/subagent threads by default; F2 opts into them

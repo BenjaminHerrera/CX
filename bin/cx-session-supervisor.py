@@ -16,6 +16,7 @@ class LocalBridge(module.Bridge):
         super().__init__(*args)
         self.focus = 'local'
         self.terminal.display.label = self.assistant_label
+        self.terminal.display.header_hints[None] = 'Ctrl-] s: Sessions'
 
     def connect(self):
         self.focus = 'local'
@@ -29,6 +30,7 @@ class LocalBridge(module.Bridge):
             return
         self.menu.launched()
         self.local = self.spawn(self.launcher, dict(os.environ, CX_SESSION_SUPERVISED='1'))
+        self.terminal.display.header_hints[self.local] = 'Ctrl-] s: Sessions'
         if not self.menu.opened:
             self.terminal.switch(self.local, self.assistant_label)
         self.resize()

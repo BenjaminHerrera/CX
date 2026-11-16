@@ -171,7 +171,8 @@ class SessionMenu:
         self.opened, self.mode, self.pasting, self.control = True, 'list', False, None
         self.bridge.escape = False
         self.bridge.terminal.state(self.owner)['modes'].add(2004)
-        self.bridge.terminal.switch(self.owner, 'Sessions | '+self.bridge.assistant_label)
+        self.bridge.terminal.display.compact_headers.add(self.owner)
+        self.bridge.terminal.switch(self.owner, 'Sessions')
         self.request('list')
         self.draw()
 
@@ -186,7 +187,7 @@ class SessionMenu:
 
     def page_size(self):
         height = self.bridge.terminal.display.lines
-        return max(1, (height-5-(6 if height >= 18 else 3))//(1 if self.dense else 3))
+        return max(1, (height-5-(6 if height >= 18 else 4))//(1 if self.dense else 3))
 
     def accounts(self, agent):
         root = self.data_home / 'profiles' / agent
@@ -260,6 +261,8 @@ class SessionMenu:
         for owner in list(terminal.display.panes):
             if owner is not self.owner and owner is not self.bridge.remote:
                 terminal.display.panes.pop(owner, None)
+                terminal.display.header_hints.pop(owner, None)
+                terminal.display.compact_headers.discard(owner)
                 terminal.states.pop(owner, None)
                 terminal.buffers.pop(owner, None)
         try:
@@ -433,6 +436,8 @@ class SessionMenu:
             self.top = self.cursor-page+1
         dim = lambda text: '\033[2m'+fit(text, width)+'\033[0m'
         title = ' Resume a previous session'
+        agent, _, account = self.bridge.assistant_label.partition(' / ')
+        context = dim(' Assistant: '+agent.title()+'    Account: '+(account or '—'))
         controls = []
         for key, label, value in (('cli', 'CLI', self.cli_filter), ('status', 'Status', self.status_filter), ('sort', 'Sort', self.sort)):
             if width < 30 and key != (self.control or 'cli'):
@@ -441,10 +446,10 @@ class SessionMenu:
             text = fit(text, max(0, width-1))
             controls.append(('\033[4;36m'+text+'\033[0m') if self.control == key else text)
         query = ' Search: '+self.query+('▏' if self.mode == 'search' else '') if self.query or self.mode == 'search' else ' / Type to search by name, project or ID'
-        lines = ['\033[1m'+fit(title, width)+'\033[0m', '', ' '+ '    '.join(controls), '',
+        lines = ['\033[1m'+fit(title, width)+'\033[0m', context, '', ' '+ '    '.join(controls),
                  ('\033[36m'+fit(query, width)+'\033[0m') if self.mode == 'search' else dim(query), '']
         if height < 18:
-            lines = [lines[0], lines[2], lines[4]]
+            lines = [lines[0], lines[1], lines[3], lines[4]]
         for index, row in enumerate(self.rows[self.top:self.top+page], self.top):
             chosen = index == self.cursor
             cursor = '›' if chosen else ' '
