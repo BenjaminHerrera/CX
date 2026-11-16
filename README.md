@@ -61,6 +61,7 @@ cx --help                                 # Show launcher options
 Interactive launches show a combined CLI/account picker. Scripts need an explicit
 pair or an automation default. See [accounts and history](docs/ACCOUNTS.md) to add
 Claude accounts, use API keys, resume conversations, or retain a legacy home.
+Remove a profile with `cx accounts remove NAME`; shared history is preserved.
 Managed Codex `resume` provides a shared-history picker; native Codex performs
 the selected resume and retains any account ownership restrictions.
 Both CLIs support SSH/MCP/Slurm through the shared bridge. Live parity validation

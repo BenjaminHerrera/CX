@@ -17,6 +17,25 @@ digits, dots, underscores or hyphens and start with a letter or digit. The same
 name may exist once per CLI. `cx accounts list` shows names and modes, never
 secrets; `--agent` filters the list. Adding an existing name fails.
 
+## Remove an Account
+
+Close sessions using the profile, then run on the host:
+
+```bash
+cx accounts remove work
+# If the name exists under both CLIs, select which one to remove:
+cx accounts remove work --agent claude
+```
+
+The command deletes the selected profile's locally stored credentials, settings,
+plugins and caches. Shared conversation history and other profiles are preserved.
+A matching automation default is cleared; a default for another profile is kept.
+`--account work` is also accepted instead of the positional name. Missing or
+ambiguous names fail without deleting a profile. Symlinked profile directories
+are refused. Removal works without Docker or provider access, does not stop
+running sessions, and does not invoke provider logout or revoke remote tokens.
+Use the profile's `--logout` action first if you also want native logout.
+
 ## Selection and Automation
 
 Every interactive launch without a complete `--agent`/`--account` pair shows a

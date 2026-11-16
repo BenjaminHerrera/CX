@@ -24,6 +24,7 @@ Usage:
   cx accounts list [--agent codex|claude]
   cx accounts add --agent codex|claude --account NAME --auth subscription|api-key
   cx accounts default --agent codex|claude --account NAME
+  cx accounts remove NAME [--agent codex|claude]
 
 Examples:
   cx .
@@ -35,6 +36,7 @@ Examples:
   cx . --model YOUR_MODEL
   cx . exec "Run the test suite and fix failures"
   cx accounts add --agent codex --account personal --auth subscription
+  cx accounts remove personal
   cx --agent codex --account personal --login
   cx --agent claude --account work . exec "Run the tests"
   cx --auth-status

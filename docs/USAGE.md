@@ -13,6 +13,10 @@ show a CLI/account picker; scripts require a complete pair or a saved
 `cx accounts default --agent codex --account personal` selection. Native
 `--profile` is unchanged and wrapper parsing stops at `--`.
 
+Remove a local profile with `cx accounts remove NAME`. If both CLIs have that
+name, add `--agent codex` or `--agent claude`. Close its sessions first. Shared
+history is preserved; see [account removal](ACCOUNTS.md#remove-an-account).
+
 [Accounts and shared history](ACCOUNTS.md) describes API-key authentication,
 private mounts, native resume, Claude project settings/MCP, and migration.
 Existing native homes are untouched. Explicit `CX_CODEX_HOME` retains legacy

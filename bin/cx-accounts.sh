@@ -58,6 +58,37 @@ account_options() {
     [[ -z "$ACCOUNT" ]] || valid_account "$ACCOUNT" || die "Invalid --account name."
 }
 
+remove_account() {
+    local cli entry stored_auth
+    local -a matches=() defaults=()
+    [[ -n "$ACCOUNT" ]] || die "accounts remove requires an account name."
+    [[ ! -L "$DATA_HOME/profiles" ]] || die "Refusing a symlink in account storage."
+    for cli in codex claude; do
+        [[ -z "$AGENT" || "$AGENT" == "$cli" ]] || continue
+        [[ ! -L "$DATA_HOME/profiles/$cli" ]] || die "Refusing a symlink in account storage: $cli"
+        entry="$DATA_HOME/profiles/$cli/$ACCOUNT"
+        [[ ! -L "$entry" ]] || die "Refusing a symlinked account: $cli/$ACCOUNT"
+        [[ -e "$entry" ]] || continue
+        [[ -d "$entry" && -f "$entry/auth-mode" && ! -L "$entry/auth-mode" ]] || die "Invalid account metadata: $cli/$ACCOUNT"
+        stored_auth="$(<"$entry/auth-mode")"
+        [[ "$stored_auth" == subscription || "$stored_auth" == api-key ]] || die "Invalid account metadata: $cli/$ACCOUNT"
+        matches+=("$cli")
+    done
+    ((${#matches[@]})) || die "Unknown account: ${AGENT:+$AGENT/}$ACCOUNT"
+    ((${#matches[@]} == 1)) || die "Account '$ACCOUNT' exists for both CLIs; specify --agent codex or --agent claude."
+    cli="${matches[0]}"
+    if [[ -f "$DATA_HOME/automation-default" ]]; then
+        mapfile -t defaults <"$DATA_HOME/automation-default"
+    fi
+    # No trailing slash: rm removes history symlinks, never their shared targets.
+    rm -rf -- "$DATA_HOME/profiles/$cli/$ACCOUNT"
+    if ((${#defaults[@]} == 2)) && [[ "${defaults[0]}" == "$cli" && "${defaults[1]}" == "$ACCOUNT" ]]; then
+        rm -f -- "$DATA_HOME/automation-default"
+        printf 'Cleared automation default for %s/%s.\n' "$cli" "$ACCOUNT"
+    fi
+    printf 'Removed %s/%s. Shared conversation history is preserved.\n' "$cli" "$ACCOUNT"
+}
+
 accounts_command() {
     local action="${1:-list}" entry auth="" name cli temporary stored_auth
     (($# == 0)) || shift
@@ -71,9 +102,17 @@ accounts_command() {
         esac
     done
     account_options "${args[@]}"
+    if [[ "$action" == remove && ${#SELECTION_ARGS[@]} == 1 && -z "$ACCOUNT" ]]; then
+        ACCOUNT="${SELECTION_ARGS[0]}"
+        valid_account "$ACCOUNT" || die "Invalid account name."
+        SELECTION_ARGS=()
+    fi
     ((${#SELECTION_ARGS[@]} == 0)) || die "Unexpected accounts argument."
     check_data_home
     case "$action" in
+        remove)
+            [[ -z "$auth" ]] || die "--auth is only valid with accounts add."
+            remove_account ;;
         list)
             [[ -z "$auth" ]] || die "--auth is only valid with accounts add."
             for cli in codex claude; do
@@ -107,7 +146,7 @@ accounts_command() {
                 printf '%s\n%s\n' "$AGENT" "$ACCOUNT" >"$temporary"
                 mv -f -- "$temporary" "$DATA_HOME/automation-default"
             fi ;;
-        *) die "Usage: cx accounts list|add|default [--agent codex|claude --account NAME] [--auth subscription|api-key]" ;;
+        *) die "Usage: cx accounts list|add|default [--agent codex|claude --account NAME] [--auth subscription|api-key]; cx accounts remove NAME [--agent codex|claude]" ;;
     esac
 }
 

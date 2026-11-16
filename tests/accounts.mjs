@@ -38,6 +38,55 @@ check('metadata creation, listing and defaults require no Docker or login',()=>{
   assert.equal(fs.statSync(data).mode&0o777,0o700);
   assert.equal(fs.readFileSync(path.join(data,'profiles/codex/beta/auth-mode'),'utf8'),'api-key\n');
 });
+check('removal infers either CLI and preserves shared history and other profiles',()=>{
+  clear();
+  for(const agent of ['codex','claude']){
+    const name=`remove-${agent}`;add(agent,name);
+    const profile=path.join(data,'profiles',agent,name),history=path.join(data,'history',agent,'remove-fixture');
+    fs.mkdirSync(history,{recursive:true});fs.writeFileSync(path.join(history,'conversation'),'keep');
+    fs.mkdirSync(path.join(profile,'home'));fs.writeFileSync(path.join(profile,'home','auth.json'),'disposable');
+    fs.symlinkSync(history,path.join(profile,'home','history'));
+    fs.symlinkSync(path.join(history,'conversation'),path.join(profile,'home','history.jsonl'));
+    ok(['accounts','default','--agent','codex','--account','alpha']);
+    const result=ok(['accounts','remove',name]);assert.match(result.stdout,new RegExp(`Removed ${agent}/${name}`));
+    assert.equal(fs.existsSync(profile),false);assert.equal(fs.readFileSync(path.join(history,'conversation'),'utf8'),'keep');
+    assert.equal(fs.readFileSync(path.join(data,'automation-default'),'utf8'),'codex\nalpha\n');
+  }
+  assert.equal(fs.readFileSync(path.join(data,'profiles/codex/alpha/auth-mode'),'utf8'),'subscription\n');
+  assert.equal(calls().length,0);
+});
+check('ambiguous removal requires a CLI and only clears a matching default',()=>{
+  for(const agent of ['codex','claude'])add(agent,'duplicate');
+  ok(['accounts','default','--agent','claude','--account','duplicate']);
+  const ambiguous=run(['accounts','remove','duplicate']);assert.notEqual(ambiguous.status,0);assert.match(ambiguous.stderr,/both CLIs/);
+  for(const agent of ['codex','claude'])assert.equal(fs.existsSync(path.join(data,'profiles',agent,'duplicate')),true);
+  ok(['accounts','remove','duplicate','--agent','codex']);
+  assert.equal(fs.readFileSync(path.join(data,'automation-default'),'utf8'),'claude\nduplicate\n');
+  assert.equal(fs.existsSync(path.join(data,'profiles/codex/duplicate')),false);
+  const result=ok(['accounts','remove','--agent=claude','--account=duplicate']);assert.match(result.stdout,/Cleared automation default/);
+  assert.equal(fs.existsSync(path.join(data,'automation-default')),false);
+  assert.equal(fs.existsSync(path.join(data,'profiles/claude/duplicate')),false);
+});
+check('invalid, missing and extra removal arguments do not delete profiles',()=>{
+  for(const args of [[],['missing'],['../alpha'],['alpha','extra'],['alpha','--account','alpha'],['alpha','--agent','other'],['alpha','--auth','api-key'],['--account','../alpha'],['--account='],['--agent','codex']]){
+    const result=run(['accounts','remove',...args]);assert.notEqual(result.status,0,JSON.stringify(args));
+    assert.equal(fs.existsSync(path.join(data,'profiles/codex/alpha/auth-mode')),true);
+  }
+});
+check('removal refuses symlinked storage and invalid metadata without touching targets',()=>{
+  const isolated=path.join(temp,'remove storage'),outside=path.join(temp,'outside removal');
+  fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'auth-mode'),'subscription\n');fs.writeFileSync(path.join(outside,'sentinel'),'keep');
+  const remove=()=>run(['accounts','remove','target','--agent','codex'],{CX_DATA_HOME:isolated});
+  for(const level of ['profiles','profiles/codex','profiles/codex/target','profiles/codex/target/auth-mode']){
+    fs.mkdirSync(path.dirname(path.join(isolated,level)),{recursive:true});
+    fs.symlinkSync(level.endsWith('auth-mode')?path.join(outside,'auth-mode'):outside,path.join(isolated,level));
+    const result=remove();assert.notEqual(result.status,0,level);assert.equal(fs.readFileSync(path.join(outside,'sentinel'),'utf8'),'keep');
+    fs.rmSync(isolated,{recursive:true,force:true});
+  }
+  fs.mkdirSync(path.join(isolated,'profiles/codex/target'),{recursive:true});
+  fs.writeFileSync(path.join(isolated,'profiles/codex/target/auth-mode'),'invalid');
+  assert.notEqual(remove().status,0);assert.equal(fs.existsSync(path.join(isolated,'profiles/codex/target')),true);
+});
 check('scripts fail without selection and use an explicit automation default',()=>{
   clear();assert.notEqual(run([project,'exec','task']).status,0);assert.equal(last(),undefined);
   ok(['accounts','default','--agent','codex','--account','alpha']);
@@ -100,12 +149,18 @@ check('fresh portable and installed editions select their managed data defaults'
   clear();r=portable(['--agent','codex','--account','fresh',project]);assert.equal(r.status,0,r.stderr);
   assert.ok(last().includes(`type=bind,src=${bundle}/data/profiles/codex/fresh/home,dst=/codex-home`));
   assert.equal(fs.existsSync(path.join(bundle,'data/codex')),false);
+  r=portable(['accounts','remove','fresh']);assert.equal(r.status,0,r.stderr);
+  assert.equal(fs.existsSync(path.join(bundle,'data/profiles/codex/fresh')),false);
+  assert.equal(fs.existsSync(path.join(bundle,'data/history/codex/sessions')),true);
   const prefix=path.join(temp,'installed');r=spawnSync('bash',[path.join(root,'install.sh'),'--no-build','--prefix',prefix],{env,encoding:'utf8'});assert.equal(r.status,0,r.stderr);
   const installed=(args)=>spawnSync('bash',[path.join(prefix,'bin/cx'),...args],{cwd:project,env:{...env,CX_DATA_HOME:''},encoding:'utf8'});
   r=installed(['accounts','add','--agent','claude','--account','fresh','--auth','subscription']);assert.equal(r.status,0,r.stderr);
   clear();r=installed(['--agent','claude','--account','fresh',project]);assert.equal(r.status,0,r.stderr);
   assert.ok(last().includes(`type=bind,src=${home}/.local/share/cx/data/profiles/claude/fresh/home,dst=/claude-home`));
   assert.equal(fs.existsSync(path.join(home,'.claude')),false);
+  r=installed(['accounts','remove','fresh']);assert.equal(r.status,0,r.stderr);
+  assert.equal(fs.existsSync(path.join(home,'.local/share/cx/data/profiles/claude/fresh')),false);
+  assert.equal(fs.existsSync(path.join(home,'.local/share/cx/data/history/claude/projects')),true);
 });
 check('interactive picker always appears, filters by CLI and handles cancellation',()=>{
   const runner=path.join(temp,'picker');fs.writeFileSync(runner,'#!/bin/bash\nexec "$CX_TEST_LAUNCHER" "$CX_TEST_PROJECT" ${CX_TEST_FILTER:+--agent} ${CX_TEST_FILTER:+"$CX_TEST_FILTER"}\n',{mode:0o755});

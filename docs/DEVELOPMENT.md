@@ -40,7 +40,9 @@ that bundle. Do not use real credentials for automated tests.
 
 Read [accounts and native history](ACCOUNTS.md) before changing selection, auth or
 storage seams. `tests/accounts.mjs` uses fake CLIs and a PTY for picker/filtering,
-credential refresh/logout isolation, argument boundaries and task I/O. The
+credential refresh/logout isolation, safe profile removal, argument boundaries
+and task I/O. Removal checks cover duplicate names, automation defaults,
+shared-history preservation, and refusal of symlinked storage. The
 existing smoke suite preserves explicit legacy-home behavior and verifies both
 archives. Add new runtime sources to both Docker's context allowlist and the
 release allowlist.

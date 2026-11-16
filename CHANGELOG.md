@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `cx accounts remove NAME` with CLI disambiguation, matching automation
+  default cleanup, and preservation of shared conversation history.
 - Add Claude SSH launch guidance and session-only cx_ssh MCP registration through
   built-in agent adapters. Preserve shared command tracking and native ownership.
 - Validate Claude SSH MCP conflicts against container-visible paths and active
