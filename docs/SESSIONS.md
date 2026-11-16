@@ -47,7 +47,10 @@ While editing a search, letters go into the search field. Enter resumes the
 highlighted result, Esc leaves search editing, and Ctrl-U clears the query.
 Active/non-archived sessions are shown initially, sorted by name in compact rows.
 CLI and last-updated metadata occupy a separate right-aligned area; narrow
-terminals stack that area below the name. Change the status control
+terminals stack that area below the name. The padded metadata column keeps
+vertical separators aligned across rows. Codex rows are light blue and Claude
+rows are warm orange; the selected row also has a bold cursor.
+Change the status control
 to find archived sessions. F2 changes visibility only; it does not delete
 internal threads or filter by their names.
 

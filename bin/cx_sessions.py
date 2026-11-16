@@ -542,6 +542,7 @@ class SessionMenu:
                  ('\033[36m'+fit(query, width)+'\033[0m') if self.mode == 'search' else dim(query), '']
         if height < 18:
             lines = [lines[0], lines[1], lines[3], lines[4]]
+        metadata_width = min(32, width//2)
         for index, row in enumerate(self.rows[self.top:self.top+page], self.top):
             chosen = index == self.cursor
             cursor = '›' if chosen else ' '
@@ -558,20 +559,24 @@ class SessionMenu:
             metadata = f"{row['agent']} · {updated}{archived}"
             marker = active+tag
             prefix = f' {cursor} '
+            color = '135;206;250' if row['agent'] == 'codex' else '217;119;87'
+            def paint(text, faint=False):
+                return ('\033[38;2;'+color+'m'+('\033[1m' if chosen else '')+
+                        ('\033[2m' if faint else '')+text+'\033[0m')
             if width >= 32:
-                metadata = fit(metadata, max(0, width//2))
-                left_width = max(0, width-cell_width(metadata)-3)
+                left_width = max(0, width-metadata_width-3)
+                marker = fit(marker, max(0, left_width-cell_width(prefix)))
                 name = prefix+fit(row['name'], max(0, left_width-cell_width(prefix+marker)))+marker
-                name += ' '*max(0, left_width-cell_width(name))+' │ '+metadata
-                lines.append(('\033[1;36m'+name+'\033[0m') if chosen else name)
+                name += ' '*max(0, left_width-cell_width(name))+' │ '+right_align(metadata, metadata_width)
+                lines.append(paint(name))
             else:
                 # Stack the columns on small terminals instead of letting a
                 # long title consume or masquerade as the metadata column.
+                marker = fit(marker, max(0, width-cell_width(prefix)))
                 name = prefix+fit(row['name'], max(0, width-cell_width(prefix+marker)))+marker
-                lines += [('\033[1;36m'+name+'\033[0m') if chosen else name,
-                          dim(right_align(metadata, width))]
+                lines += [paint(name), paint(right_align(metadata, width), faint=True)]
             if not self.dense:
-                lines += ([dim('    '+row['project']), ''] if width >= 32 else [''])
+                lines += ([paint(fit('    '+row['project'], width), faint=True), ''] if width >= 32 else [''])
         if not self.rows:
             lines.append(dim(' No matching sessions.' if self.query or self.all_rows else ' No saved sessions yet.'))
         selected = self.selected()

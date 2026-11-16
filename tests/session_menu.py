@@ -274,7 +274,8 @@ class MenuTests(unittest.TestCase):
                 name = next(line for line in lines if '› 日' in line)
                 self.assertIn('*', name)
                 if width >= 32:
-                    self.assertIn(' │ codex · ', name)
+                    self.assertIn(' │ ', name)
+                    self.assertIn('codex · ', name)
                     # The final metadata cell is the last terminal column,
                     # regardless of the Unicode title's width.
                     self.assertNotEqual(screen.buffer[lines.index(name)][width-1].data, ' ')
@@ -284,6 +285,31 @@ class MenuTests(unittest.TestCase):
                     self.assertTrue(meta.startswith(' '))
                     self.assertNotIn('codex', name)
                 self.assertEqual(self.menu.selected()['id'], ID)
+
+    def test_metadata_dividers_align_and_cli_colors_survive_selection_and_density(self):
+        self.menu.rows = [dict(self.menu.rows[0], updated=time.time()),
+                          dict(self.menu.rows[1], updated=1)]
+        for dense in (True, False):
+            self.menu.dense = dense
+            for width in (120, 80, 38, 25, 80):
+                self.bridge.terminal.display.resize(30, width)
+                for selected in (0, 1):
+                    self.menu.cursor = selected
+                    self.menu.draw()
+                    screen = self.bridge.terminal.display.pane(self.menu.owner).screen
+                    row_numbers = [next(i for i, line in enumerate(screen.display) if name in line)
+                                   for name in ('計画', 'Duplicate')]
+                    if width >= 32:
+                        dividers = [next(col for col, char in screen.buffer[i].items() if char.data == '│')
+                                    for i in row_numbers]
+                        self.assertEqual(dividers[0], dividers[1])
+                        # A short relative time gets left padding inside the
+                        # same metadata column as an older, longer timestamp.
+                        self.assertIn(' │   ', screen.display[row_numbers[0]])
+                    for index, color in enumerate(('87cefa', 'd97757')):
+                        char = next(char for char in screen.buffer[row_numbers[index]].values() if char.data in ('計', 'D'))
+                        self.assertEqual(char.fg, color)
+                        self.assertEqual(char.bold, index == selected)
 
     def test_internal_toggle_is_explicit_and_marked(self):
         internal=dict(self.menu.rows[0],id=OTHER,name='Guardian review',internal=True)

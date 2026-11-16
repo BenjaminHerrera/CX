@@ -6,7 +6,8 @@
   process, saved screen and draft; restore running sessions without replaying
   tasks. Keep SSH work/authentication gates and Claude writer leases intact.
 - Default Sessions to name sorting and compact rows, with separate right-aligned
-  CLI/update metadata and a stacked layout on narrow terminals.
+  CLI/update metadata and a stacked layout on narrow terminals. Pad metadata to
+  align vertical separators; color Codex rows light blue and Claude rows orange.
 
 - Add a task-oriented user handbook and generated GitHub wiki, covering both
   CLIs, session management, SSH/Slurm, imports, persistence and upgrades.
