@@ -48,7 +48,7 @@ allocation identity and a real local PTY keystroke/restoration test.
 
 Validated locally: 27 account/adapter checks, 25 smoke/install/package checks,
 17 removal checks including native Codex deletion, 5 menu backend checks including
-native discovery/naming, 13 menu/PTY tests, 60 SSH bridge tests, 26 screen tests
+native discovery/naming, 14 menu/PTY tests, 60 SSH bridge tests, 26 screen tests
 including tmux, 9 Slurm tests, 8 shared-picker checks, 18 import checks, and the
 remote-client/MCP suites. Shell/Node syntax and git diff --check also pass. Fixture coverage does not establish the live gates below.
 

@@ -208,7 +208,17 @@ class SessionMenu:
                 terminal.display.panes.pop(owner, None)
                 terminal.states.pop(owner, None)
                 terminal.buffers.pop(owner, None)
-        self.bridge.start_local()
+        try:
+            self.bridge.start_local()
+        except (OSError, ValueError) as error:
+            if not self.bridge.local:
+                self.release()
+                self.active = None
+            if not self.opened:
+                self.open()
+            self.message = 'Cannot start selected assistant: '+clean(error)+'. No automatic retry; remote state is retained.'
+            self.draw()
+            return True
         self.bridge.focus = 'local'
         if self.opened:
             self.previous = (self.bridge.local, self.bridge.assistant_label)

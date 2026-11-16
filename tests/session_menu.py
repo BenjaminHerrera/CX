@@ -173,6 +173,19 @@ class MenuTests(unittest.TestCase):
         self.assertIsNone(self.menu.worker)
         self.assertIn('No automatic retry', self.menu.message)
 
+    def test_failed_native_start_does_not_tear_down_ssh_or_replay_task(self):
+        remote = self.bridge.remote = (99, Mock())
+        self.menu.choose(self.menu.rows[0], 'work')
+        self.bridge.local = None
+        self.bridge.start_local = Mock(side_effect=ValueError('reserved server'))
+        self.assertTrue(self.menu.handoff(0))
+        self.assertIs(self.bridge.remote, remote)
+        self.assertTrue(self.menu.opened)
+        self.assertIsNone(self.menu.active)
+        self.assertIn('reserved server', self.menu.message)
+        self.assertIn('remote state is retained', self.menu.message)
+        self.bridge.start_local.assert_called_once()
+
     def test_remote_bootstrap_cannot_steal_open_menu_or_route_keys_to_hidden_assistant(self):
         self.bridge.focus = 'remote'
         self.bridge.switch_focus('local')
