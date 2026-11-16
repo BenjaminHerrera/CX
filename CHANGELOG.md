@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a task-oriented user handbook and generated GitHub wiki, covering both
+  CLIs, session management, SSH/Slurm, imports, persistence and upgrades.
+  Update contributor guidance to branch from main after v2 integration, and
+  check documentation links/anchors and wiki generation in CI.
 - Simplify the Sessions banner and separate assistant/account labels from filter
   controls. Show local session shortcuts without SSH hints, and keep transport
   notices visible below the menu banner.

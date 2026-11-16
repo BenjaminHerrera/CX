@@ -1,5 +1,10 @@
 # CLI Accounts and Shared History
 
+[Handbook home](README.md) · [First account](GETTING-STARTED.md#choose-your-first-account) · [Session walkthrough](SESSIONS.md) · [Import walkthrough](IMPORTING.md)
+
+This reference explains authentication, storage, native compatibility and
+maintenance details. Use the linked walkthroughs for everyday tasks.
+
 cx runs Codex and Claude Code from one image. Rebuild after upgrading:
 
 ```bash

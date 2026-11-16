@@ -283,6 +283,8 @@ check('clean releases exclude runtime data and run after extraction',()=>{
     run('tar',['-xzf',archive,'-C',extract]);
     const bundle=path.join(extract,`cx-${version}-${edition}`);
     run('sha256sum',['-c','MANIFEST.sha256'],{cwd:bundle});
+    run(process.execPath,[path.join(bundle,'scripts/docs.mjs'),'--check']);
+    run(process.execPath,[path.join(bundle,'scripts/docs.mjs'),'--wiki-dir',path.join(temp,`wiki-${edition}`)]);
     assert.match(run('bash',[path.join(bundle,'cx'),'--version']).stdout,new RegExp(version.replaceAll('.', '\\.')));
     run(process.execPath,[path.join(bundle,'scripts/import-sessions.mjs'),'--help']);
     if (edition === 'install') {

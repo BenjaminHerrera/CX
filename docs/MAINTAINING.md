@@ -1,5 +1,9 @@
 # Maintenance and verification
 
+The v2 integration is on `main`. This guide describes validation and packaging
+for current work; implementation-time records remain in the handbook's
+[validation section](README.md#validation-and-versions).
+
 Start with the [development guide](DEVELOPMENT.md) for local setup and component
 workflows. See [GitHub maintenance](GITHUB.md) for triage, repository settings,
 and the release checklist. The [documentation index](README.md) lists all guides.
@@ -19,6 +23,7 @@ remain in the source distribution.
 
 ```bash
 node tests/smoke.mjs
+node scripts/docs.mjs --check
 node tests/accounts.mjs
 node tests/sessions.mjs
 node tests/session-menu.mjs
@@ -34,6 +39,7 @@ python3 -B tests/screens.py
 
 | Suite | Coverage |
 |---|---|
+| `scripts/docs.mjs --check` | Canonical handbook source inventory, local Markdown targets/anchors; wiki generation is also checked in CI and both extracted editions |
 | `import-sessions.mjs` | Copy-only native history migration, dry run, independent copies, archive/compression deduplication, conflicts, metadata merge, SQLite/WAL and missing/truncated rollout checks; opt-in native discovery and paginated resume |
 | `sessions.mjs` | Exact-ID removal, CLI collisions, transcript/index preservation, symlink refusal and native error handling; opt-in native Codex fixtures cover archives, descendants and SQLite cleanup |
 | `smoke.mjs` | Shell syntax, Docker argument generation, workspace layout, file/directory mounts, masking, piped tasks, credential/path rejection, install/upgrade/removal, environments, packaging, and extracted editions |

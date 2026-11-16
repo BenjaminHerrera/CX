@@ -1,5 +1,7 @@
 # System map and access model
 
+[Handbook home](README.md) · [Workspace walkthrough](WORKSPACES.md) · [Session walkthrough](SESSIONS.md)
+
 ## Package layout
 
 ```text
@@ -71,8 +73,9 @@ The helper never performs the resume or changes native checks. See the
 [shared picker](ACCOUNTS.md#shared-codex-resume-picker).
 
 See [accounts](ACCOUNTS.md) for the storage tree, native compatibility checks,
-concurrency contract and open live gates. Claude SSH parity is a separate CX-2
-integration; Codex SSH reserves MCP names against the selected profile config.
+concurrency contract and live-check limitations. Both adapters share SSH/MCP;
+the [CX-2 record](CX2-VALIDATION.md) retains its implementation-time validation.
+Native configuration and ownership checks remain in force.
 
 ## Agent-Neutral SSH Launch
 

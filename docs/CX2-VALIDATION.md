@@ -1,6 +1,10 @@
 # CX-2 Integration Validation
 
-Implementation branch starts at origin/v2 9382e67. No merge or release is authorized.
+Historical validation record for the implementation that started at
+`origin/v2` `9382e67`. It is now integrated into `main` through
+[PR #9](https://github.com/BenjaminHerrera/CX/pull/9). Use the
+[handbook](README.md) for current instructions. Checks and skips below are
+implementation-time evidence, not a new verification of every live platform.
 
 Both CLIs share the existing SSH supervisor, socket, MCP adapter and Slurm hook.
 Host agent adapters own CLI-specific launch overrides. Claude reserved-name checks
@@ -42,5 +46,5 @@ are offline checks, not live Docker mount or provider validation.
   skipped under the user's previously recorded constraints; no live pass is claimed.
 - Windows Terminal verification on a real Windows/WSL host.
 
-Offline fixtures do not close these gates. Do not merge into v2 or main without
-explicit user approval. Final v2-to-main integration requires a separate review.
+Offline fixtures do not close these gates. The integration has since merged;
+the skipped live checks remain limitations until separately verified and recorded.

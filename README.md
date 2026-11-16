@@ -1,121 +1,95 @@
 # cx — Codex and Claude Code in Docker
 
-Run Codex or Claude Code against your local project in a disposable Docker container, with
-persistent settings and development environments. Connect to an SSH host for
-remote commands, file access, and interactive Slurm CPU/GPU sessions.
+Use either CLI with a local project, named accounts and persistent development
+environments. Browse conversations in a terminal session menu, or connect to an
+SSH server for remote commands, file access and Slurm CPU/GPU sessions.
 
-**Version 1.2.1** · [Documentation](docs/README.md) · [Changelog](CHANGELOG.md) ·
+[**User Handbook**](docs/README.md) · [**GitHub Wiki**](https://github.com/BenjaminHerrera/CX/wiki) ·
+[Command Reference](docs/USAGE.md) · [Changelog](CHANGELOG.md) ·
 [Issues](https://github.com/BenjaminHerrera/CX/issues/new/choose)
 
-## Features
+## Quick Start
 
-- A consistent workspace for your project, extra directories, and individual files.
-- Named accounts with private credentials/settings and shared history within each CLI.
-- A blue Sessions screen with stable names, cursor navigation, rename and confirmed deletion.
-- Installed and portable editions with persistent development environments.
-- Optional SSH mode with separate terminal screens, tracked commands, and MCP tools.
-- Optional SSHFS browsing/editing and per-server Slurm interactive setup.
-
-cx is an independent wrapper; it is not an official OpenAI or Anthropic product.
-
-## Requirements
-
-Linux or WSL2 with Bash 4+, GNU coreutils, `sed`, `tar`/`gzip`, a running
-**local Docker daemon** accessible to your user, internet access, and an account
-with access to the selected CLI. Claude permission bypass requires a non-root user. Default container limits are 8 GB memory and 4 CPUs;
-[these are configurable](docs/USAGE.md#settings).
-
-Interactive managed sessions require host Python 3.11+ for saved screens and the
-`Ctrl-] s` session menu. Redirected tasks and maintenance utilities do not.
-SSH additionally requires OpenSSH, an interactive terminal,
-and remote Bash. Remote file mounts require SSHFS/FUSE and server SFTP support.
-Native macOS and Windows shells are outside the supported scope.
-
-## Quick start
-
-On your Linux/WSL host:
+Use Linux or WSL2, a local Docker daemon, Bash 4+, host Python 3.11+ and an
+account for your chosen CLI. Run on your host, outside CX:
 
 ```bash
 git clone https://github.com/BenjaminHerrera/CX.git
 cd CX
 ./install.sh
-export PATH="$HOME/.local/bin:$PATH"  # Add to your shell profile if needed
+export PATH="$HOME/.local/bin:$PATH"
 cx --doctor
 cx accounts add --agent codex --account personal --auth subscription
 cx --agent codex --account personal --login
 cx /path/to/project
 ```
 
-The installer builds the image and installs to `~/.local`. Complete the displayed
-device-login steps. See [installation](docs/INSTALL.md) for custom prefixes,
-portable archives, upgrades, rollback, and removal.
+Complete the displayed provider sign-in. Add the PATH export to your Bash
+startup file for future terminals. For Claude, create a profile with
+`--agent claude --account work`, use the same pair with `--login`, then launch
+with that pair or select it in the account picker. The
+[Getting Started guide](docs/GETTING-STARTED.md) walks through both choices.
 
-## Everyday use
+The `v2` integration is now on `main`. Use `main` for installs and new work;
+the package version is still **1.2.1**. See [upgrading](docs/UPGRADING.md) for
+existing installations and image rebuilds.
+
+## Everyday Use
 
 ```bash
-cx .                                      # Open the current project
-cx --agent codex --account personal . exec "Run the tests and fix failures"  # Run a non-interactive task
-cx . --add-dir ../shared                   # Share another writable directory
-cx . --add-file ~/notes.md                 # Share one existing writable file
-cx --shell                                # Open a container shell
-cx --help                                 # Show launcher options
-cx sessions remove SESSION_ID              # Delete a shared conversation by full ID
-cx sessions select .                       # Open the named session menu
+cx .                                      # Choose a CLI/account and open this project
+cx sessions select .                      # Start at the conversation menu
+cx . --add-dir ../shared                   # Share another local directory
+cx . --add-file "$HOME/notes.md"            # Share one writable file
+cx --agent codex --account personal . exec "Run the tests"
+cx . --ssh my-server --remote-dir /remote/projects/app --ssh-mount
 ```
 
-Interactive launches show a combined CLI/account picker. Scripts need an explicit
-pair or an automation default. See [accounts and history](docs/ACCOUNTS.md) to add
-Claude accounts, use API keys, import native conversations, resume sessions, or
-retain a legacy home.
-Remove a profile with `cx accounts remove NAME`; shared history is preserved.
-Managed Codex `resume` provides a shared-history picker; native Codex performs
-the selected resume and retains any account ownership restrictions.
-Both CLIs support SSH/MCP/Slurm through the shared bridge. Live parity validation
-is tracked in CX-2.
-
-Inside the container:
+Inside an interactive session, press **Ctrl-]**, then **s** for Sessions.
+Use arrows to highlight a named conversation, `r` to rename, or `d` to delete
+with confirmation. Enter queues resume; exit the current assistant cleanly
+to complete the switch. [Sessions](docs/SESSIONS.md) explains filters, account
+changes, shared-history deletion and all shortcuts.
 
 ```text
 /workspace/
-├── main/          # Selected local project
-├── cx-external/   # Added local directories and files
-└── remote/        # Optional SSHFS view
+├── main/          selected local project
+├── cx-external/   additional local files and directories
+└── remote/        optional SSHFS view
 ```
 
-Edits to writable mounts update the original files. Individually mounted files
-require in-place writes; replacing their mountpoints by rename is unsupported.
-See [usage](docs/USAGE.md) for filtering, persistence, and configuration.
+Edits to writable mounts update the original files. Accounts isolate credentials
+and settings; conversations are shared among accounts of the same CLI. Codex
+and Claude histories remain separate, and native ownership restrictions apply.
 
-## Optional SSH and Slurm
+## Find Your Guide
 
-Use an alias from your host SSH configuration:
+| Task | Guide |
+|---|---|
+| Install, sign in and run a first session | [Getting Started](docs/GETTING-STARTED.md) |
+| Resume, rename, switch or delete conversations | [Sessions](docs/SESSIONS.md) |
+| Bring ordinary Codex/Claude conversations into CX | [Import Native Sessions](docs/IMPORTING.md) |
+| Share files and keep tools between runs | [Workspaces and Environments](docs/WORKSPACES.md) |
+| Use an SSH alias and browse server files | [SSH and Remote Files](docs/SSH.md) |
+| Configure `cpu`/`gpu` allocation bridging | [Slurm Setup](docs/SLURM.md) |
+| Update, back up or recover an installation | [Upgrade and Back Up](docs/UPGRADING.md) |
+| Diagnose a problem or request help | [Troubleshooting](docs/TROUBLESHOOTING.md) |
 
-```bash
-cx /path/to/local/project --ssh my-server --remote-dir /remote/project
-# Add --ssh-mount for read-only file browsing, or --ssh-mount=rw for edits.
-```
+## Access and Contributing
 
-Complete login/MFA directly. At the remote Bash prompt, press **Ctrl-]**, then
-**c** to enter Codex; **Ctrl-] r** returns to SSH. The top bar identifies the
-active screen. MCP tools and `cx-remote` share the remote shell.
+CX is an independent wrapper, not an official OpenAI or Anthropic product.
+It uses the invoking user's UID; Claude permission bypass needs a non-root
+user. Writable files, account settings and environments can be changed by the
+assistant. SSH commands use the remote account's permissions even with a
+read-only file mount. Read the [access model](docs/ARCHITECTURE.md#access-boundaries).
 
-For Slurm, first run `cx --setup-slurm my-server --shared-dir /shared/myuser/cx`
-on your host. The server must provide compatible `cpu` and `gpu` Bash functions.
-Read [SSH usage](docs/USAGE.md#work-through-ssh) and
-[interactive setup](docs/USAGE.md#interactive-cpu-and-gpu-sessions) before allocating resources.
+See [Contributing](CONTRIBUTING.md), [Development](docs/DEVELOPMENT.md),
+[Support](SUPPORT.md), [Security](SECURITY.md) and [Code of Conduct](CODE_OF_CONDUCT.md).
+Live platform/provider limitations are recorded in the handbook; offline tests
+do not establish every terminal, server or scheduler configuration.
 
-## Access, support, and contributing
+## License Status
 
-Codex can modify writable mounts and persisted settings. SSH commands use your
-remote account's permissions, even when the remote file mount is read-only.
-Review the [access model](docs/ARCHITECTURE.md#access-boundaries) before use.
-
-- [Support and troubleshooting](SUPPORT.md)
-- [Contribution process](CONTRIBUTING.md) and [development guide](docs/DEVELOPMENT.md)
-- [Security policy](SECURITY.md) and [community conduct](CODE_OF_CONDUCT.md)
-
-## License status
-
-The original cx code currently has **no distribution license**. Public source
-availability does not grant an open-source license. Bundled dependencies retain
-their [upstream licenses](bin/vendor/README.md).
+The original CX code has **no distribution license**. Public availability does
+not grant an open-source license. Bundled dependencies retain their
+[upstream licenses](bin/vendor/README.md).

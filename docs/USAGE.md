@@ -1,4 +1,9 @@
-# Usage and configuration
+# Command and Configuration Reference
+
+[Handbook home](README.md) · [Getting Started](GETTING-STARTED.md) · [Sessions](SESSIONS.md) · [SSH walkthrough](SSH.md)
+
+Use the handbook for task-oriented walkthroughs. This page retains the full
+command, configuration and remote-tool reference.
 
 Examples below use an installed `cx`. For portable use, replace it with the
 absolute path to the bundle's `cx` file. Paths containing spaces are supported;
@@ -335,10 +340,10 @@ interactive terminal, and a remote Bash shell. Rebuild the cx image after
 upgrading to get the `cx-remote` client. No Python packages are required.
 
 ```bash
-cx . --ssh delta --remote-dir /remote/path/to/project
+cx . --ssh my-server --remote-dir /remote/path/to/project
 ```
 
-`delta` is the same host alias you would give your host's `ssh` command. The
+`my-server` is the same host alias you would give your host's `ssh` command. The
 host SSH process uses your existing configuration, keys, agent, ProxyJump,
 and known hosts. cx does not copy those credentials into the container or
 change your SSH configuration. `--remote-dir` is optional and is a literal
@@ -348,7 +353,7 @@ any `--` argument separator. Supply each of `--ssh`, `--remote-dir`, and
 
 First, complete the SSH login directly in the terminal, including password,
 key passphrase, MFA, or host-key confirmation. Once you see a Bash prompt,
-press **Ctrl-]**, release it, then **c** to start Codex. If your login shell is
+press **Ctrl-]**, release it, then **c** to start the selected assistant. If your login shell is
 not Bash, enter `bash` first. Configurations with RemoteCommand must reach a
 Bash shell before handoff.
 
@@ -362,10 +367,11 @@ remote terminal settings they started with; internal framing is hidden from
 normal output. Bracketed paste is passed through without interpreting its
 contents as bridge shortcuts.
 
-While Codex runs:
+While the assistant runs:
 
 - **Ctrl-] r** switches to the remote terminal for authentication or interaction.
-- **Ctrl-] c** returns to Codex once that interaction is complete.
+- **Ctrl-] c** returns to the assistant once that interaction is complete.
+- **Ctrl-] s** opens the named session menu.
 - **Ctrl-] b** returns from the renderer's saved history to the live screen.
 - **Ctrl-] m** toggles wheel capture; when off, plain dragging selects text.
 - **Ctrl-] q** exits the SSH-mode cx session (status 130), including during login.
@@ -377,7 +383,8 @@ While Codex runs:
 ### Separate screens and session bar
 
 SSH-mode sessions use independent saved terminal screens. The full-width top
-row is **green and labeled SSH** or **blue and labeled CODEX**. It stays visible
+row is **green and labeled SSH** or **blue with the selected assistant/account**.
+The separate menu screen is labeled **Sessions**. The bar stays visible
 when an application clears its screen, uses an alternate buffer, or scrolls.
 Brief connection notices appear in this bar instead of over application text.
 
@@ -403,7 +410,8 @@ Hold **Shift while dragging** to select text, then use your terminal's copy
 shortcut (**Ctrl+Shift+C** in Windows Terminal). Press **Ctrl-] m** to disable
 wheel capture for plain drag selection; press it again to restore scrolling.
 Clicks and drags are not forwarded to applications; use keyboard navigation
-for those controls. Local sessions without `--ssh` retain their usual behavior.
+for those controls. Managed interactive local sessions use the same saved-screen
+renderer and selection controls, without opening an SSH connection.
 See [Windows Terminal selection](https://learn.microsoft.com/en-us/windows/terminal/selection).
 
 The renderer ships with cx as pure Python source. There is no tmux dependency
@@ -423,8 +431,9 @@ Display queries use virtual coordinates that exclude the bar. Advanced
 keyboard support is not advertised by the virtual terminal; standard input
 and the existing input-mode safeguards remain available.
 
-Closing cx restores the enclosing terminal's screen. Local sessions without
-`--ssh` retain their normal Codex display and have no added session bar.
+Closing cx restores the enclosing terminal's screen. Managed interactive local
+sessions also have a blue assistant bar and the Sessions shortcut. Legacy and
+noninteractive runs retain their native terminal behavior.
 
 ### SSH MCP tools
 
@@ -434,9 +443,9 @@ private bridge socket; SSH keys and authentication stay on the host. It adds
 no network listener and does not change saved MCP settings or permissions.
 
 ```bash
-cx /path/to/project --ssh delta --remote-dir /srv/project
+cx /path/to/project --ssh my-server --remote-dir /srv/project
 # CLI-only fallback:
-cx /path/to/project --ssh delta --no-ssh-mcp
+cx /path/to/project --ssh my-server --no-ssh-mcp
 ```
 
 | Tool | Arguments and result |
@@ -494,7 +503,7 @@ path updates that alias while retaining remote roots for other sessions.
 
 Host-side mappings are saved in `~/.config/cx/slurm-servers.json` (under
 `$XDG_CONFIG_HOME/cx` when set), or in the file named by `CX_SLURM_CONFIG`.
-Later `cx --ssh alpine` sessions select that alias's configured directory
+Later `cx --ssh my-cluster` sessions select that alias's configured directory
 automatically. `ssh_status` reports it as `interactive_directory`, a remote
 path; it is not automatically mounted into the container. The remote hook
 reads configured roots from `~/.config/cx/slurm-roots` and emits a marker
@@ -576,7 +585,7 @@ that command automatically. Press Ctrl-] r to reconnect, log in again, then
 Ctrl-] c to resume. A new shell loses previous state and reapplies the initial
 `--remote-dir`. Confirm earlier command effects before repeating work.
 
-For Alpine or Delta, request Slurm resources only when explicitly authorized.
+On any Slurm server, request resources only when explicitly authorized.
 Use the interactive MCP tools for the supported cpu/gpu shell workflow, or
 switch to the remote terminal for manual interaction. A command that exits or replaces the
 shell, or changes its input/prompt behavior, can prevent completion detection;
@@ -584,7 +593,7 @@ use terminal handoff to recover. Closing cx terminates its local SSH process;
 remote job cleanup follows the remote system's normal policies.
 
 Headless SSH mode and attaching unrelated existing SSH terminals are not
-supported. Real Delta MFA and live Docker integration require validation on
+supported. Site-specific MFA and live Docker integration require validation on
 your host; offline tests use a fake SSH endpoint and real pseudo-terminals.
 
 ### Browse remote files inside the container
@@ -593,8 +602,8 @@ Keep the SSH shell and remote execution, and optionally mount the selected
 remote directory at `/workspace/remote`:
 
 ```bash
-cx /local/project --ssh delta --remote-dir /remote/project --ssh-mount
-cx /local/project --ssh delta --remote-dir /remote/project --ssh-mount=rw
+cx /local/project --ssh my-server --remote-dir /remote/project --ssh-mount
+cx /local/project --ssh my-server --remote-dir /remote/project --ssh-mount=rw
 ```
 
 `--ssh-mount` and `--ssh-mount=ro` provide read-only file browsing.

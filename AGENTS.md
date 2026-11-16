@@ -4,15 +4,19 @@ Read `CONTRIBUTING.md` and `docs/DEVELOPMENT.md` before changing this project.
 Use `docs/ARCHITECTURE.md` for access boundaries and `docs/MAINTAINING.md` for
 verification and release packaging.
 
-- For the multi-CLI/account feature, read `docs/V2.md`. Create implementation
-  branches from the latest `origin/v2` and target PRs at `v2`. Merge `v2` into
-  `main` only through the final reviewed and fully validated integration PR.
+- The v2 integration is merged into `main`. Create new branches from the latest
+  `origin/main` and target PRs at `main`. `docs/V2.md` is historical context,
+  not the current branch workflow. Start user-facing documentation at `docs/README.md`.
   Use `CX-<GitHub issue number>` shorthand IDs in issue titles and lowercase
   IDs in implementation branches, such as `feature/cx-1-account-profiles`.
 - Keep changes focused; preserve installed and portable editions and local use
   without SSH. Do not change release versions unless requested.
 - Update documentation for user-visible behavior. Add regression coverage for
   consequential behavior changes using existing suites and fixtures.
+- Handbook Markdown is canonical. Run `node scripts/docs.mjs --check` after
+  documentation changes and regenerate wiki pages with the same script before
+  an explicitly authorized wiki publication. Do not edit generated wiki copies
+  independently or infer permission to publish from an ordinary code task.
 - Use standard English title case for GitHub issue and PR titles, rule/ruleset
   names, workflow/job display names, and release titles. Follow the examples
   and capitalization rules in `docs/DEVELOPMENT.md#github-titles-and-names`.

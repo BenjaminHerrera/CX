@@ -9,7 +9,9 @@ consistent when renaming a display name.
 
 - `.github/ISSUE_TEMPLATE/`: structured bug, feature, and question forms.
 - `.github/PULL_REQUEST_TEMPLATE.md`: problem, behavior, validation, and compatibility.
-- `.github/workflows/ci.yml`: offline suites on pushes to `main` and pull requests.
+- `.github/workflows/ci.yml`: offline suites and documentation checks on pushes
+  to `main`/`v2` and pull requests; the retained v2 trigger does not change the
+  current main-based contribution workflow.
 - Root community files: contribution, support, security, and conduct policies.
 
 Templates take effect after merging to the default branch. CI runs without
@@ -69,6 +71,50 @@ Review PRs against [CONTRIBUTING.md](../CONTRIBUTING.md). Inspect changes to
 permissions, authentication, cleanup, dependencies, and package contents closely.
 Record live checks separately from fixture coverage. Do not publish claims of
 site or terminal compatibility based only on offline tests.
+
+## Wiki Publication
+
+The [handbook](README.md) is canonical. Wiki pages, sidebar and footer are
+generated from repository Markdown by `scripts/docs.mjs`; fix source pages in a
+PR instead of maintaining a second copy in the wiki editor. New work branches
+from `main`. Keep the page registry in that script and the package allowlist
+current when adding guides.
+
+Check and preview without publishing:
+
+```bash
+node scripts/docs.mjs --check
+node scripts/docs.mjs --wiki-dir dist/wiki --ref main
+```
+
+The checker validates local Markdown targets and anchors. The generator maps
+handbook links to wiki pages and other repository links to the selected source
+ref. It uses only Node built-ins. Generated files stay under ignored `dist/`
+and are not distributed as another documentation source.
+
+After an explicitly authorized publication, use the separate wiki Git repository:
+
+```bash
+git clone https://github.com/BenjaminHerrera/CX.wiki.git ../CX.wiki
+cp dist/wiki/*.md ../CX.wiki/
+git -C ../CX.wiki add -- '*.md'
+git -C ../CX.wiki commit -m "Update the CX User Handbook"
+git -C ../CX.wiki push
+```
+
+Pull an existing wiki checkout first. Publish the generated pages together;
+preserve unrelated pages and never force-push the wiki. When publishing a
+reviewable documentation branch before its PR lands, use that branch with
+`--ref docs/your-branch` so source links resolve. Regenerate with `--ref main`
+after merge. The source-ref footer makes that distinction visible.
+
+GitHub requires an initial wiki page to be saved on its website before the
+wiki Git repository can be cloned; see [GitHub's wiki instructions](https://docs.github.com/en/communities/documenting-your-project-with-wikis/adding-or-editing-wiki-pages).
+Enable Wiki in repository settings if necessary and create Home once. Ordinary
+GitHub Git credentials need write access to publish. Never put tokens in URLs,
+scripts, wiki content or source control. CI's smoke suite checks the handbook
+and generates wiki previews from both extracted editions with read-only
+repository permissions. It does not publish the wiki or store a publishing token.
 
 ## Release checklist
 

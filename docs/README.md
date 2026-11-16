@@ -1,30 +1,58 @@
-# Documentation
+# CX User Handbook
 
-## Using cx
+Start with [Getting Started](GETTING-STARTED.md) if this is your first CX session.
+The same guides are published in the [GitHub Wiki](https://github.com/BenjaminHerrera/CX/wiki).
+Repository Markdown is the source of truth and is included in both distribution editions.
 
-| Guide | Contents |
+## Set Up and Use CX
+
+| Guide | What you will learn |
 |---|---|
-| [Quick start](../README.md#quick-start) | Requirements, install, sign-in, first session |
-| [Installation](INSTALL.md) | Docker, SSH prerequisites, editions, upgrades, rollback, removal |
-| [Usage](USAGE.md) | Options, files, environments, configuration, SSH/MCP, Slurm, troubleshooting |
-| [Accounts and history](ACCOUNTS.md) | CLI selection, authentication, private profiles, shared resume and migration |
-| [Architecture](ARCHITECTURE.md) | Components, persistence, data flow, access boundaries |
-| [Support](../SUPPORT.md) | Questions, bug reports, supported environments |
-| [Changelog](../CHANGELOG.md) | Changes and migration notes |
+| [Getting Started](GETTING-STARTED.md) | Check prerequisites, install, choose Codex or Claude, sign in and open a project |
+| [Installation](INSTALL.md) | Custom prefixes, portable bundles, Docker/FUSE prerequisites and removal |
+| [Accounts and History Reference](ACCOUNTS.md) | Subscription/API-key profiles, authentication, shared storage and native ownership limits |
+| [Sessions](SESSIONS.md) | Open the menu, search, rename, delete and complete a queued switch |
+| [Workspaces and Environments](WORKSPACES.md) | Host/container paths, extra files, filtering and persistent development tools |
+| [SSH and Remote Files](SSH.md) | Connect through an alias, hand off authentication, use commands and mount server files |
+| [Slurm Setup](SLURM.md) | Choose shared paths per alias and use existing CPU/GPU allocation functions |
+| [Import Native Sessions](IMPORTING.md) | Copy ordinary CLI histories, preview changes and handle conflicts or missing rollouts |
+| [Upgrade and Back Up](UPGRADING.md) | Adopt the merged main branch, rebuild images and preserve private data |
+| [Troubleshooting](TROUBLESHOOTING.md) | Diagnose startup, menu, terminal, mount and allocation problems |
+| [Command and Configuration Reference](USAGE.md) | Complete options, settings, paths and remote-tool contracts |
 
-## Developing cx
+## Understand the Data Model
 
-| Guide | Contents |
+- **Account:** a named Codex or Claude profile with private credentials/settings.
+- **Session:** a conversation, shared among accounts of its original CLI.
+- **Workspace:** a local project mounted at `/workspace/main`, with optional extras and remote view.
+- **SSH shell:** a separate stateful remote terminal; the assistant still runs locally in Docker.
+- **Environment:** a persistent named development environment associated with the local project's path.
+
+CX does not translate histories between CLIs, bypass native account restrictions,
+or make remote commands read-only when a file mount is read-only. See the
+[access model](ARCHITECTURE.md#access-boundaries).
+
+## Contribute or Maintain
+
+| Guide | Purpose |
 |---|---|
-| [Contributing](../CONTRIBUTING.md) | Issues, branches, PRs, review, licensing |
-| [Development](DEVELOPMENT.md) | Setup, component map, workflows, validation |
-| [v2 Integration](V2.md) | Multi-CLI/account scope, implementation branches, model guidance, final merge gates |
-| [Maintenance](MAINTAINING.md) | Offline/live checks, packaging, notices |
-| [GitHub maintenance](GITHUB.md) | Templates, CI, settings, triage, releases |
-| [Agent guidance](../AGENTS.md) | Instructions for coding agents |
-| [Security](../SECURITY.md) | Vulnerability reports and access model |
-| [Conduct](../CODE_OF_CONDUCT.md) | Community expectations |
+| [Contributing](../CONTRIBUTING.md) | Issues, branches from main, PR review and project policies |
+| [Development](DEVELOPMENT.md) | Component map, local setup and appropriate checks |
+| [Architecture](ARCHITECTURE.md) | Persistence, terminal supervision and access boundaries |
+| [Maintenance](MAINTAINING.md) | Native/runtime verification and packaging |
+| [GitHub Maintenance](GITHUB.md) | Wiki publication, issue triage, repository settings and releases |
+| [V2 Integration History](V2.md) | Completed integration scope and links to its merged PRs |
+| [Support](../SUPPORT.md) | Report a reproducible problem with redacted output |
+| [Security](../SECURITY.md) | Report vulnerabilities privately |
+| [Code of Conduct](../CODE_OF_CONDUCT.md) | Community expectations |
 
-Keep the README short. Document commands in the usage guide, installation in
-the install guide, and development processes in the contributor and maintenance
-guides. Update the relevant guide when behavior changes.
+## Validation and Versions
+
+The multi-CLI and menu integration is merged into `main`; `v2` is no longer
+the implementation base. This did not change `VERSION`, currently `1.2.1`.
+Use [Upgrade and Back Up](UPGRADING.md) for the current source workflow.
+
+[CX-2 validation](CX2-VALIDATION.md) and [CX-7 validation](CX7-VALIDATION.md)
+record implementation-time evidence and remaining live checks. A merged PR
+does not turn a skipped provider, Windows Terminal, Docker or scheduler test
+into a verified result. [Changelog](../CHANGELOG.md) records user-visible changes.
