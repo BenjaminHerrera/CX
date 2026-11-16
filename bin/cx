@@ -79,9 +79,11 @@ Environment:
   Ctrl-] s opens Sessions in managed interactive local and SSH sessions.
   / searches; Tab and Left/Right change CLI/status/sort; Ctrl-O changes density.
   F2 shows/hides internal reviewer threads (hidden initially).
-  Arrows/Page keys move; Enter queues resume; r renames; d/Delete confirms
+  Name sort and compact rows are initial defaults; metadata is right-aligned.
+  Arrows/Page keys move; Enter switches immediately; r renames; d/Delete confirms
   deletion shared by all accounts of that CLI; Esc/q closes; f refreshes.
-  Queued resume waits for a clean native assistant exit; no text is injected.
+  Previous assistants stay alive; running rows restore their saved screen/draft.
+  Busy SSH/authentication blocks switching. Ctrl-] q exits all saved assistants.
   SSH and the assistant use separate saved screens with a full-width top bar:
   green for SSH and blue for the assistant/Sessions. No tmux is required.
   --ssh-mount exposes --remote-dir at /workspace/remote read-only; --ssh-mount=rw

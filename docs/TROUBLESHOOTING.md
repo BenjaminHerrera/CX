@@ -36,7 +36,7 @@ use the [account authentication flow](ACCOUNTS.md#authentication).
 
 | Symptom | What to do |
 |---|---|
-| Enter selected a row but nothing switched | Exit the current assistant cleanly; handoff is queued until then |
+| Enter selected a row but nothing switched | Read the menu’s reason; finish tracked remote work or return from SSH focus with Ctrl-] c, then retry |
 | Switch blocked in SSH mode | Return to assistant focus with Ctrl-] c and resolve authentication or unfinished remote work |
 | Expected conversation absent | Clear search, change CLI/status filters, and use F2 for internal reviewer/subagent records |
 | No active `*` on a new chat | Native/new identity is not guessed from recent activity; explicit UUID selection establishes known identity |

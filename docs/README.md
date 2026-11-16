@@ -11,7 +11,7 @@ Repository Markdown is the source of truth and is included in both distribution 
 | [Getting Started](GETTING-STARTED.md) | Check prerequisites, install, choose Codex or Claude, sign in and open a project |
 | [Installation](INSTALL.md) | Custom prefixes, portable bundles, Docker/FUSE prerequisites and removal |
 | [Accounts and History Reference](ACCOUNTS.md) | Subscription/API-key profiles, authentication, shared storage and native ownership limits |
-| [Sessions](SESSIONS.md) | Open the menu, search, rename, delete and complete a queued switch |
+| [Sessions](SESSIONS.md) | Open the menu, search, rename, delete and switch between saved assistants |
 | [Workspaces and Environments](WORKSPACES.md) | Host/container paths, extra files, filtering and persistent development tools |
 | [SSH and Remote Files](SSH.md) | Connect through an alias, hand off authentication, use commands and mount server files |
 | [Slurm Setup](SLURM.md) | Choose shared paths per alias and use existing CPU/GPU allocation functions |

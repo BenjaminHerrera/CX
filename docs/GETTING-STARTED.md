@@ -86,10 +86,10 @@ cx sessions select "$HOME/projects/app"
 ```
 
 Choose a row with the arrow keys. `r` renames it; Enter selects it for resume.
-If an assistant is already running, CX queues the selection: return to that
-assistant and exit it cleanly with its native `/exit` or Ctrl-D at an empty
-prompt. CX then resumes the selected conversation. [Sessions](SESSIONS.md)
-explains this handoff, deletion and the complete key map.
+If an assistant is already running, CX keeps it alive as a saved background
+session and switches immediately when allowed. Select its `[running]` row to
+restore its screen and draft. [Sessions](SESSIONS.md) explains switching,
+remote safety gates, deletion and the complete key map.
 
 ## Choose Your Next Task
 

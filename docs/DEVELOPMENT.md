@@ -179,7 +179,8 @@ reusing `cx-sessions.mjs` for deletion and `cx-codex-resume.mjs` for native RPC.
 Keep mutation requests bound to an explicit CLI/UUID. Never replay an initial
 task during handoff, kill a potentially busy assistant to switch, or infer an
 active ID from recent history. Recheck remote ownership at handoff, not just at
-selection. Idle ready allocations remain owned by the same bridge.
+selection. Switching preserves the prior process and restores existing PTYs;
+keep background reads, resize, exit cleanup and Claude writer leases paired. Idle ready allocations remain owned by the same bridge.
 
 Run `session-menu.mjs` for native pagination/naming and history safety fixtures;
 `CX_NATIVE_HISTORY=1` adds real Codex naming/discovery with a disposable rollout

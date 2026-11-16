@@ -49,7 +49,9 @@ labeled below the title, separately from filters and shortcuts. Local assistant
 banners advertise Sessions instead of an unavailable SSH screen.
 
 The layout follows Codex's resume picker: a title, search field, filter controls,
-spaced session records, relative update times and a position indicator. The
+compact session records sorted by name, relative update times and a position
+indicator. CLI/update metadata is right-aligned separately from the name; narrow
+terminals stack metadata on the following line. The
 selected row has a cyan `›` cursor; `*` marks the active conversation separately.
 Press `/` to search names, projects, CLIs or IDs. While searching, letters edit
 the query; Enter resumes, Esc finishes editing and Ctrl-U clears it. Use Tab to
@@ -64,21 +66,25 @@ Press Enter to resume, `r` to rename (Ctrl-U clears, Enter saves, Esc cancels),
 `d` or Delete to confirm removal (`y` confirms, `n`/Esc cancels), `f` to refresh,
 and Esc/`q` to return. Duplicate names remain separate CLI/UUID rows.
 
-Enter queues a handoff while an assistant is running. Exit that assistant cleanly
-with its native `/exit` or Ctrl-D at an empty prompt. CX then launches native
-resume with the selected row's CLI/UUID and current guidance; no text is injected
-into the old draft and its initial task is never replayed. Opening the menu and
-pressing `q` cancels a queued handoff. A failed native exit cancels it too. When
-switching CLIs, choose a configured account from the menu. The real CLI still
-checks credentials and conversation ownership. Failed resume stays visible on
-its saved screen; reopen Sessions to choose another row, or Ctrl-] q to exit CX.
+Enter immediately switches when allowed. The previous assistant remains alive
+as a saved background session; choosing its `[running]` row restores the same
+process, screen and unsent draft. No exit command or prompt text is injected,
+and initial tasks are never replayed. Background work may continue; keyboard
+input goes only to the selected assistant. When switching CLIs, choose a
+configured account. Native credentials and ownership checks still apply.
 
 Switching is gated during authentication, manual SSH focus and unfinished remote
-commands. Return to assistant focus with Ctrl-] c first. An idle ready interactive
-allocation can survive a switch: the original SSH connection, cwd, bridge IDs,
-mounts and allocation remain intact. Live commands are checked again at handoff;
-unknown commands are never replayed. The assistant must exit cleanly before a
-switch; CX cannot infer that a native model/tool turn is idle from terminal text.
+commands, with a visible explanation. Return to assistant focus with Ctrl-] c.
+An idle ready allocation can survive a switch: SSH, cwd, bridge IDs, mounts and
+allocation remain intact. Remote ownership is checked again at handoff. All
+assistants use the same serialized bridge; unknown commands are never replayed.
+A restored process retains its context; a new resume gets fresh guidance.
+
+Esc/q returns to the previous assistant, including after a failed resume.
+Ctrl-] q explicitly exits CX and stops all its saved assistants. Saved processes
+are local to this CX invocation. Unknown native IDs get temporary live menu
+rows, never guessed history IDs; return through those rows instead of opening
+the same conversation again. See [Sessions](SESSIONS.md) for lifecycle details.
 
 The shortcut is not installed for exec/print or redirected commands and is not
 interpreted inside bracketed paste. Menu input never goes to the previous PTY.

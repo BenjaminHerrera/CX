@@ -324,7 +324,14 @@ Names are native explicit titles plus per-CLI/UUID CX sidecars with explicit-nam
 precedence. Backend operations require exact CLI/UUID pairs. Deletion reuses the
 native Codex/reference checks and Claude deletion implementation, with conservative
 managed Claude writer leases and a deletion gate. No global active-selection file
-exists. Enter stages a native resume; a clean assistant exit and a fresh remote
-ownership check complete it. The original task is discarded on that handoff,
-while project/additional mounts and freshly generated SSH instructions are kept.
-Failed native exits or newly busy bridge state cancel switching without replay.
+exists. Enter preserves the current PTY/process in the menu's live-session map
+and immediately restores an existing assistant or starts native resume after a
+fresh remote-ownership check. The event loop drains all background PTYs, renders
+output to their own panes, resizes them and reaps their exits. Switching never
+kills an assistant or submits prompt input. Unknown native IDs use temporary
+live-only rows, never inferred history identities. Claude writer leases remain
+until the associated process exits. Menu deletion refuses saved running rows.
+The original task is discarded on new resume, while project/additional mounts
+and freshly generated SSH instructions are kept. Restored PTYs retain their
+existing launch context. CX exit cleans up every owned assistant, while failure
+to start a selected resume leaves saved processes and remote state available.

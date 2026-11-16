@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import select
+import struct
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,10 @@ class MenuTests(unittest.TestCase):
         self.bridge.local = (77, Mock())
         self.bridge.ready, self.bridge.focus = True, 'local'
         self.bridge.notice = Mock()
+        self.bridge.runtime = self.temp.name
+        self.bridge.mount_files = Mock()
+        self.bridge.spawn = Mock(return_value=(88, Mock()))
+        self.bridge.resize = Mock()
         self.menu = self.bridge.menu
         self.menu.request = Mock()
         self.menu.rows = [dict(agent='codex', id=ID, name='計画', project='/p', updated=1), dict(agent='claude', id=ID, name='Duplicate', project='/p', updated=1)]
@@ -104,8 +109,7 @@ class MenuTests(unittest.TestCase):
         self.menu.choose(self.menu.rows[0], 'work')
         self.assertIsNone(self.menu.queued)
         self.bridge.pending = None
-        self.menu.choose(self.menu.rows[0], 'work')
-        self.assertIsNotNone(self.menu.queued)
+        self.menu.queued = (dict(self.menu.rows[0]), 'work')
         self.bridge.pending = {'job_id': ID}
         self.assertTrue(self.menu.handoff(0))
         self.assertIsNone(self.menu.queued)
@@ -117,8 +121,7 @@ class MenuTests(unittest.TestCase):
         self.bridge.start_local = Mock()
         self.bridge.launcher += ['-c', 'features.cli_resume_account_check=true']
         self.menu.choose(self.menu.rows[0], 'work')
-        self.bridge.local = None
-        self.assertTrue(self.menu.handoff(0))
+        self.assertIsNone(self.menu.queued)
         self.assertIs(self.bridge.interactive, allocation)
         self.assertIs(self.bridge.pending, pending)
         self.assertEqual(self.bridge.launcher[-2:], ['resume', ID])
@@ -126,8 +129,63 @@ class MenuTests(unittest.TestCase):
         self.assertIn('/extra', self.bridge.launcher)
         self.assertIn('features.cli_resume_account_check=true', self.bridge.launcher)
 
-    def test_failed_handoff_never_launches_and_active_cannot_delete(self):
+    def test_enter_parks_and_restores_existing_process_and_draft(self):
+        old = self.bridge.local
+        self.menu.active = ('codex', ID)
+        self.bridge.terminal.display.feed(old, b'\x1b[31mUNSENT DRAFT')
+        pane = self.bridge.terminal.display.pane(old)
+        pane.screen.scroll_offset = 3
+        self.menu.choose(dict(self.menu.rows[0], id=OTHER), 'work')
+        self.assertIs(self.menu.saved[('codex', ID)]['item'], old)
+        self.assertNotEqual(self.bridge.local, old)
+        self.assertIsNone(self.menu.queued)
+        self.bridge.spawn.assert_called_once()
+        self.menu.open()
+        self.menu.choose(self.menu.saved[('codex', ID)]['row'], 'work')
+        self.assertIs(self.bridge.local, old)
+        self.assertIs(self.bridge.terminal.display.active, old)
+        self.assertEqual(pane.screen.scroll_offset, 3)
+        self.assertEqual(pane.screen.buffer[0][0].fg, 'red')
+        self.assertIn('UNSENT DRAFT', '\n'.join(pane.screen.display))
+        self.bridge.spawn.assert_called_once()
+
+    def test_unsafe_switch_keeps_original_process_and_clear_reason(self):
+        old = self.bridge.local
+        for ready, focus, pending in [(False, 'local', None), (True, 'remote', None),
+                                       (True, 'local', {'job_id': ID})]:
+            self.bridge.ready, self.bridge.focus, self.bridge.pending = ready, focus, pending
+            self.menu.choose(self.menu.rows[0], 'work')
+            self.assertIs(self.bridge.local, old)
+            self.assertFalse(self.menu.saved)
+            self.assertTrue(self.menu.opened)
+            self.assertIn('Switch refused', self.menu.message)
+        self.bridge.spawn.assert_not_called()
+
+    def test_saved_writer_lease_and_unknown_identity_remain_live_until_exit(self):
+        lease = Path(self.temp.name)/'writer.json'
+        lease.write_text('{}')
+        self.menu.lease = lease
+        old = self.bridge.local
         self.menu.choose(self.menu.rows[0], 'work')
+        saved = next(iter(self.menu.saved.values()))
+        self.assertTrue(saved['row']['local_only'])
+        self.assertTrue(saved['row']['id'].startswith('live-'))
+        self.assertTrue(lease.exists())
+        self.menu.background_exited(old, 1)
+        self.assertFalse(lease.exists())
+        self.assertFalse(self.menu.saved)
+        self.assertIn('No command was replayed', self.menu.message)
+
+    def test_resize_includes_background_ptys(self):
+        self.menu.choose(self.menu.rows[0], 'work')
+        with patch.object(module.fcntl, 'ioctl', return_value=struct.pack('HHHH', 30, 100, 0, 0)) as ioctl:
+            module.Bridge.resize(self.bridge)
+        resized = [call.args[0] for call in ioctl.call_args_list[1:]]
+        self.assertIn(77, resized)
+        self.assertIn(88, resized)
+
+    def test_failed_handoff_never_launches_and_active_cannot_delete(self):
+        self.menu.queued = (dict(self.menu.rows[0]), 'work')
         self.bridge.start_local = Mock()
         self.assertTrue(self.menu.handoff(1))
         self.bridge.start_local.assert_not_called()
@@ -143,8 +201,7 @@ class MenuTests(unittest.TestCase):
         remote = self.bridge.remote = (99, Mock())
         jobs = self.bridge.jobs
         self.menu.choose(self.menu.rows[1], 'claude-work')
-        self.bridge.local = None
-        self.assertTrue(self.menu.handoff(0))
+        self.assertIsNone(self.menu.queued)
         args, env = self.bridge.spawn.call_args.args
         self.assertEqual(args[-2:], ['--resume', ID])
         self.assertIn('host', env['CX_SSH_INSTRUCTIONS'])
@@ -191,11 +248,42 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(self.menu.status_filter,'Archived')
         self.assertEqual(self.menu.selected()['id'],OTHER)
         self.menu.handle(b'\t'); self.menu.handle(b'\x1b[C')
-        self.assertEqual(self.menu.sort,'Name')
+        self.assertEqual(self.menu.sort,'Updated')
         old=self.menu.page_size(); self.menu.handle(b'\x0f')
-        self.assertTrue(self.menu.dense)
-        self.assertGreater(self.menu.page_size(),old)
+        self.assertFalse(self.menu.dense)
+        self.assertLess(self.menu.page_size(),old)
         self.assertEqual(self.menu.selected()['id'],OTHER)
+
+    def test_initial_name_sort_and_dense_rows(self):
+        self.assertEqual(self.menu.sort, 'Name')
+        self.assertTrue(self.menu.dense)
+        self.menu.replace([dict(self.menu.rows[0], name='Zulu', updated=900),
+                           dict(self.menu.rows[1], name='alpha', updated=1)])
+        self.assertEqual([row['name'] for row in self.menu.rows], ['alpha', 'Zulu'])
+
+    def test_metadata_is_separate_and_right_aligned_after_resize(self):
+        self.menu.rows = [dict(self.menu.rows[0], name='日本語'*40), self.menu.rows[1]]
+        self.menu.active = ('codex', ID)
+        for dense in (True, False):
+            self.menu.dense = dense
+            for width in (120, 80, 38, 25, 15, 80):
+                self.bridge.terminal.display.resize(30, width)
+                self.menu.draw()
+                screen = self.bridge.terminal.display.pane(self.menu.owner).screen
+                lines = screen.display
+                name = next(line for line in lines if '› 日' in line)
+                self.assertIn('*', name)
+                if width >= 32:
+                    self.assertIn(' │ codex · ', name)
+                    # The final metadata cell is the last terminal column,
+                    # regardless of the Unicode title's width.
+                    self.assertNotEqual(screen.buffer[lines.index(name)][width-1].data, ' ')
+                else:
+                    meta = lines[lines.index(name)+1]
+                    self.assertIn('codex · ', meta)
+                    self.assertTrue(meta.startswith(' '))
+                    self.assertNotIn('codex', name)
+                self.assertEqual(self.menu.selected()['id'], ID)
 
     def test_internal_toggle_is_explicit_and_marked(self):
         internal=dict(self.menu.rows[0],id=OTHER,name='Guardian review',internal=True)
@@ -269,15 +357,18 @@ class MenuTests(unittest.TestCase):
 
     def test_failed_native_start_does_not_tear_down_ssh_or_replay_task(self):
         remote = self.bridge.remote = (99, Mock())
-        self.menu.choose(self.menu.rows[0], 'work')
-        self.bridge.local = None
+        old = self.bridge.local
         self.bridge.start_local = Mock(side_effect=ValueError('reserved server'))
-        self.assertTrue(self.menu.handoff(0))
+        self.menu.choose(self.menu.rows[0], 'work')
         self.assertIs(self.bridge.remote, remote)
         self.assertTrue(self.menu.opened)
         self.assertIsNone(self.menu.active)
         self.assertIn('reserved server', self.menu.message)
         self.assertIn('remote state is retained', self.menu.message)
+        self.bridge.start_local.assert_called_once()
+        self.menu.handle(b'q')
+        self.assertIs(self.bridge.local, old)
+        self.assertFalse(self.menu.opened)
         self.bridge.start_local.assert_called_once()
 
     def test_remote_bootstrap_cannot_steal_open_menu_or_route_keys_to_hidden_assistant(self):
@@ -295,6 +386,72 @@ class MenuTests(unittest.TestCase):
 
 
 class PtyTests(unittest.TestCase):
+    def test_enter_switches_without_exit_and_return_keeps_original_draft(self):
+        with tempfile.TemporaryDirectory(dir=ROOT, prefix='.cx-test-switch-') as directory:
+            root = Path(directory)
+            (root/'profiles/codex/work').mkdir(parents=True)
+            launcher, launches, draft = root/'launcher', root/'launches', root/'draft'
+            progress, emitted = root/'progress', root/'emitted'
+            rows = [dict(agent='codex', id=ID, name='Alpha', project='/p', updated=1),
+                    dict(agent='codex', id=OTHER, name='Beta', project='/p', updated=2)]
+            launcher.write_text('#!'+sys.executable+'\nimport sys,json,time,threading\nfrom pathlib import Path\n'
+                'if sys.argv[1:3]==["sessions","menu-backend"]:\n'
+                ' json.load(sys.stdin); print('+repr(json.dumps(dict(rows=rows)))+');sys.exit(0)\n'
+                'identity=sys.argv[-1]\n'
+                'with open('+repr(str(launches))+',"a") as f:f.write(identity+"\\n")\n'
+                'print("READY "+identity,flush=True)\n'
+                'def background():\n'
+                ' while not Path('+repr(str(progress))+').exists():time.sleep(.01)\n'
+                ' print("BACKGROUND PROGRESS",flush=True)\n'
+                ' Path('+repr(str(emitted))+').touch()\n'
+                'if identity=='+repr(ID)+':threading.Thread(target=background,daemon=True).start()\n'
+                'line=sys.stdin.readline()\n'
+                'with open('+repr(str(draft))+',"a") as f:f.write(identity+":"+line)\n')
+            launcher.chmod(0o755)
+            master, slave = os.openpty()
+            env = dict(os.environ, CX_DATA_HOME=directory, CX_SESSION_MENU='1', CX_SESSION_CHILD='1', CX_AGENT='codex', CX_ACCOUNT='work')
+            process = subprocess.Popen([sys.executable, str(ROOT/'bin/cx-session-supervisor.py'),
+                str(launcher), directory, 'resume', ID], stdin=slave, stdout=slave, stderr=slave, env=env)
+            os.close(slave)
+            buffered = b''
+            def until(needle):
+                nonlocal buffered
+                deadline = time.monotonic()+10
+                while needle not in buffered and time.monotonic()<deadline:
+                    if select.select([master], [], [], .1)[0]:
+                        try: buffered += os.read(master, 65536)
+                        except OSError: break
+                self.assertIn(needle, buffered)
+                buffered = buffered.split(needle, 1)[1]
+            try:
+                until(('READY '+ID).encode())
+                os.write(master, b'unsent draft\x1ds')
+                until(b'Alpha')
+                os.write(master, b'\x1b[B\r')
+                until(('READY '+OTHER).encode())
+                self.assertFalse(draft.exists(), 'switching must not submit or exit the old draft')
+                progress.touch()
+                deadline = time.monotonic()+5
+                while not emitted.exists() and time.monotonic()<deadline:
+                    time.sleep(.01)
+                self.assertTrue(emitted.exists())
+                os.write(master, b'\x1ds')
+                until(b'Loading...')
+                until(b'Internal threads hidden')
+                os.write(master, b'\x1b[A\r')
+                until(b'unsent draft')
+                until(b'BACKGROUND PROGRESS')
+                os.write(master, b'\r')
+                until(b'Assistant exited.')
+                self.assertEqual(draft.read_text(), ID+':unsent draft\n')
+                self.assertEqual(launches.read_text().splitlines(), [ID, OTHER])
+                os.write(master, b'\x1dq')
+                process.wait(timeout=10)
+            finally:
+                if process.poll() is None:
+                    process.terminate(); process.wait(timeout=10)
+                os.close(master)
+
     def test_local_saved_menu_keystrokes_do_not_enter_native_draft(self):
         with tempfile.TemporaryDirectory(dir=ROOT, prefix='.cx-test-menu-') as directory:
             root = Path(directory)

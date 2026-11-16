@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Switch Sessions immediately on Enter while preserving the previous assistant
+  process, saved screen and draft; restore running sessions without replaying
+  tasks. Keep SSH work/authentication gates and Claude writer leases intact.
+- Default Sessions to name sorting and compact rows, with separate right-aligned
+  CLI/update metadata and a stacked layout on narrow terminals.
+
 - Add a task-oriented user handbook and generated GitHub wiki, covering both
   CLIs, session management, SSH/Slurm, imports, persistence and upgrades.
   Update contributor guidance to branch from main after v2 integration, and
