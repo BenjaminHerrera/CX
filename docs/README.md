@@ -49,7 +49,8 @@ or make remote commands read-only when a file mount is read-only. See the
 ## Validation and Versions
 
 The multi-CLI and menu integration is merged into `main`; `v2` is no longer
-the implementation base. This did not change `VERSION`, currently `1.2.1`.
+the implementation base. The current package version is **2.0.1**, including
+immediate switching with saved assistants and the updated Sessions layout.
 Use [Upgrade and Back Up](UPGRADING.md) for the current source workflow.
 
 [CX-2 validation](CX2-VALIDATION.md) and [CX-7 validation](CX7-VALIDATION.md)

@@ -31,7 +31,8 @@ with that pair or select it in the account picker. The
 [Getting Started guide](docs/GETTING-STARTED.md) walks through both choices.
 
 The `v2` integration is now on `main`. Use `main` for installs and new work;
-the package version is still **1.2.1**. See [upgrading](docs/UPGRADING.md) for
+the package version is **2.0.1**. This version adds immediate session switching
+with saved assistants, name-sorted compact rows, aligned metadata and CLI colors. See [upgrading](docs/UPGRADING.md) for
 existing installations and image rebuilds.
 
 ## Everyday Use

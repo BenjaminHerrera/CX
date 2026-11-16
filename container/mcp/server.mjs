@@ -4,7 +4,7 @@ import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {z} from 'zod';
 
-const server = new McpServer({name:'cx-ssh', version:'1.2.1'});
+const server = new McpServer({name:'cx-ssh', version:'2.0.1'});
 function request(message) {
   return new Promise((resolve, reject) => {
     if (!process.env.CX_SSH_SOCKET) return reject(new Error('No cx SSH socket configured.'));
