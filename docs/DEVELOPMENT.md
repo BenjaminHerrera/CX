@@ -186,3 +186,10 @@ allocation identity and a real local PTY draft-restoration check. Run existing
 screens/SSH/removal/account suites after changing those seams. Fixtures do not
 establish real Docker, Claude live resume, Windows Terminal selection/paste or
 site scheduler behavior. See `docs/CX7-VALIDATION.md` for remaining live gates.
+
+The resume-style menu uses a local filtered view keyed by CLI/UUID. Search never
+reads chat previews. Keep internal-source filtering separate from display names;
+F2 explicitly requests reviewer/subagent rows and labels them. Test search-mode
+key isolation, filter/sort/density changes and narrow layouts in session_menu.py,
+and native request/source filtering in session-menu.mjs. Native helper mutations
+retain exact IDs even when the visible list is filtered.

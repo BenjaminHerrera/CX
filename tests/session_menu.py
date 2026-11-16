@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'bin'))
-from cx_sessions import SessionMenu, clean, fit
+from cx_sessions import SessionMenu, clean, fit, relative_time
 spec = importlib.util.spec_from_file_location('bridge', ROOT/'bin/cx-ssh-bridge.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
@@ -163,6 +163,69 @@ class MenuTests(unittest.TestCase):
             self.menu.draw()
             pane = self.bridge.terminal.display.pane(self.menu.owner)
             self.assertEqual(pane.screen.columns, columns)
+
+    def test_search_handles_unicode_and_keeps_action_keys_as_search_text(self):
+        self.menu.replace(self.menu.rows[:])
+        self.menu.handle(b'/')
+        for byte in '計画'.encode():
+            self.menu.handle(bytes([byte]))
+        self.assertEqual(len(self.menu.rows),1)
+        self.assertEqual(self.menu.selected()['id'],ID)
+        self.menu.handle(b'\x15')
+        self.menu.handle(b'q'); self.menu.handle(b'r'); self.menu.handle(b'd')
+        self.assertEqual(self.menu.query,'qrd')
+        self.assertTrue(self.menu.opened)
+        self.menu.request.assert_called_once_with('list')
+        self.menu.handle(b'\x15'); self.menu.handle(b'\x1b')
+        self.assertEqual(self.menu.mode,'list')
+        self.assertEqual(len(self.menu.rows),2)
+
+    def test_native_style_filter_controls_sort_and_density_preserve_identity(self):
+        rows=self.menu.rows[:]+[dict(self.menu.rows[0],id=OTHER,name='Archived',archived=True)]
+        self.menu.replace(rows)
+        self.assertEqual(len(self.menu.rows),2)
+        self.menu.handle(b'\t'); self.menu.handle(b'\x1b[C')
+        self.assertEqual(self.menu.cli_filter,'Codex')
+        self.assertEqual([r['agent'] for r in self.menu.rows],['codex'])
+        self.menu.handle(b'\t'); self.menu.handle(b'\x1b[C')
+        self.assertEqual(self.menu.status_filter,'Archived')
+        self.assertEqual(self.menu.selected()['id'],OTHER)
+        self.menu.handle(b'\t'); self.menu.handle(b'\x1b[C')
+        self.assertEqual(self.menu.sort,'Name')
+        old=self.menu.page_size(); self.menu.handle(b'\x0f')
+        self.assertTrue(self.menu.dense)
+        self.assertGreater(self.menu.page_size(),old)
+        self.assertEqual(self.menu.selected()['id'],OTHER)
+
+    def test_internal_toggle_is_explicit_and_marked(self):
+        internal=dict(self.menu.rows[0],id=OTHER,name='Guardian review',internal=True)
+        self.menu.replace(self.menu.rows+[internal])
+        self.assertFalse(any(r.get('internal') for r in self.menu.rows))
+        self.menu.handle(b'\x1bOQ')
+        self.assertTrue(self.menu.include_internal)
+        self.assertTrue(any(r.get('internal') for r in self.menu.rows))
+        self.menu.request.assert_called_with('list')
+        self.menu.handle(b'\x1bOQ')
+        self.assertFalse(any(r.get('internal') for r in self.menu.rows))
+
+    def test_native_style_layout_relative_times_and_small_terminal(self):
+        self.assertEqual(relative_time(100,now=110),'just now')
+        self.assertEqual(relative_time(100,now=400),'5m ago')
+        self.assertEqual(relative_time(100,now=7300),'2h ago')
+        for rows,columns in [(30,118),(24,80),(12,38)]:
+            self.bridge.terminal.display.resize(rows,columns)
+            self.menu.draw()
+            screen=self.bridge.terminal.display.pane(self.menu.owner).screen
+            text='\n'.join(screen.display)
+            self.assertIn('Resume a previous session',text)
+            self.assertIn('› 計画',text)
+            self.assertIn('Enter resume',text)
+            self.assertIn('1 / 2',text)
+        self.menu.handle(b'd')
+        text='\n'.join(self.bridge.terminal.display.pane(self.menu.owner).screen.display)
+        self.assertIn(ID,text)
+        self.assertIn('ALL accounts',text)
+        self.assertIn('cannot be undone',text)
 
     def test_worker_startup_failure_keeps_terminal_and_remote_state(self):
         remote = self.bridge.remote = (99, Mock())

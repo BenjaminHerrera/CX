@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Restyle Sessions after Codex's resume picker: searchable named rows, relative
+  update times, CLI/status/sort controls, density toggle and a position footer.
+  Hide internal Codex reviewer/subagent threads by default; F2 opts into them
+  without hiding user conversations that happen to share their names.
+
 - Add a saved blue Sessions menu in managed local and SSH sessions: Ctrl-] s,
   cursor/page navigation, stable names, persistent rename and confirmed deletion
   through the existing removal backend. Keep instance-local active selection and

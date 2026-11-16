@@ -32,17 +32,22 @@ export async function codexClient(root, work, createClient=historyClient) {
   try {await client.rpc('initialize',{clientInfo:{name:'cx-session-menu',version:'1'},capabilities:{experimentalApi:true}});client.notify('initialized');return client;}
   catch(e){await client.close();throw e;}
 }
-export async function listSessions({codexRoot,claudeRoot,client}) {
+export function internalSource(source) {
+  return typeof source==='string' ? /^subagent/i.test(source) :
+    !!source && typeof source==='object' && Object.keys(source).some(key=>/^subagent$/i.test(key));
+}
+export async function listSessions({codexRoot,claudeRoot,client,includeInternal=false}) {
   const rows=[],keys=new Set();
   const add=row=>{const key=row.agent+':'+row.id;if(!keys.has(key)){keys.add(key);rows.push(row);}};
   if(codexRoot && client) {
     for(const archived of [false,true]) {
     const seen=new Set();let cursor=null;
     do {
-      const page=await client.rpc('thread/list',{...listParams({noninteractive:true},cursor),limit:100,archived});
+      const page=await client.rpc('thread/list',{...listParams({noninteractive:true},cursor),limit:100,archived,
+        ...(!includeInternal?{sourceKinds:['cli','vscode','exec','appServer','unknown']}:{})});
       if(!Array.isArray(page?.data))throw Error('Invalid native history page.');
-      for(const row of page.data)if(validId(row.id))
-        add({agent:'codex',id:row.id.toLowerCase(),name:name(codexRoot,row),project:clean(row.cwd),updated:row.updatedAt??0,archived});
+      for(const row of page.data)if(validId(row.id)&&(includeInternal||!internalSource(row.source)))
+        add({agent:'codex',id:row.id.toLowerCase(),name:name(codexRoot,row),project:clean(row.cwd),updated:row.updatedAt??0,archived,internal:internalSource(row.source)});
       cursor=page.nextCursor;
       if(cursor && seen.has(cursor))throw Error('Native history pagination repeated a cursor.');
       seen.add(cursor);
@@ -101,7 +106,7 @@ async function main() {
       const root=req.agent==='codex'?codexRoot:claudeRoot;if(root&&validId(req.id))fs.rmSync(names(root,req.id).file,{force:true});
     } else {
       if(codexRoot)client=await codexClient(codexRoot,work);
-      const rows=await listSessions({codexRoot,claudeRoot,client});
+      const rows=await listSessions({codexRoot,claudeRoot,client,includeInternal:req.op==='rename'||req.includeInternal===true});
       if(req.op==='list') {console.log(JSON.stringify({rows}));return;}
       if(req.op!=='rename')throw Error('Unknown menu operation.');
       await renameSession({...req,root:req.agent==='codex'?codexRoot:claudeRoot,client,rows});

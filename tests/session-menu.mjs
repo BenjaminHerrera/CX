@@ -23,6 +23,23 @@ try {
     assert.ok(calls.some(x=>x.params.cursor==='next'));
     assert.ok(calls.some(x=>x.params.archived===true));
   });
+  await test('internal reviewer threads are hidden by source, with an explicit opt-in',async()=>{
+    const guardian='33333333-3333-4333-8333-333333333333';
+    const queries=[];
+    const internalClient={async rpc(method,params){queries.push(params);return {data:[
+      {id,name:'Guardian review',source:'cli'},
+      {id:guardian,name:'Guardian review',source:{subagent:{other:'guardian_review'}}},
+      {id:other,name:'A helper',source:'subAgentReview'}
+    ],nextCursor:null};}};
+    const visible=await listSessions({codexRoot,client:internalClient});
+    assert.deepEqual(visible.map(x=>x.id),[id],'a real user conversation with the same name remains visible');
+    assert.equal(visible[0].internal,false);
+    assert.ok(queries.every(x=>!x.sourceKinds.includes('subAgentOther')));
+    queries.length=0;
+    const all=await listSessions({codexRoot,client:internalClient,includeInternal:true});
+    assert.equal(all.length,3);assert.equal(all.find(x=>x.id===guardian).internal,true);
+    assert.ok(queries.every(x=>x.sourceKinds.includes('subAgentOther')));
+  });
   await test('explicit Unicode names persist over new messages/native titles and CLI restarts',async()=>{
     let rows=await listSessions({codexRoot,claudeRoot,client});
     const before=fs.readFileSync(transcript,'utf8');

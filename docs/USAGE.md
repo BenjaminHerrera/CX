@@ -39,6 +39,16 @@ opens Sessions. The menu has its own saved screen and a blue header; SSH keeps
 its green header. Python 3.11+ is required on the host for interactive managed
 sessions. Legacy `CX_CODEX_HOME` keeps native behavior and has no CX session menu.
 
+The layout follows Codex's resume picker: a title, search field, filter controls,
+spaced session records, relative update times and a position indicator. The
+selected row has a cyan `›` cursor; `*` marks the active conversation separately.
+Press `/` to search names, projects, CLIs or IDs. While searching, letters edit
+the query; Enter resumes, Esc finishes editing and Ctrl-U clears it. Use Tab to
+focus CLI/status/sort controls and Left/Right to change their values. Active
+(non-archived) sessions are shown initially. Ctrl-O toggles comfortable/dense rows.
+Internal Codex subagent/reviewer threads are hidden by source metadata, not by
+name. F2 explicitly shows/hides them; no histories are deleted by filtering.
+
 Use Up/Down, Page Up/Down or the mouse wheel to move the highlighted row.
 The `*` marker identifies a known active session; the cursor does not activate it.
 Press Enter to resume, `r` to rename (Ctrl-U clears, Enter saves, Esc cancels),

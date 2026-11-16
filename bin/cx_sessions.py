@@ -26,12 +26,33 @@ def fit(text, columns):
     return result
 
 
+def relative_time(value, now=None):
+    try:
+        seconds = max(0, (time.time() if now is None else now)-float(value))
+        if seconds < 60:
+            return 'just now'
+        if seconds < 3600:
+            return str(int(seconds//60))+'m ago'
+        if seconds < 86400:
+            return str(int(seconds//3600))+'h ago'
+        if seconds < 604800:
+            return str(int(seconds//86400))+'d ago'
+        return datetime.fromtimestamp(float(value), timezone.utc).strftime('%b %d, %Y')
+    except (ValueError, TypeError, OverflowError, OSError):
+        return 'unknown time'
+
+
 class SessionMenu:
     def __init__(self, bridge):
         self.bridge = bridge
         self.owner = object()
         self.opened = False
         self.rows, self.cursor, self.top = [], 0, 0
+        self.all_rows = None
+        self.query, self.cli_filter, self.status_filter, self.sort = '', 'All', 'Active', 'Updated'
+        self.control = None
+        self.dense = False
+        self.include_internal = False
         self.mode, self.text, self.message = 'list', '', ''
         self.active = None
         self.queued = None
@@ -51,14 +72,46 @@ class SessionMenu:
         return self.rows[self.cursor] if self.rows else None
 
     def replace(self, rows):
+        self.all_rows = rows
+        self.apply_filters()
+
+    def apply_filters(self):
         key = self.key(self.selected()) if self.selected() else None
+        terms = self.query.casefold().split()
+        rows = [row for row in (self.all_rows if self.all_rows is not None else self.rows)
+                if (self.cli_filter == 'All' or row['agent'] == self.cli_filter.lower())
+                and (self.status_filter == 'All' or bool(row.get('archived')) == (self.status_filter == 'Archived'))
+                and (self.include_internal or not row.get('internal'))
+                and all(term in ' '.join(str(row.get(field, '')) for field in ('name', 'agent', 'project', 'id')).casefold() for term in terms)]
+        rows.sort(key=(lambda row: str(row['name']).casefold()) if self.sort == 'Name' else (lambda row: float(row.get('updated', 0))), reverse=self.sort == 'Updated')
         self.rows = rows
         self.cursor = next((i for i, row in enumerate(rows) if self.key(row) == key), min(self.cursor, max(0, len(rows)-1)))
+
+    def change_option(self, direction):
+        attribute, values = {'cli': ('cli_filter', ['All', 'Codex', 'Claude']),
+                             'status': ('status_filter', ['Active', 'Archived', 'All']),
+                             'sort': ('sort', ['Updated', 'Name'])}[self.control]
+        setattr(self, attribute, values[(values.index(getattr(self, attribute))+direction) % len(values)])
+        self.apply_filters()
+
+    def activate_selected(self):
+        row = self.selected()
+        if not row or self.worker:
+            return
+        account = os.environ.get('CX_ACCOUNT')
+        accounts = self.accounts(row['agent'])
+        if row['agent'] == os.environ.get('CX_AGENT') and account in accounts:
+            self.choose(row, account)
+        else:
+            self.mode, self.target = 'account', dict(row)
+            self.account_rows, self.account_index = accounts, 0
 
     def request(self, op, **values):
         if self.worker:
             return
         self.operation = op
+        if op == 'list':
+            values['includeInternal'] = self.include_internal
         try:
             self.worker = subprocess.Popen([self.bridge.launcher[0], 'sessions', 'menu-backend'],
                                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -115,7 +168,7 @@ class SessionMenu:
         if self.opened:
             return
         self.previous = (self.bridge.terminal.display.active, self.bridge.terminal.display.label)
-        self.opened, self.mode, self.pasting = True, 'list', False
+        self.opened, self.mode, self.pasting, self.control = True, 'list', False, None
         self.bridge.escape = False
         self.bridge.terminal.state(self.owner)['modes'].add(2004)
         self.bridge.terminal.switch(self.owner, 'Sessions | '+self.bridge.assistant_label)
@@ -132,7 +185,8 @@ class SessionMenu:
         self.cursor = max(0, min(len(self.rows)-1, self.cursor+delta))
 
     def page_size(self):
-        return max(1, (self.bridge.terminal.display.lines-5)//2)
+        height = self.bridge.terminal.display.lines
+        return max(1, (height-5-(6 if height >= 18 else 3))//(1 if self.dense else 3))
 
     def accounts(self, agent):
         root = self.data_home / 'profiles' / agent
@@ -260,14 +314,57 @@ class SessionMenu:
             self.pasting = False
             return
         if self.pasting:
-            if self.mode == 'rename' and len(packet) == 1 and packet[0] >= 32:
-                self.text = (self.text + self.decoder.decode(packet))[:200]
+            if self.mode in ('rename', 'search') and len(packet) == 1 and packet[0] >= 32:
+                decoded = self.decoder.decode(packet)
+                if self.mode == 'rename':
+                    self.text = (self.text + decoded)[:200]
+                else:
+                    self.query = clean(self.query + decoded)[:200]
+                    self.apply_filters()
             self.draw()
             return
         legacy = self.bridge.windows_key(packet, self.owner)
         if legacy is None:
             legacy = self.bridge.legacy_key(packet)
         packet = legacy if legacy is not None else packet
+        if self.mode in ('list', 'search'):
+            if re.fullmatch(rb'\x1b\[<6[45];\d+;\d+M', packet):
+                self.move(-3 if packet.startswith(b'\x1b[<64;') else 3)
+                self.draw()
+                return
+            if packet in (b'\x1b[A', b'\x1bOA', b'\x1b[B', b'\x1bOB', b'\x1b[5~', b'\x1b[6~'):
+                self.control = None
+                delta = -1 if packet in (b'\x1b[A', b'\x1bOA') else 1
+                if packet in (b'\x1b[5~', b'\x1b[6~'):
+                    delta = self.page_size() * (-1 if packet == b'\x1b[5~' else 1)
+                self.move(delta)
+                self.draw()
+                return
+            if packet == b'\t':
+                self.mode = 'list'
+                controls = [None, 'cli', 'status', 'sort']
+                self.control = controls[(controls.index(self.control)+1) % len(controls)]
+                self.draw()
+                return
+            if self.control and packet in (b'\x1b[D', b'\x1bOD', b'\x1b[C', b'\x1bOC'):
+                self.change_option(-1 if packet in (b'\x1b[D', b'\x1bOD') else 1)
+                self.draw()
+                return
+            if packet == b'\x0f':
+                self.dense = not self.dense
+                self.draw()
+                return
+            if packet in (b'\x1bOQ', b'\x1b[12~') and not self.worker:
+                self.include_internal = not self.include_internal
+                self.apply_filters()
+                self.request('list')
+                self.draw()
+                return
+            if packet == b'/' and self.mode == 'list':
+                self.mode, self.control = 'search', None
+                self.decoder.reset()
+                self.draw()
+                return
         row = self.selected()
         if packet in (b'\x1b', b'\x03') or (self.mode == 'list' and packet == b'q'):
             if self.mode != 'list':
@@ -276,6 +373,17 @@ class SessionMenu:
                 self.queued = None
                 self.close()
                 return
+        elif self.mode == 'search':
+            if packet in (b'\r', b'\n'):
+                self.mode = 'list'
+                self.activate_selected()
+            elif packet in (b'\x7f', b'\x08'):
+                self.query = self.query[:-1]
+            elif packet == b'\x15':
+                self.query = ''
+            elif len(packet) == 1 and packet[0] >= 32:
+                self.query = clean(self.query + self.decoder.decode(packet))[:200]
+            self.apply_filters()
         elif self.mode == 'rename':
             if packet in (b'\r', b'\n'):
                 self.request('rename', agent=self.target['agent'], id=self.target['id'], value=self.text)
@@ -299,18 +407,11 @@ class SessionMenu:
                 self.account_index = min(len(self.account_rows)-1, self.account_index+1)
             elif packet in (b'\r', b'\n') and self.account_rows:
                 self.choose(self.target, self.account_rows[self.account_index])
-        elif packet in (b'\x1b[A', b'\x1bOA'):
-            self.move(-1)
-        elif packet in (b'\x1b[B', b'\x1bOB'):
-            self.move(1)
-        elif packet in (b'\x1b[5~', b'\x1b[6~'):
-            self.move(self.page_size() * (-1 if packet == b'\x1b[5~' else 1))
-        elif re.fullmatch(rb'\x1b\[<6[45];\d+;\d+M', packet):
-            self.move(-3 if packet.startswith(b'\x1b[<64;') else 3)
         elif not self.worker and packet == b'f':
             self.request('list')
         elif not self.worker and row:
             if packet == b'r':
+                self.decoder.reset()
                 self.mode, self.text, self.target = 'rename', row['name'], dict(row)
             elif packet in (b'd', b'\x1b[3~'):
                 if self.key(row) == self.active:
@@ -318,13 +419,7 @@ class SessionMenu:
                 else:
                     self.mode, self.target = 'delete', dict(row)
             elif packet in (b'\r', b'\n'):
-                account = os.environ.get('CX_ACCOUNT')
-                accounts = self.accounts(row['agent'])
-                if row['agent'] == os.environ.get('CX_AGENT') and account in accounts:
-                    self.choose(row, account)
-                else:
-                    self.mode, self.target = 'account', dict(row)
-                    self.account_rows, self.account_index = accounts, 0
+                self.activate_selected()
         self.draw()
 
     def draw(self):
@@ -336,38 +431,73 @@ class SessionMenu:
         self.top = min(self.top, self.cursor)
         if self.cursor >= self.top+page:
             self.top = self.cursor-page+1
-        active = ' | * active; cursor does not activate' if self.active else ' | active: native/new session (ID not yet selected)'
-        lines = ['Current: '+self.bridge.assistant_label+active]
+        dim = lambda text: '\033[2m'+fit(text, width)+'\033[0m'
+        title = ' Resume a previous session'
+        controls = []
+        for key, label, value in (('cli', 'CLI', self.cli_filter), ('status', 'Status', self.status_filter), ('sort', 'Sort', self.sort)):
+            if width < 30 and key != (self.control or 'cli'):
+                continue
+            text = f'{label}: {value}' if width >= 60 else value
+            text = fit(text, max(0, width-1))
+            controls.append(('\033[4;36m'+text+'\033[0m') if self.control == key else text)
+        query = ' Search: '+self.query+('▏' if self.mode == 'search' else '') if self.query or self.mode == 'search' else ' / Type to search by name, project or ID'
+        lines = ['\033[1m'+fit(title, width)+'\033[0m', '', ' '+ '    '.join(controls), '',
+                 ('\033[36m'+fit(query, width)+'\033[0m') if self.mode == 'search' else dim(query), '']
+        if height < 18:
+            lines = [lines[0], lines[2], lines[4]]
         for index, row in enumerate(self.rows[self.top:self.top+page], self.top):
-            mark = '*' if self.key(row) == self.active else ' '
-            try:
-                updated = datetime.fromtimestamp(float(row['updated']), timezone.utc).strftime('%Y-%m-%d %H:%MZ')
-            except (ValueError, TypeError, OverflowError, OSError):
-                updated = clean(row['updated'])
-            identity = f" | {row['agent']} | {row['id'][:8]}"
-            text = f"{mark} "+fit(row['name'], max(0, width-len(identity)-2))+identity
-            detail = fit('  '+row['project']+' | '+updated+(' | archived' if row.get('archived') else ''), width)
-            for line in (fit(text, width), detail):
-                lines.append(('\033[7m'+line+'\033[0m') if index == self.cursor else line)
+            chosen = index == self.cursor
+            cursor = '›' if chosen else ' '
+            active = ' *' if self.key(row) == self.active else ''
+            tag = ' [internal]' if row.get('internal') else ''
+            name = fit(f"  {cursor} {row['name']}{active}{tag}", width)
+            archived = ' · archived' if row.get('archived') else ''
+            metadata = f"    {relative_time(row['updated']):<12} {row['agent']} · {row['project']}{archived}"
+            if self.dense:
+                suffix = f"  {row['agent']} · {relative_time(row['updated'])}{archived}"
+                name = fit(f"  {cursor} {row['name']}{active}{tag}", max(0, width-len(suffix)))+suffix
+                lines.append(('\033[1;36m'+name+'\033[0m') if chosen else name)
+            else:
+                lines += [('\033[1;36m'+name+'\033[0m') if chosen else name, dim(metadata), '']
         if not self.rows:
-            lines.append('No saved sessions. q returns to the assistant.')
-        if self.mode == 'rename':
-            detail = 'Name (Ctrl-U clear, Enter save, Esc cancel): '+self.text
-        elif self.mode == 'delete':
-            lines = [fit('Delete: '+self.target['name'], width),
-                     fit('CLI: '+self.target['agent']+' | ID: '+self.target['id'], width),
-                     fit('Shared by ALL accounts of this CLI. This cannot be undone.', width)]
-            detail = 'y confirms deletion / n or Esc cancels'
-        elif self.mode == 'account':
-            detail = 'Choose account with arrows/Enter: '+(' | '.join(('> ' if i == self.account_index else '')+name for i,name in enumerate(self.account_rows)) or 'No compatible account configured; Esc cancels')
-        else:
-            detail = self.message
-        lines = lines[:max(0, height-3)]
-        while len(lines) < max(0, height-3):
-            lines.append('')
+            lines.append(dim(' No matching sessions.' if self.query or self.all_rows else ' No saved sessions yet.'))
         selected = self.selected()
-        identity = f"{selected['agent']} | {selected['id']}" if selected else ''
-        lines += [fit(identity, width), fit(detail, width), fit('↑↓ PgUp/PgDn move | Enter resume | r rename | d/Delete delete | f refresh | Esc/q close', width)]
+        total = len(self.rows)
+        position = f' {self.cursor+1 if total else 0} / {total} '
+        separator = '─'*max(0, width-len(position))+position
+        identity = f" {selected['agent']} · {selected['id']}" if selected else ''
+        if selected and self.key(selected) == self.active:
+            identity += ' · active'
+        if self.mode == 'rename':
+            lines = ['\033[1m Rename session\033[0m', '', dim(' '+self.target['agent']+' · '+self.target['id']), '', fit(' Name: '+self.text+'▏', width)]
+            status = ' Enter save · Esc cancel · Ctrl-U clear'
+        elif self.mode == 'delete':
+            lines = ['\033[1m Delete session?\033[0m', '', fit(' '+self.target['name'], width), '',
+                     fit(' CLI: '+self.target['agent'], width), fit(' '+self.target['id'], width)]
+            status = ' This cannot be undone.'
+            identity = ' Shared by ALL accounts of this CLI.'
+        elif self.mode == 'account':
+            lines = ['\033[1m Choose an account\033[0m', '', fit(' '+self.target['name'], width), '']
+            lines += [fit(('  › ' if i == self.account_index else '    ')+name, width) for i, name in enumerate(self.account_rows)]
+            status = ' ↑/↓ choose · Enter continue · Esc cancel' if self.account_rows else ' No configured account for this CLI. Esc cancels.'
+        elif self.mode == 'search':
+            status = self.message or ' Type to filter · ↑/↓ browse · Enter resume · Esc finish search · Ctrl-U clear'
+        else:
+            status = self.message or ((' * active session' if self.active else ' Active: native/new session')+
+                                      (' · Internal threads shown' if self.include_internal else ' · Internal threads hidden'))
+        # Reserve the bottom for position, exact selected identity and two short
+        # action lines. The list never scrolls through the header or footer.
+        body_height = max(0, height-5)
+        lines = lines[:body_height]+['']*max(0, body_height-len(lines))
+        if self.mode in ('rename', 'delete', 'account'):
+            hints = ' y confirm · n/Esc cancel' if self.mode == 'delete' else status
+            secondary = ''
+        else:
+            hints = ' Enter resume · / search · r rename · d delete · Esc/q close'
+            secondary = ' ↑↓/PgUp/PgDn browse · Tab/←→ filters · ^O dense · F2 internal · f refresh'
+            if width < 80:
+                secondary = ' ↑↓ browse · Tab/←→ filters · ^O dense · F2 internal'
+        lines += [dim(separator), dim(identity), fit(status, width), dim(hints), dim(secondary)]
         data = '\033[?25l\033[2J\033[H'+'\r\n'.join(lines[:height])
         display.feed(self.owner, data.encode())
         display.paint(force=True)

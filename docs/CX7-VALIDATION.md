@@ -47,8 +47,8 @@ shortcuts, saved colors/scroll/drafts, resize, busy and failed handoff, retained
 allocation identity and a real local PTY keystroke/restoration test.
 
 Validated locally: 27 account/adapter checks, 25 smoke/install/package checks,
-17 removal checks including native Codex deletion, 5 menu backend checks including
-native discovery/naming, 14 menu/PTY tests, 60 SSH bridge tests, 26 screen tests
+17 removal checks including native Codex deletion, 6 menu backend checks including
+native discovery/naming, 18 menu/PTY tests, 60 SSH bridge tests, 26 screen tests
 including tmux, 9 Slurm tests, 8 shared-picker checks, 18 import checks, and the
 remote-client/MCP suites. Shell/Node syntax and git diff --check also pass. Fixture coverage does not establish the live gates below.
 
@@ -66,3 +66,21 @@ remote-client/MCP suites. Shell/Node syntax and git diff --check also pass. Fixt
   this checklist and none is claimed here.
 - Existing CX-2 auth refresh/API-key/second-Claude-account/terminal gates retain
   their recorded skips and limitations. No live pass is inferred from fixtures.
+
+
+## Resume-Style Menu Follow-Up
+
+The layout follows the pinned Codex 0.169.0 resume-picker snapshots: a clear
+resume title, subdued search/filter controls, comfortable session records with
+relative times and a cursor/position footer. CX retains its blue saved-screen
+header, stable names, separate active marker, rename/delete actions and guarded
+handoff. `/` edits search; Tab/Left/Right choose CLI/status/sort; Ctrl-O toggles
+density. Small terminal layouts keep the highlighted name and primary actions.
+
+Internal Codex subagent/reviewer histories are excluded by native source filters
+and metadata checks by default, with an explicit F2 toggle. This does not filter
+by display name or remove records. Added regressions cover actual user sessions
+named Guardian review, source-tagged internal sessions, opt-in discovery, Unicode
+search/action-key isolation, filter controls, density and 118/80/38-column layouts.
+The native fixture checks still pass without model requests; live terminal gates
+above remain open.

@@ -412,6 +412,12 @@ and the PR stays draft until explicitly approved for a status change or merge.
 
 `cx sessions select [PROJECT]` and **Ctrl-] s** open the same named menu for both
 CLIs. It lists native project/time/UUID context, never chat snippets as names.
+The resume-style layout includes `/` search, Tab/Left/Right controls for CLI,
+active/archived status and updated/name sorting, plus Ctrl-O row density.
+Guardian reviews and other Codex subagent threads are hidden by default. F2
+opts into those internal records and labels them explicitly. This uses native
+source filtering plus source metadata checks; a real conversation named
+"Guardian review" remains visible. Filtering changes visibility only.
 Codex uses paginated `thread/list` for active and archived histories, covering
 native plain/compressed histories
 without reading or merging SQLite directly. Claude reads explicit `custom-title`
