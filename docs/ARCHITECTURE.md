@@ -32,7 +32,76 @@ That launcher resolves its real path. `program/config` links to the preserved
 `PREFIX/share/cx/config`, so upgrades replace code independently of settings.
 Portable mode reaches the same launcher through the top-level `cx` wrapper.
 
+## Account Adapters and Shared History
+
+`bin/cx-accounts.sh` owns host metadata, combined CLI/account selection, and
+selected-profile/history mounts. `container/cx-agent` contains the two built-in
+adapters for authentication, task flags and native launches; it has no plugin
+loader. Common Docker, workspace, limits and environment policy remain in the
+launcher/entrypoint. Claude project settings are read through ephemeral native
+project-source links; common guidance appends to the default prompt and native
+prompt snapshots are disabled so resume receives current context.
+An ephemeral native memory file imports the project's `AGENTS.md` files because
+additional-directory discovery loads only Claude memory files. Native import
+deduplication, relative resolution, exclusions and managed restrictions remain in
+effect. The wrapper's first `--` is consumed at the final CLI adapter boundary;
+subsequent arguments become native options, and a second `--` remains native.
+
+Managed homes default to `CX_DATA_HOME` (`~/.local/share/cx/data`, or portable
+`bundle/data`). Only one profile home plus one CLI history tree is mounted.
+Codex sessions/archives/index/history/locks are linked into shared storage and
+`CODEX_SQLITE_HOME` selects shared native SQLite metadata. Claude shares native
+`projects/` with configuration private in `CLAUDE_CONFIG_DIR`. No credentials or
+settings are copied between accounts, and no databases or historical attribution
+are rewritten. Directory mounts support atomic credential refresh/logout.
+Explicit `CX_CODEX_HOME` retains legacy behavior outside history sharing.
+The optional host `scripts/import-sessions.mjs` copies native file-backed
+histories into this managed layout. It preserves originals and attribution,
+merges only history/index records, and never imports credentials or databases.
+SQLite-projected native conversations import from validated durable rollouts;
+native resume reconstructs their projections. Missing or truncated backing
+history is refused unless explicitly skipped. See
+[import behavior](ACCOUNTS.md#import-existing-native-sessions).
+Shared storage does not override native account restrictions: Codex 0.169.0
+filters account-scoped ChatGPT conversations by identity in its resume picker and
+can reject cross-account resume when its ownership check is enabled. Managed
+interactive `resume` uses `container/cx-codex-resume.mjs` to list shared history
+through native `thread/list`, then hands the chosen ID to the real Codex CLI.
+The helper never performs the resume or changes native checks. See the
+[shared picker](ACCOUNTS.md#shared-codex-resume-picker).
+
+See [accounts](ACCOUNTS.md) for the storage tree, native compatibility checks,
+concurrency contract and open live gates. Claude SSH parity is a separate CX-2
+integration; Codex SSH reserves MCP names against the selected profile config.
+
+## Agent-Neutral SSH Launch
+
+The host adapter module `bin/cx_agent.py` builds CLI-specific session overrides;
+the supervisor retains PTYs, filesystem lifecycle and command ownership only.
+Codex receives its existing configuration overrides. Claude receives current
+session instructions in the container environment and registers the same stdio
+MCP adapter with session-only `--mcp-config`. Existing user/project servers remain
+configured; `cx_ssh` is reserved and conflicts fail before assistant startup.
+`container/cx-claude-config.mjs` validates Claude configs inside the container so
+absolute paths, bind mounts and ignore masks match the CLI view. It scans the
+active user/project sources and explicit config arguments, excluding unrelated
+project entries saved in the account config. Native option arity comes from
+the installed CLI's help, including aliases, optional and variadic values;
+unknown arity fails explicitly rather than silently skipping later configs.
+`--no-ssh-mcp` retains the command-line bridge and manual authentication guidance.
+Both assistants reuse command tracking, cancellation and Slurm readiness matching.
+The assistant bar shows the selected CLI/account. See [validation](CX2-VALIDATION.md)
+for open live integration gates; fixtures do not prove live terminal or site parity.
+
 ## Session data flow
+
+`cx sessions remove ID` starts a separate, network-disabled Node utility in the
+existing image. The host mounts `cx-sessions.mjs` and its app-server client
+read-only, alongside only the requested CLI histories; no profiles or project
+directories are exposed. Codex uses a temporary empty home linked to shared
+history and native deletion with exact-lookup guards. Claude deletes exact-ID
+transcripts/session folders and filters project indexes. Both affect shared
+history across accounts. See [session removal](ACCOUNTS.md#remove-a-session).
 
 ```mermaid
 flowchart TD
@@ -68,7 +137,8 @@ SSH supervision runs on the host; development environments live in `/cx-env`.
 | `/workspace/main` | Selected local project | Read/write; host changes persist |
 | `/workspace/cx-external/...` | `--add-dir` and `--add-file` sources | Read/write; host changes persist |
 | `/workspace/remote` | Optional host SSHFS mount | Read-only by default; rw edits affect the server |
-| `/codex-home` | `CX_CODEX_HOME` | Persistent credentials, preferences, and sessions |
+| `/codex-home` or `/claude-home` | Selected private profile | Persistent selected-account credentials, settings and caches |
+| `/cx-history` | Selected CLI history | Shared native history and resume metadata |
 | `/cx-env` | Workspace subfolder of `CX_ENV_HOME` | Persistent environments and selection |
 | `/etc/codex` | Package configuration directory | Read-only system configuration |
 | `/cx-ssh/bridge.sock` | Private host socket, SSH mode only | Serialized command requests and output |
@@ -236,3 +306,22 @@ parent allocation; only one nested command runs at a time. Manual focus gates
 input, and shell disappearance or disconnect yields unknown outcomes. The
 outer function removes its rendezvous file on normal return; interrupted or
 disconnected sessions can leave stale files requiring manual cleanup.
+
+
+## Named Session Menu
+
+Managed interactive local sessions run under a host PTY supervisor; local mode
+reuses the saved-screen/input classes but never starts SSH. SSH mode keeps the
+existing bridge, remote shell and command records. `SessionMenu` adds a third
+isolated pane and asynchronously invokes a history-only Docker helper, so remote
+framing and MCP polling continue while lists/actions load. The menu consumes its
+own keys, replies and paste and restores the prior pane without submitting input.
+
+Names are native explicit titles plus per-CLI/UUID CX sidecars with explicit-name
+precedence. Backend operations require exact CLI/UUID pairs. Deletion reuses the
+native Codex/reference checks and Claude deletion implementation, with conservative
+managed Claude writer leases and a deletion gate. No global active-selection file
+exists. Enter stages a native resume; a clean assistant exit and a fresh remote
+ownership check complete it. The original task is discarded on that handoff,
+while project/additional mounts and freshly generated SSH instructions are kept.
+Failed native exits or newly busy bridge state cancel switching without replay.

@@ -29,13 +29,19 @@ const args = process.argv.slice(2);
 fs.appendFileSync(process.env.MOCK_DOCKER_LOG, JSON.stringify(args)+'\\n');
 if (process.env.MOCK_DOCKER_FAIL && args[0] === process.env.MOCK_DOCKER_FAIL) process.exit(37);
 if (args[0] === 'image' && process.env.MOCK_IMAGE_MISSING === '1') process.exit(1);
+if (args[0] === 'image' && args.includes('--format')) console.log('1');
 ` ,{mode:0o755});
 function run(command,args=[],options={}) {
   const result = spawnSync(command,args,{cwd:project,env:{...env,...options.env},encoding:'utf8',...options});
   if (options.ok !== false) assert.equal(result.status,0,`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
 }
-function bash(file,args=[],options={}) { return run('bash',[path.join(fixture,file),...args],options); }
+function bash(file,args=[],options={}) {
+  // This suite preserves the explicit legacy-home contract. Managed selection
+  // and fresh portable defaults have their own accounts suite.
+  if (file === 'cx') options={...options,env:{...env,...options.env,CX_CODEX_HOME:path.join(fixture,'data/codex')}};
+  return run('bash',[path.join(fixture,file),...args],options);
+}
 function calls() { return fs.existsSync(log) ? fs.readFileSync(log,'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []; }
 function reset() { fs.writeFileSync(log,''); }
 function lastRun() { return calls().filter(x=>x[0]==='run').at(-1); }
@@ -207,7 +213,7 @@ check('root, credential overlap, and invalid environment names are rejected',()=
 check('portable folder can be relocated and invoked through a symlink',()=>{
   const moved=path.join(temp,'moved bundle'); fs.renameSync(fixture,moved);
   const link=path.join(temp,'portable-link'); fs.symlinkSync(path.join(moved,'cx'),link);
-  reset(); run('bash',[link,project]); contains(lastRun(),`src=${moved}/data/codex`);
+  reset(); run('bash',[link,project],{env:{...env,CX_CODEX_HOME:path.join(moved,'data/codex')}}); contains(lastRun(),`src=${moved}/data/codex`);
   fs.renameSync(moved,fixture);
 });
 check('installer refuses unrelated existing launchers',()=>{
@@ -225,7 +231,7 @@ check('installation works without Docker and uses installed data defaults',()=>{
   for (const guide of ['CONTRIBUTING.md','SUPPORT.md','SECURITY.md','CODE_OF_CONDUCT.md','AGENTS.md','docs/README.md','docs/DEVELOPMENT.md','docs/GITHUB.md']) {
     assert.ok(fs.existsSync(path.join(prefix,'share/cx/program',guide)), `missing installed guide: ${guide}`);
   }
-  run('bash',[launcher,project]); const args=lastRun();
+  run('bash',[launcher,project],{env:{...env,CX_CODEX_HOME:path.join(home,'.codex')}}); const args=lastRun();
   contains(args,`src=${home}/.codex,dst=/codex-home`);
   contains(args,`src=${home}/.local/share/cx/environments/`);
   contains(args,`src=${prefix}/share/cx/config,dst=/etc/codex,readonly`);
@@ -268,7 +274,7 @@ check('clean releases exclude runtime data and run after extraction',()=>{
     const archive=path.join(output,`cx-${version}-${edition}.tar.gz`);
     const listing=run('tar',['-tzf',archive]).stdout;
     assert.equal(listing.includes('/data/'),false); assert.equal(listing.includes('/environments/'),false);
-    for (const required of ['bin/cx_screen.py','bin/vendor/pyte/screens.py','bin/vendor/pyte/LICENSE','bin/vendor/pyte/COPYING','bin/vendor/wcwidth/LICENSE','tests/screens.py']) {
+    for (const required of ['bin/cx_sessions.py','bin/cx-session-supervisor.py','container/cx-session-menu.mjs','tests/session-menu.mjs','tests/session_menu.py','scripts/import-sessions.mjs','tests/import-sessions.mjs','container/cx-sessions.mjs','tests/sessions.mjs','bin/cx-accounts.sh','container/cx-agent','container/cx-claude-config.mjs','container/cx-codex-resume.mjs','container/cx-guidance.txt','docs/ACCOUNTS.md','tests/accounts.mjs','tests/native-history.mjs','bin/cx_screen.py','bin/vendor/pyte/screens.py','bin/vendor/pyte/LICENSE','bin/vendor/pyte/COPYING','bin/vendor/wcwidth/LICENSE','tests/screens.py']) {
       assert.ok(listing.includes('/'+required), `missing renderer/source notice: ${required}`);
     }
     assert.equal(listing.includes('/__pycache__/'),false);
@@ -278,8 +284,12 @@ check('clean releases exclude runtime data and run after extraction',()=>{
     const bundle=path.join(extract,`cx-${version}-${edition}`);
     run('sha256sum',['-c','MANIFEST.sha256'],{cwd:bundle});
     assert.match(run('bash',[path.join(bundle,'cx'),'--version']).stdout,new RegExp(version.replaceAll('.', '\\.')));
-    if (edition === 'install') run('bash',[path.join(bundle,'install.sh'),'--no-build','--prefix',path.join(temp,'archive install')]);
-    else { reset(); run('bash',[path.join(bundle,'cx'),project]); contains(lastRun(),`src=${bundle}/data/codex`); }
+    run(process.execPath,[path.join(bundle,'scripts/import-sessions.mjs'),'--help']);
+    if (edition === 'install') {
+      run('bash',[path.join(bundle,'install.sh'),'--no-build','--prefix',path.join(temp,'archive install')]);
+      run(process.execPath,[path.join(temp,'archive install/share/cx/program/bin/cx-import-sessions.mjs'),'--help']);
+    }
+    else { reset(); run('bash',[path.join(bundle,'cx'),project],{env:{...env,CX_CODEX_HOME:path.join(bundle,'data/codex')}}); contains(lastRun(),`src=${bundle}/data/codex`); }
   }
 });
 console.log(`\n${checks} offline checks passed. Docker build/runtime and live login were not tested.`);

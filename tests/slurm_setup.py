@@ -171,7 +171,7 @@ fi
                           '  exit 0\nfi\nexec ' + shlex.quote(sys.executable) + ' "$@"\n')
         python.chmod(0o755)
         docker = self.bin / 'docker'
-        docker.write_text('#!/bin/bash\nexit 0\n')
+        docker.write_text('#!/bin/bash\nif [[ \"$1\" == image ]]; then echo 1; fi\nexit 0\n')
         docker.chmod(0o755)
         project = self.path / 'project'
         project.mkdir()
@@ -179,7 +179,7 @@ fi
         master, slave = os.openpty()
         try:
             result = subprocess.run(['bash', str(ROOT / 'bin/cx'), str(project), '--ssh', 'alpha'],
-                                    env=dict(self.env, CX_TEST_CAPTURE=str(capture)),
+                                    env=dict(self.env, CX_TEST_CAPTURE=str(capture), CX_CODEX_HOME=str(self.path / 'legacy codex')),
                                     stdin=slave, stdout=slave, stderr=slave, timeout=10)
             self.assertEqual(result.returncode, 0, os.read(master, 8192).decode(errors='replace') if result.returncode else '')
         finally:

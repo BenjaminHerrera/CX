@@ -20,11 +20,12 @@ import tempfile
 import termios
 import uuid
 import tty
-import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cx_screen import SessionDisplay
+from cx_agent import ssh_overrides
+from cx_sessions import SessionMenu
 
 
 class TerminalIO:
@@ -331,8 +332,8 @@ class Bridge:
         self.jobs = {}
         self.submitted_ids = set()
         self.interactive = None
-        self.interactive_root = os.environ.get('CX_SLURM_INTERACTIVE_DIR') or None
-        job_pattern = os.environ.get('CX_SLURM_JOB_ID_PATTERN')
+        self.interactive_root = (os.environ.get('CX_SLURM_INTERACTIVE_DIR') or None) if host else None
+        job_pattern = os.environ.get('CX_SLURM_JOB_ID_PATTERN') if host else None
         self.job_id_patterns = [re.compile(rb'(?:Interactive job with ID |Granted job allocation |Submitted batch job )(\d+)'),
                                 re.compile(rb'\b(?:salloc|srun): job (\d+)\b')]
         if job_pattern:
@@ -346,11 +347,15 @@ class Bridge:
         self.resize_pending = False
         self.running = True
         self.result = 1
-        self.mount_mode = os.environ.get('CX_SSH_MOUNT_REQUEST', '')
+        self.mount_mode = os.environ.get('CX_SSH_MOUNT_REQUEST', '') if host else ''
         self.mount_process = None
         self.mount_path = None
         self.mount_log = None
+        self.assistant_label = os.environ.get('CX_AGENT', 'codex').upper()
+        if os.environ.get('CX_ACCOUNT'):
+            self.assistant_label += ' / ' + os.environ['CX_ACCOUNT']
         self.terminal = TerminalIO(self.deliver_terminal)
+        self.menu = SessionMenu(self) if os.environ.get('CX_SESSION_MENU') == '1' else None
 
     def deliver_terminal(self, owner, data):
         if owner is not None and (owner is self.remote or owner is self.local):
@@ -359,13 +364,19 @@ class Bridge:
                 data = data[count:]
 
     def switch_focus(self, focus):
+        if self.menu and self.menu.opened:
+            return
         if focus == 'remote' and self.interactive:
             self.interactive['ready'] = False
         self.focus = focus
         self.terminal.switch(self.remote if focus == 'remote' else self.local,
-                             'SSH' if focus == 'remote' else 'CODEX')
+                             'SSH' if focus == 'remote' else self.assistant_label)
 
     def notice(self, message):
+        if self.menu and self.menu.opened:
+            self.menu.message = message
+            self.menu.draw()
+            return
         if self.terminal.display.enabled:
             self.terminal.display.notice(message)
         else:
@@ -389,7 +400,8 @@ class Bridge:
             row('Container files', '/workspace/remote (' + self.mount_mode + ') via SSHFS')
         lines.extend(['', f'{header} Login / Terminal Controls {reset}', ''])
         row('Log in', 'Complete SSH authentication/MFA and reach a Bash prompt.')
-        row('Ctrl-] c', 'Start Codex after login, or return to Codex.')
+        row('Ctrl-] c', 'Start the assistant after login, or return to it.')
+        row('Ctrl-] s', 'Open the named session menu (managed interactive accounts).')
         row('Ctrl-] r', 'Open the remote terminal for authentication or interaction.')
         row('Ctrl-] q', 'Exit this cx SSH-mode session.')
         row('Ctrl-] b', 'Return to the live view after scrolling history.')
@@ -413,6 +425,8 @@ class Bridge:
                 except OSError:
                     pass
         self.resize_pending = False
+        if self.menu and self.menu.opened:
+            self.menu.draw()
         self.terminal.display.paint(force=True)
 
     def spawn(self, args, env=None):
@@ -498,7 +512,7 @@ class Bridge:
         else:
             self.switch_focus('local')
             self.resize()
-            self.notice('Codex terminal. Ctrl-] r opens the remote terminal.')
+            self.notice('Assistant terminal. Ctrl-] r opens the remote terminal.')
 
     def is_mounted(self, mountpoint):
         # Inspect the mount table without touching a possibly stalled FUSE server.
@@ -577,72 +591,27 @@ class Bridge:
     def start_local(self):
         if self.local:
             return
+        if self.menu and os.environ.get('CX_SESSION_OPEN') == '1' and not self.menu.active:
+            self.menu.open()
+            return
         self.mount_files()
         env = dict(os.environ, CX_SSH_BRIDGE_DIR=self.runtime, CX_SSH_HOST=self.host)
         if self.mount_path:
             env.update(CX_SSH_MOUNT_PATH=self.mount_path, CX_SSH_MOUNT_MODE=self.mount_mode)
-        config_root = Path(os.environ.get('CX_CONFIG_DIR', str(Path(__file__).resolve().parents[1] / 'config')))
-        instructions = tomllib.loads((config_root / 'config.toml').read_text()).get('developer_instructions', '')
-        instructions += (' SSH mode is active. Run cx-remote status first. Use cx-remote exec with one quoted '
-                         'command string for remote command execution. Without a filesystem mount use it for file reads and edits too. Local file tools see '
-                         'the local workspace. The remote Bash shell preserves directory and environment state. '
-                         'For authentication or interaction ask the user to press Ctrl-] r, complete it directly, '
-                         'then Ctrl-] c. Never request authentication secrets in chat or command arguments. '
-                         'After disconnect do not replay commands: outcomes may be unknown and shell state is lost.')
-        instructions += (' Sessions start at /workspace, a container directory containing main/, cx-external/, and remote/. '
-                         'The local project is /workspace/main; extra local directories are under /workspace/cx-external. '
-                         'The remote directory is empty unless the session has a filesystem mount. '
-                         'Read applicable project instructions under the selected project before working there.'
-                         ' Individual --add-file mounts are also under /workspace/cx-external. Edit those files '
-                         'in place; deleting or replacing their mountpoints by rename is unsupported.')
-        instructions += ' SSH host alias: ' + json.dumps(self.host) + '. Initial remote directory: ' + json.dumps(self.directory or 'remote login directory') + '.'
-        if self.interactive_root:
-            instructions += (' The server-specific interactive tracker directory is ' +
-                             json.dumps(self.interactive_root, ensure_ascii=False) +
-                             '; it is a remote server path, not a container mount.')
-        if self.mount_path:
-            instructions += (' A live SSHFS view of that initial directory is mounted at /workspace/remote (' + self.mount_mode +
-                             '). Use ordinary local file tools to browse/read /workspace/remote. ' +
-                             ('Edits there write directly to the server. ' if self.mount_mode == 'rw' else
-                              'The mount is read-only; use cx-remote exec for authorized remote edits. ') +
-                             '/workspace/main is still the local project. Execute remote programs through cx-remote, '
-                             'using server paths rather than /workspace/remote. The mount stays rooted at the initial directory '
-                             'even if the shell changes directory or enters a compute allocation. If it fails after '
-                             'a disconnect, restart cx to recreate it. This mount description overrides earlier '
-                             'instructions that restrict local tools to the local workspace.')
-        # Preserve system instructions even for installations retaining an older config.
-        overrides = ['-c', 'developer_instructions=' + json.dumps(instructions, ensure_ascii=False)]
-        if os.environ.get('CX_SSH_MCP', '1') == '1':
-            user_root = Path(os.environ.get('CX_CODEX_HOME', str(Path.home() / '.codex')))
-            candidates = [config_root / 'config.toml', user_root / 'config.toml']
-            project = Path(self.launcher[1])
-            candidates += [parent / '.codex/config.toml' for parent in (project, *project.parents)]
-            def has_reserved_server(value):
-                return isinstance(value, dict) and (
-                    'cx_ssh' in value.get('mcp_servers', {}) or
-                    any(has_reserved_server(child) for child in value.values()))
-            for config in candidates:
-                if config.is_file() and has_reserved_server(tomllib.loads(config.read_text())):
-                    raise ValueError('MCP server cx_ssh is reserved by cx; rename it in ' + str(config) + ' or use --no-ssh-mcp.')
-            if any('mcp_servers.cx_ssh' in arg for arg in self.launcher[2:]):
-                raise ValueError('MCP server cx_ssh is reserved by cx; remove the override or use --no-ssh-mcp.')
-            instructions += (' Use cx_ssh MCP ssh_status first, then ssh_exec, ssh_poll, and ssh_cancel for remote work. '
-                             'These MCP recommendations supersede earlier cx-remote execution recommendations. '
-                             'For explicitly authorized cpu/gpu interactive allocations use ssh_interactive_start with the existing function and its arguments, '
-                             'poll until interactive_ready, then use ssh_interactive_exec and poll the returned command ID; '
-                             'readiness confirms the Slurm job ID, not the physical host: check hostname and use site tools to run on the intended compute node. '
-                             'use ssh_interactive_close when done. Never send commands while waiting or authenticating. '
-                             'Commands are tracked only for this cx session. Never replay a command after timeout or unknown outcome, '
-                             'including through cx-remote. Poll its ID instead. Cancellation requests interruption, not rollback.')
-            overrides = ['-c', 'developer_instructions=' + json.dumps(instructions, ensure_ascii=False),
-                         '-c', 'mcp_servers.cx_ssh.command="node"',
-                         '-c', 'mcp_servers.cx_ssh.args=["/opt/cx-mcp/server.mjs"]',
-                         '-c', 'mcp_servers.cx_ssh.env_vars=["CX_SSH_SOCKET"]',
-                         '-c', 'mcp_servers.cx_ssh.enabled=true',
-                         '-c', 'mcp_servers.cx_ssh.required=true']
+        overrides, agent_env = ssh_overrides(
+            agent=os.environ.get('CX_AGENT', 'codex'), launcher=self.launcher,
+            host=self.host, directory=self.directory, interactive_root=self.interactive_root,
+            mount_path=self.mount_path, mount_mode=self.mount_mode,
+            config_root=Path(os.environ.get('CX_CONFIG_DIR', str(Path(__file__).resolve().parents[1] / 'config'))),
+            profile=Path(os.environ.get('CX_SELECTED_PROFILE', os.environ.get('CX_CODEX_HOME', str(Path.home() / '.codex')))),
+            mcp_enabled=os.environ.get('CX_SSH_MCP', '1') == '1')
+        env.update(agent_env)
         args = self.launcher[:2] + overrides + self.launcher[2:]
+        if self.menu:
+            self.menu.launched()
         self.local = self.spawn(args, env)
-        self.terminal.switch(self.local, 'CODEX')
+        if not self.menu or not self.menu.opened:
+            self.terminal.switch(self.local, self.assistant_label)
         self.resize()
 
     def output(self, data):
@@ -735,7 +704,7 @@ class Bridge:
                 else:
                     self.ready = True
                     self.switch_focus('local')
-                    self.notice('Remote shell ready. Starting/resuming Codex. Ctrl-] r opens SSH.')
+                    self.notice('Remote shell ready. Starting/resuming assistant. Ctrl-] r opens SSH.')
                     self.start_local()
 
     def interactive_observe(self, data):
@@ -788,7 +757,7 @@ class Bridge:
                 fail('conflict', 'Interactive session ID was already submitted; poll it instead.')
                 return
             if not self.ready or not self.remote or self.pending or self.focus == 'remote':
-                fail('busy', 'SSH must be connected, ready, idle, and controlled by Codex.')
+                fail('busy', 'SSH must be connected, ready, idle, and controlled by the assistant.')
                 return
             if not self.interactive_root:
                 fail('not_configured', 'Configure this SSH alias with cx --setup-slurm HOST --shared-dir /shared/path/cx before requesting an interactive allocation.')
@@ -851,7 +820,7 @@ class Bridge:
         elif operation == 'interactive_close':
             session = self.interactive
             if not session or session['id'] != key or not session['ready'] or session['child'] or self.focus != 'local':
-                fail('not_ready', 'Interactive shell must be ready, idle, and controlled by Codex.')
+                fail('not_ready', 'Interactive shell must be ready, idle, and controlled by the assistant.')
                 return
             session['ready'] = False
             os.write(self.remote[0], b'exit\n')
@@ -995,6 +964,10 @@ class Bridge:
 
     def keyboard(self, data):
         for packet in self.terminal.read_input(data):
+            if self.menu and self.menu.opened:
+                if not self.terminal.reply(packet):
+                    self.menu.handle(packet)
+                continue
             owner = self.remote if self.focus == 'remote' else self.local
             if self.terminal.pasting:
                 if packet != b'\x1b[201~' or self.terminal.paste_markers:
@@ -1078,9 +1051,11 @@ class Bridge:
                     self.switch_focus('remote')
                     if not self.remote:
                         self.connect()
-                    self.notice('Remote terminal. Ctrl-] c returns to Codex after login/interaction.')
+                    self.notice('Remote terminal. Ctrl-] c returns to the assistant after login/interaction.')
                 elif byte == ord('c'):
                     self.activate()
+                elif byte == ord('s') and self.menu:
+                    self.menu.open()
                 elif byte == ord('q'):
                     self.result = 130
                     self.running = False
@@ -1110,6 +1085,8 @@ class Bridge:
 
     def loop(self):
         while self.running:
+            if self.menu:
+                self.menu.poll()
             if self.resize_pending:
                 self.resize()
             self.terminal.display.paint()
@@ -1118,7 +1095,10 @@ class Bridge:
             readable, _, _ = select.select(readers, [], [], .05)
             pending_escape = self.terminal.flush_input() if 0 not in readable else b''
             if pending_escape:
-                self.deliver_terminal(self.remote if self.focus == 'remote' else self.local, pending_escape)
+                if self.menu and self.menu.opened:
+                    self.menu.handle(pending_escape)
+                else:
+                    self.deliver_terminal(self.remote if self.focus == 'remote' else self.local, pending_escape)
             for source in readable:
                 if source == 0:
                     data = os.read(0, 4096)
@@ -1172,6 +1152,24 @@ class Bridge:
                             self.terminal.display.paint(force=True)
                             self.result = item[1].wait()
                             self.local = None
+                            if self.menu:
+                                self.menu.release()
+                                if self.menu.handoff(self.result):
+                                    continue
+                                if self.menu.opened:
+                                    self.menu.active = None
+                                    self.menu.message = 'Assistant exited. Choose a session or close the menu.'
+                                    self.menu.draw()
+                                    continue
+                                if self.result:
+                                    self.menu.active = None
+                                    self.menu.open()
+                                    self.menu.message = 'Assistant failed to resume/exit. Native ownership checks remain in force; choose another session or quit.'
+                                    self.menu.draw()
+                                    continue
+                                if self.pending or self.interactive:
+                                    self.notice('Assistant exited; live remote state is retained. Ctrl-] s selects a session; Ctrl-] q explicitly exits CX.')
+                                    continue
                             return
 
     def run(self):
@@ -1219,6 +1217,8 @@ class Bridge:
                     except ProcessLookupError:
                         pass
                     os.close(item[0])
+            if self.menu:
+                self.menu.shutdown()
             if hasattr(self, 'server'):
                 self.server.close()
             if hasattr(self, 'root') and self.cleanup_mount():

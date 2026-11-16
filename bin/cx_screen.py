@@ -261,6 +261,8 @@ class SessionDisplay:
         self.deliver = deliver
         self.columns, self.rows = 80, 24
         self.panes = {}
+        self.header_hints = {}
+        self.compact_headers = set()
         self.active = None
         self.label = 'SSH'
         self.enabled = False
@@ -331,12 +333,17 @@ class SessionDisplay:
             data = data[count:]
 
     def header(self):
-        hint = 'Ctrl-] c: CODEX' if self.label == 'SSH' else 'Ctrl-] r: SSH'
-        text = f' {self.label}  |  {hint}'
+        hint = self.header_hints.get(self.active, 'Ctrl-] c: assistant' if self.label == 'SSH' else 'Ctrl-] r: SSH')
+        text = f' {self.label}'
+        compact = self.active in self.compact_headers
+        if hint and not compact:
+            text += '  |  '+hint
         offset = self.pane(self.active).screen.scroll_offset
-        if offset:
+        if offset and not compact:
             text += f'  |  HISTORY +{offset}  Ctrl-] b: live'
-        if self.message and time.monotonic() < self.message_until:
+        if compact:
+            pass
+        elif self.message and time.monotonic() < self.message_until:
             text += '  |  ' + self.message
         elif not offset:
             text += '  |  Shift-drag: select' if self.mouse_scroll else '  |  Mouse: selection'

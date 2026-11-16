@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# Built-in CLI adapters. The launcher owns Docker/workspace/environment policy.
+set -Eeuo pipefail
+umask 077
+fail() { printf 'cx: %s\n' "$*" >&2; exit 1; }
+mode="${1:?Missing adapter mode}"
+shift
+agent="${CX_AGENT:-codex}"
+auth="${CX_AUTH_MODE:-subscription}"
+
+native_arguments() {
+    # The first -- belongs to cx. Consume it only at the final adapter boundary,
+    # after every host wrapper has stopped parsing. A second -- remains native.
+    NATIVE_ARGS=()
+    local escaped=false argument
+    for argument in "$@"; do
+        if [[ "$escaped" == false && "$argument" == -- ]]; then
+            escaped=true
+            continue
+        fi
+        NATIVE_ARGS+=("$argument")
+    done
+}
+
+# Docker does not forward host auth variables. Also clear image/environment
+# leftovers before selecting the account's explicit native auth mechanism.
+unset OPENAI_API_KEY CODEX_API_KEY CODEX_ACCESS_TOKEN ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN
+unset CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+export DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1
+
+case "$agent" in
+    codex)
+        command -v codex >/dev/null || fail 'Codex is missing from the image; run cx --rebuild.'
+        if [[ "$mode" == --cx-auth ]]; then
+            case "${1:-}" in
+                login)
+                    if [[ "$auth" == api-key ]]; then
+                        # Native login reads stdin directly, including pipes.
+                        exec codex login --with-api-key
+                    fi
+                    exec codex login --device-auth ;;
+                status) exec codex login status ;;
+                logout) exec codex logout ;;
+                *) fail 'Unknown authentication action.' ;;
+            esac
+        fi
+        [[ "$mode" == --cx-session ]] || fail 'Unknown adapter mode.'
+        if [[ -n "${CODEX_SQLITE_HOME:-}" ]]; then
+            version="$(codex --version)"
+            if [[ "$version" =~ ^codex-cli\ ([0-9]+)\.([0-9]+)\. ]]; then
+                ((10#${BASH_REMATCH[1]} > 0 || 10#${BASH_REMATCH[2]} >= 169)) || fail 'Managed history requires Codex 0.169.0 or later; rebuild with a compatible CX_CODEX_VERSION.'
+            else
+                fail 'Cannot verify Codex shared-history compatibility; rebuild the image.'
+            fi
+        fi
+        native_arguments "$@"
+        if [[ "${CX_MANAGED_HISTORY:-}" == 1 && -t 0 && -t 1 ]]; then
+            if selection="$(node "$(dirname -- "${BASH_SOURCE[0]}")/cx-codex-resume.mjs" "${NATIVE_ARGS[@]}")"; then
+                resume_index="${selection%%:*}"
+                resume_id="${selection#*:}"
+                [[ "$resume_index" =~ ^[0-9]+$ && "$resume_id" =~ ^[0-9a-fA-F-]{36}$ ]] || fail 'Invalid history selection.'
+                insert=$((resume_index + 1))
+                NATIVE_ARGS=("${NATIVE_ARGS[@]:0:insert}" "$resume_id" "${NATIVE_ARGS[@]:insert}")
+            else
+                selection_status=$?
+                [[ "$selection_status" == 3 ]] || exit "$selection_status"
+            fi
+        fi
+        exec codex --sandbox danger-full-access "${NATIVE_ARGS[@]}" ;;
+    claude)
+        command -v claude >/dev/null || fail 'Claude is missing from the image; run cx --rebuild.'
+        profile="${CLAUDE_CONFIG_DIR:?Missing CLAUDE_CONFIG_DIR}"
+        if [[ "$mode" == --cx-auth && "${1:-}" == login && "$auth" == api-key ]]; then
+            [[ -t 0 ]] || fail 'Claude API-key login requires a terminal for a hidden prompt.'
+            printf 'Anthropic API key: ' >&2
+            IFS= read -rs key || fail 'API-key login cancelled.'
+            printf '\n' >&2
+            [[ -n "$key" ]] || fail 'API key cannot be empty.'
+            temporary="$(mktemp "$profile/.api-key.XXXXXX")"
+            trap 'rm -f -- "$temporary"' EXIT
+            printf '%s' "$key" >"$temporary"
+            mv -f -- "$temporary" "$profile/api-key"
+            unset key
+            exit 0
+        fi
+        if [[ "$mode" == --cx-auth && "${1:-}" == logout ]]; then
+            rm -f -- "$profile/api-key"
+            exec claude auth logout
+        fi
+        if [[ "$auth" == api-key && -f "$profile/api-key" ]]; then
+            export ANTHROPIC_API_KEY="$(<"$profile/api-key")"
+        fi
+        if [[ "$mode" == --cx-auth ]]; then
+            case "${1:-}" in
+                login) exec claude auth login ;;
+                status) exec claude auth status ;;
+                *) fail 'Unknown authentication action.' ;;
+            esac
+        fi
+        [[ "$mode" == --cx-session ]] || fail 'Unknown adapter mode.'
+        [[ "$(id -u)" != 0 ]] || fail 'Claude permission bypass requires a non-root UID.'
+        # Fail before authentication/model traffic on incompatible overrides.
+        help="$(claude --help)"
+        [[ "$help" == *--system-prompt-snapshot* && "$help" == *--append-system-prompt* ]] || fail 'Claude image lacks required prompt/resume capabilities; run cx --rebuild with CX_CLAUDE_VERSION=2.1.323.'
+        project="${CX_PROJECT_ROOT:-/workspace/main}"
+        # Native project/local settings keep their native source and precedence.
+        # Only this ephemeral container directory is written; source files are
+        # read through main so ignore masks apply.
+        for item in settings.json settings.local.json; do
+            if [[ -f "$project/.claude/$item" ]]; then
+                ln -s -- "$project/.claude/$item" ".claude/$item"
+            fi
+        done
+        # Additional-directory discovery omits AGENTS.md. Import those files
+        # through native memory loading, which keeps import resolution, excludes,
+        # managed restrictions and path deduplication. Never copy their text or
+        # edit project files. CLAUDE.md still loads from its original location.
+        memory_bridge=.claude/CLAUDE.md
+        memory_imports=()
+        for agents_file in "$project/AGENTS.md" "$project/.claude/AGENTS.md"; do
+            if [[ -f "$agents_file" ]]; then
+                memory_imports+=("@${agents_file// /\\ }")
+            fi
+        done
+        if ((${#memory_imports[@]})); then
+            bridge_temp="$(mktemp .claude/.cx-memory.XXXXXX)"
+            printf '%s\n' "${memory_imports[@]}" >"$bridge_temp"
+            mv -- "$bridge_temp" "$memory_bridge"
+        else
+            rm -f -- "$memory_bridge"
+        fi
+        export CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1
+        extra=(--add-dir "$project")
+        if [[ -n "${CX_SSH_SOCKET:-}" && "${CX_SSH_MCP:-1}" == 1 ]]; then
+            extra+=(--mcp-config '{"mcpServers":{"cx_ssh":{"command":"node","args":["/opt/cx-mcp/server.mjs"],"env":{"CX_SSH_SOCKET":"/cx-ssh/bridge.sock"}}}}')
+        fi
+        if [[ -f "$project/.mcp.json" ]]; then extra+=(--mcp-config "$project/.mcp.json"); fi
+        # cx exec is the common task verb; all remaining native args stay intact.
+        # A lone '-' means read the task from stdin, which Claude does natively.
+        args=(); parsing=true
+        while (($#)); do
+            if [[ "$parsing" == true ]]; then
+                case "$1" in
+                    --) parsing=false ;;
+                    exec|e) args+=(--print); shift; [[ "${1:-}" != - ]] || shift; break ;;
+                    --model|--settings|--mcp-config|--append-system-prompt|--system-prompt|--agent|--agents|--name|-n|--resume|-r|--output-format|--input-format|--add-dir|--max-turns|--max-budget-usd|--effort|--permission-mode|--setting-sources|--system-prompt-snapshot|--system-prompt-file|--append-system-prompt-file|--session-id|--plugin-dir|--fallback-model|--json-schema)
+                        # --resume can omit its value for the interactive picker.
+                        args+=("$1"); shift
+                        if (($#)) && [[ "$1" != -* ]]; then args+=("$1"); shift; fi
+                        continue ;;
+                    -*) args+=("$1"); shift; continue ;;
+                    *) break ;;
+                esac
+            fi
+            break
+        done
+        args+=("$@")
+        native_arguments "${args[@]}"
+        if [[ -n "${CX_SSH_SOCKET:-}" && "${CX_SSH_MCP:-1}" == 1 ]]; then
+            # Validate the effective container view, after masks/overlays and cx
+            # task translation. Never resolve container paths on the host.
+            CX_CLAUDE_HELP="$help" node "$(dirname -- "${BASH_SOURCE[0]}")/cx-claude-config.mjs" "${NATIVE_ARGS[@]}"
+        fi
+        guidance="$(cat "${CX_GUIDANCE_FILE:-/opt/cx/guidance.txt}")"
+        if [[ -n "${CX_SSH_INSTRUCTIONS:-}" ]]; then guidance+=" ${CX_SSH_INSTRUCTIONS}"; fi
+        exec claude "${extra[@]}" --dangerously-skip-permissions --system-prompt-snapshot off \
+            --append-system-prompt "$guidance" "${NATIVE_ARGS[@]}" ;;
+    *) fail 'Unknown CLI adapter.' ;;
+esac

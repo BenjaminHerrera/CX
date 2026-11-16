@@ -4,19 +4,99 @@ Examples below use an installed `cx`. For portable use, replace it with the
 absolute path to the bundle's `cx` file. Paths containing spaces are supported;
 quote them. Paths used in Docker mounts cannot contain commas.
 
+## Accounts and CLI Selection
+
+Create a fresh account with `cx accounts add --agent codex --account personal
+--auth subscription`, then explicitly log in with `cx --agent codex --account
+personal --login`. Use `--agent claude` for Claude Code. Interactive launches
+show a CLI/account picker; scripts require a complete pair or a saved
+`cx accounts default --agent codex --account personal` selection. Native
+`--profile` is unchanged and wrapper parsing stops at `--`.
+
+Remove a local profile with `cx accounts remove NAME`. If both CLIs have that
+name, add `--agent codex` or `--agent claude`. Close its sessions first. Shared
+history is preserved; see [account removal](ACCOUNTS.md#remove-an-account).
+
+Delete a shared conversation with `cx sessions remove SESSION_ID`, optionally
+adding `--agent codex` or `--agent claude` to disambiguate. Use a full UUID and
+stop sessions for that CLI first. This permanently removes the conversation
+from all accounts sharing its history; see [session removal](ACCOUNTS.md#remove-a-session).
+
+[Accounts and shared history](ACCOUNTS.md) describes API-key authentication,
+private mounts, native resume, Claude project settings/MCP, and migration.
+To copy existing native conversations, preview with
+`node scripts/import-sessions.mjs --dry-run`, then run without `--dry-run`.
+See [native session import](ACCOUNTS.md#import-existing-native-sessions) for
+Node requirements, portable paths, conflict handling and SQLite limitations.
+Existing native homes are untouched. Explicit `CX_CODEX_HOME` retains legacy
+Codex operation outside managed history sharing. Rebuild the image after upgrade.
+
+## Named Session Menu
+
+Press **Ctrl-] s** while CX owns an interactive local or SSH terminal, or launch
+`cx sessions select /path/to/project`. Bare managed `resume` / `--resume` also
+opens Sessions. The menu has its own saved screen and a blue header; SSH keeps
+its green header. Python 3.11+ is required on the host for interactive managed
+sessions. Legacy `CX_CODEX_HOME` keeps native behavior and has no CX session menu.
+
+The blue banner says only `Sessions`. The current assistant and account are
+labeled below the title, separately from filters and shortcuts. Local assistant
+banners advertise Sessions instead of an unavailable SSH screen.
+
+The layout follows Codex's resume picker: a title, search field, filter controls,
+spaced session records, relative update times and a position indicator. The
+selected row has a cyan `›` cursor; `*` marks the active conversation separately.
+Press `/` to search names, projects, CLIs or IDs. While searching, letters edit
+the query; Enter resumes, Esc finishes editing and Ctrl-U clears it. Use Tab to
+focus CLI/status/sort controls and Left/Right to change their values. Active
+(non-archived) sessions are shown initially. Ctrl-O toggles comfortable/dense rows.
+Internal Codex subagent/reviewer threads are hidden by source metadata, not by
+name. F2 explicitly shows/hides them; no histories are deleted by filtering.
+
+Use Up/Down, Page Up/Down or the mouse wheel to move the highlighted row.
+The `*` marker identifies a known active session; the cursor does not activate it.
+Press Enter to resume, `r` to rename (Ctrl-U clears, Enter saves, Esc cancels),
+`d` or Delete to confirm removal (`y` confirms, `n`/Esc cancels), `f` to refresh,
+and Esc/`q` to return. Duplicate names remain separate CLI/UUID rows.
+
+Enter queues a handoff while an assistant is running. Exit that assistant cleanly
+with its native `/exit` or Ctrl-D at an empty prompt. CX then launches native
+resume with the selected row's CLI/UUID and current guidance; no text is injected
+into the old draft and its initial task is never replayed. Opening the menu and
+pressing `q` cancels a queued handoff. A failed native exit cancels it too. When
+switching CLIs, choose a configured account from the menu. The real CLI still
+checks credentials and conversation ownership. Failed resume stays visible on
+its saved screen; reopen Sessions to choose another row, or Ctrl-] q to exit CX.
+
+Switching is gated during authentication, manual SSH focus and unfinished remote
+commands. Return to assistant focus with Ctrl-] c first. An idle ready interactive
+allocation can survive a switch: the original SSH connection, cwd, bridge IDs,
+mounts and allocation remain intact. Live commands are checked again at handoff;
+unknown commands are never replayed. The assistant must exit cleanly before a
+switch; CX cannot infer that a native model/tool turn is idle from terminal text.
+
+The shortcut is not installed for exec/print or redirected commands and is not
+interpreted inside bracketed paste. Menu input never goes to the previous PTY.
+Cancel restores that PTY's saved screen, scroll position, draft, colors and modes.
+Shift-drag selects text; the existing Ctrl-] m wheel/selection toggle remains.
+Real Windows Terminal/WSL and live SSH switching still need manual validation.
+
+See [session names and safety](ACCOUNTS.md#session-names-and-menu-safety) for
+persistence, native discovery and deletion gates.
+
 ## Start a session
 
 ```bash
 cx /path/to/project
 cd /path/to/project
 cx .
-cx . exec "Explain the test failures"
-printf '%s\n' 'Summarize this repository' | cx . exec -
+cx --agent codex --account personal . exec "Explain the test failures"
+printf '%s\n' 'Summarize this repository' | cx --agent codex --account personal . exec -
 ```
 
 The optional first directory selects the local project. cx handles its own
 commands, `--add-dir`, `--add-file`, and SSH options; other arguments pass to
-Codex. Use an explicit project directory if a Codex argument could also name
+the selected CLI. Use an explicit project directory if a native argument could also name
 an existing directory. Paths in prompts and other Codex arguments are not
 translated automatically: use the appropriate `/workspace/main`,
 `/workspace/cx-external`, or `/workspace/remote` container path.
@@ -28,7 +108,7 @@ are discarded when the process exits.
 
 ## Workspace directory layout
 
-Both Codex sessions and `cx --shell` start at `/workspace`:
+Both CLI sessions and `cx --shell` start at `/workspace`:
 
 ```text
 /workspace/
@@ -46,7 +126,7 @@ Use `cd main` for local project commands, `cd cx-external/NAME` for an added
 directory, or `cd remote` to browse a mounted SSH project. The `/workspace`
 parent and unused placeholders are read-only; create project files in the
 mounted directories. Remote command execution continues to use server paths.
-`cx ... exec` automatically adds `--skip-git-repo-check`, because the browser
+For Codex, `cx ... exec` automatically adds `--skip-git-repo-check`, because the browser
 parent is above the selected project repository.
 
 After upgrading, rebuild the image to create this layout. Update scripts that
@@ -73,8 +153,9 @@ ancestors/children.
 `cx --shell` uses the current directory as its workspace and accepts
 `--add-dir` and `--add-file` options. It starts Bash after environment setup.
 `exit` leaves it.
-The shell has the same project, credentials, and environment mounts; it does
-not run Codex or load the Codex system instructions.
+The shell shares project and environment mounts and uses an empty persistent
+home without managed account credentials. Explicit legacy mode keeps its home
+mount. It does not run an assistant or load assistant instructions.
 
 ## Add individual files
 
@@ -194,16 +275,18 @@ permission gate. A human running shell commands controls those changes directly.
 |---|---|---|
 | `CX_IMAGE` | `local/codex-isolated:latest` | Image to build and run |
 | `CX_CODEX_VERSION` | `latest` | npm package version for builds only |
-| `CX_CODEX_HOME` | `~/.codex` | Writable Codex credentials, settings, and session data |
+| `CX_CLAUDE_VERSION` | `2.1.323` | Claude npm version for builds only |
+| `CX_DATA_HOME` | `~/.local/share/cx/data` | Managed profiles, shared native history and automation default |
+| `CX_CODEX_HOME` | Unset | Explicit legacy Codex home; bypasses managed accounts/history |
 | `CX_ENV_HOME` | `~/.local/share/cx/environments` | Workspace environment stores |
 | `CX_ENV_NAME` | Saved selection, else `default` | Session environment override |
 | `CX_CONFIG_DIR` | Package `config/` | Directory containing system `config.toml` |
 | `CX_SLURM_CONFIG` | `$XDG_CONFIG_HOME/cx/slurm-servers.json`, else `~/.config/cx/slurm-servers.json` | Host file holding shared directories keyed by SSH alias |
-| `CX_MEMORY` | `8g` | Normal Codex container memory limit |
-| `CX_CPUS` | `4` | Normal Codex container CPU limit |
-| `CX_PIDS` | `1024` | Normal Codex container process limit |
+| `CX_MEMORY` | `8g` | Assistant container memory limit |
+| `CX_CPUS` | `4` | Assistant container CPU limit |
+| `CX_PIDS` | `1024` | Assistant container process limit |
 
-Portable defaults for `CX_CODEX_HOME` and `CX_ENV_HOME` are `data/codex` and
+Portable defaults for `CX_DATA_HOME` and `CX_ENV_HOME` are `data/` and
 `data/environments` under the bundle. Explicit variables override these defaults.
 Use absolute paths for directory overrides. Shell and login utility containers
 retain their original behavior and do not apply the three resource limits.
@@ -222,12 +305,12 @@ Persistent Codex preferences belong in the active credential store's
 `config.toml`. For example:
 
 ```toml
-# ~/.codex/config.toml for the default installed edition
+# ~/.local/share/cx/data/profiles/codex/NAME/home/config.toml
 model = "YOUR_MODEL"
 ```
 
 Replace the placeholder with a model your account supports. For portable use,
-edit `data/codex/config.toml`. The package's separate `config/config.toml` is
+edit `data/profiles/codex/NAME/home/config.toml`. The package's separate `config/config.toml` is
 mounted at `/etc/codex/config.toml` during Codex workspace runs and provides the
 persistent environment instructions. Installed configuration is stored at
 `PREFIX/share/cx/config/config.toml` and is preserved across upgrades.

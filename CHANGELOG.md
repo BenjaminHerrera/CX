@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+- Simplify the Sessions banner and separate assistant/account labels from filter
+  controls. Show local session shortcuts without SSH hints, and keep transport
+  notices visible below the menu banner.
+
+- Restyle Sessions after Codex's resume picker: searchable named rows, relative
+  update times, CLI/status/sort controls, density toggle and a position footer.
+  Hide internal Codex reviewer/subagent threads by default; F2 opts into them
+  without hiding user conversations that happen to share their names.
+
+- Add a saved blue Sessions menu in managed local and SSH sessions: Ctrl-] s,
+  cursor/page navigation, stable names, persistent rename and confirmed deletion
+  through the existing removal backend. Keep instance-local active selection and
+  queue native resume until the current assistant exits cleanly; never inject a
+  quit command or replay a task. Keep SSH command/allocation state in the bridge.
+- Discover Codex history with paginated native APIs and persist explicit native
+  names with thread/name/set. Keep per-CLI/UUID explicit CX names above imported
+  titles, and show neutral labels for unnamed histories instead of chat previews.
+- Protect Claude deletion with conservative managed-writer leases and an atomic
+  deletion gate. Record live terminal/Docker/site checks separately from fixtures.
+
+- Add a standalone native session import script for Codex and Claude, with
+  dry run, custom paths, duplicate/conflict handling, private independent copies
+  and index merging. Preserve native originals and exclude credentials/settings;
+  validate durable backing files for SQLite-projected/paginated histories
+  instead of rejecting every cached session. Add explicit `--skip-unavailable`
+  for missing/truncated rollouts and dependent histories; never merge databases.
+- Add `cx sessions remove ID` for managed Codex and Claude histories, with
+  CLI disambiguation, native Codex deletion, transcript/index cleanup and
+  protection against unrelated-session deletion. Show full IDs in the CX
+  Codex resume picker.
+- Add `cx accounts remove NAME` with CLI disambiguation, matching automation
+  default cleanup, and preservation of shared conversation history.
+- Add Claude SSH launch guidance and session-only cx_ssh MCP registration through
+  built-in agent adapters. Preserve shared command tracking and native ownership.
+- Validate Claude SSH MCP conflicts against container-visible paths and active
+  project configuration; preserve single-value settings and task arguments.
+- Use installed Claude option declarations when validating SSH MCP configs,
+  including configurations following session names or agent definitions.
+- Identify the selected agent/account in the blue assistant terminal bar.
+
+- Establish the `v2` integration workflow for multi-CLI/account development,
+  including CI on integration pushes and implementation PRs targeting `v2`.
+- Add named Codex/Claude accounts, explicit subscription/API-key login, an
+  interactive combined picker, and noninteractive automation defaults.
+- Isolate profile credentials, settings, plugins and caches while sharing native
+  conversation history and resume metadata within each CLI. Preserve explicit
+  `CX_CODEX_HOME` legacy mode; leave existing native homes untouched.
+- Build Claude Code 2.1.323 alongside Codex, disable Claude self-updates, add
+  `CX_CLAUDE_VERSION` and `CX_DATA_HOME`, and translate common `exec` tasks.
+- Load Claude project instructions/settings/MCP without wrapper repository edits,
+  append cx guidance and refresh prompt context on resume. Reject root bypass.
+- Load AGENTS-only project instructions at startup through native imports with
+  deduplication; consume wrapper escapes so forwarded native options are parsed.
+- Add shared Codex history discovery for interactive managed `resume`, then hand
+  the selected ID to native Codex while preserving ownership checks. Direct
+  cross-account subscription resume was confirmed by the user; picker host
+  validation remains open.
+- Add account/adapter and real-CLI loopback regression suites. Live provider
+  login and Docker checks remain open gates; Claude SSH parity belongs to CX-2.
 - Simplify the README and add a documentation index, contributor and development
   guides, support/security/conduct policies, and repository instructions for agents.
 - Add GitHub issue forms, a pull request template, offline CI, and maintainer

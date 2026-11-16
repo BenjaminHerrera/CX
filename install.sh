@@ -51,6 +51,7 @@ for item in bin container docs VERSION README.md CHANGELOG.md CONTRIBUTING.md SU
     cp -R -- "$package_root/$item" "$staging/"
 done
 install -m 0644 "$package_root/scripts/cx-interactive-hook.sh" "$staging/bin/cx-interactive-hook.sh"
+install -m 0644 "$package_root/scripts/import-sessions.mjs" "$staging/bin/cx-import-sessions.mjs"
 # Keep the user's configuration separate from replaceable program files.
 if [[ ! -e "$install_root/config/config.toml" ]]; then
     install -m 0644 "$package_root/config/config.toml" "$install_root/config/config.toml"
@@ -70,4 +71,4 @@ case ":$PATH:" in
     *) printf 'Add this to your shell profile, then open a new terminal:\n  export PATH=%q:"$PATH"\n' "$prefix/bin" ;;
 esac
 if [[ "$build" == false ]]; then printf 'Build next: %q --build\n' "$launcher"; fi
-printf 'Then sign in: %q --login\nRun a project: %q /path/to/project\n' "$launcher" "$launcher"
+printf 'Create an account: %q accounts add --agent codex --account personal --auth subscription\nThen sign in: %q --agent codex --account personal --login\nRun a project: %q /path/to/project\n' "$launcher" "$launcher" "$launcher"

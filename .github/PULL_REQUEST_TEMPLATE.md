@@ -1,6 +1,7 @@
 ## Problem and resulting behavior
 
 <!-- Explain the trigger, what changes for users, and why. Link related issues. -->
+<!-- For v2 multi-CLI/account implementation work, select v2 as the base branch. -->
 
 ## Validation
 

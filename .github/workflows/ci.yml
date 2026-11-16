@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2]
   pull_request:
   workflow_dispatch:
 
@@ -37,6 +37,14 @@ jobs:
           npm ci --prefix container/mcp --ignore-scripts
       - name: Wrapper, installation, and package checks
         run: node tests/smoke.mjs
+      - name: Account Isolation and CLI Adapter Checks
+        run: |
+          node tests/accounts.mjs
+          node tests/codex-resume.mjs
+          node tests/session-menu.mjs
+          python3 -B tests/session_menu.py
+          node tests/sessions.mjs
+          node tests/import-sessions.mjs
       - name: Remote CLI checks
         run: node tests/remote-client.mjs
       - name: MCP checks

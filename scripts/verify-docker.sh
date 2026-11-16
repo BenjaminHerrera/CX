@@ -38,14 +38,16 @@ for edition in install portable; do
     printf '%s\n' 'private fixture value' > "$project/hidden/original"
     printf '%s\n' 'shared fixture value' > "$shared/visible"
     if [[ "$edition" == install ]]; then
-        command=(env -u CX_ENV_NAME -u CX_CONFIG_DIR
-            "CX_CODEX_HOME=$fixture/install-data/codex"
+        command=(env -u CX_CODEX_HOME -u CX_ENV_NAME -u CX_CONFIG_DIR
+            "CX_DATA_HOME=$fixture/install-data/accounts"
             "CX_ENV_HOME=$fixture/install-data/environments"
             "$prefix/bin/cx")
     else
-        command=(env -u CX_CODEX_HOME -u CX_ENV_HOME -u CX_ENV_NAME -u CX_CONFIG_DIR
+        command=(env -u CX_CODEX_HOME -u CX_DATA_HOME -u CX_ENV_HOME -u CX_ENV_NAME -u CX_CONFIG_DIR
             "$fixture/cx-$version-portable/cx")
     fi
+    "${command[@]}" accounts add --agent codex --account fixture --auth subscription
+    "${command[@]}" accounts default --agent codex --account fixture
     # Normal launch exercises system config, all limits, and read-only mounts.
     "${command[@]}" "$project" --add-file "$standalone" --version
     # The shell accepts stdin, letting us test real mount contents without login.
