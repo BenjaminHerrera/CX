@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cx_screen import SessionDisplay
 from cx_agent import ssh_overrides
+from cx_sessions import SessionMenu
 
 
 class TerminalIO:
@@ -331,8 +332,8 @@ class Bridge:
         self.jobs = {}
         self.submitted_ids = set()
         self.interactive = None
-        self.interactive_root = os.environ.get('CX_SLURM_INTERACTIVE_DIR') or None
-        job_pattern = os.environ.get('CX_SLURM_JOB_ID_PATTERN')
+        self.interactive_root = (os.environ.get('CX_SLURM_INTERACTIVE_DIR') or None) if host else None
+        job_pattern = os.environ.get('CX_SLURM_JOB_ID_PATTERN') if host else None
         self.job_id_patterns = [re.compile(rb'(?:Interactive job with ID |Granted job allocation |Submitted batch job )(\d+)'),
                                 re.compile(rb'\b(?:salloc|srun): job (\d+)\b')]
         if job_pattern:
@@ -346,7 +347,7 @@ class Bridge:
         self.resize_pending = False
         self.running = True
         self.result = 1
-        self.mount_mode = os.environ.get('CX_SSH_MOUNT_REQUEST', '')
+        self.mount_mode = os.environ.get('CX_SSH_MOUNT_REQUEST', '') if host else ''
         self.mount_process = None
         self.mount_path = None
         self.mount_log = None
@@ -354,6 +355,7 @@ class Bridge:
         if os.environ.get('CX_ACCOUNT'):
             self.assistant_label += ' / ' + os.environ['CX_ACCOUNT']
         self.terminal = TerminalIO(self.deliver_terminal)
+        self.menu = SessionMenu(self) if os.environ.get('CX_SESSION_MENU') == '1' else None
 
     def deliver_terminal(self, owner, data):
         if owner is not None and (owner is self.remote or owner is self.local):
@@ -362,6 +364,8 @@ class Bridge:
                 data = data[count:]
 
     def switch_focus(self, focus):
+        if self.menu and self.menu.opened:
+            return
         if focus == 'remote' and self.interactive:
             self.interactive['ready'] = False
         self.focus = focus
@@ -369,6 +373,10 @@ class Bridge:
                              'SSH' if focus == 'remote' else self.assistant_label)
 
     def notice(self, message):
+        if self.menu and self.menu.opened:
+            self.menu.message = message
+            self.menu.draw()
+            return
         if self.terminal.display.enabled:
             self.terminal.display.notice(message)
         else:
@@ -393,6 +401,7 @@ class Bridge:
         lines.extend(['', f'{header} Login / Terminal Controls {reset}', ''])
         row('Log in', 'Complete SSH authentication/MFA and reach a Bash prompt.')
         row('Ctrl-] c', 'Start the assistant after login, or return to it.')
+        row('Ctrl-] s', 'Open the named session menu (managed interactive accounts).')
         row('Ctrl-] r', 'Open the remote terminal for authentication or interaction.')
         row('Ctrl-] q', 'Exit this cx SSH-mode session.')
         row('Ctrl-] b', 'Return to the live view after scrolling history.')
@@ -416,6 +425,8 @@ class Bridge:
                 except OSError:
                     pass
         self.resize_pending = False
+        if self.menu and self.menu.opened:
+            self.menu.draw()
         self.terminal.display.paint(force=True)
 
     def spawn(self, args, env=None):
@@ -580,6 +591,9 @@ class Bridge:
     def start_local(self):
         if self.local:
             return
+        if self.menu and os.environ.get('CX_SESSION_OPEN') == '1' and not self.menu.active:
+            self.menu.open()
+            return
         self.mount_files()
         env = dict(os.environ, CX_SSH_BRIDGE_DIR=self.runtime, CX_SSH_HOST=self.host)
         if self.mount_path:
@@ -593,8 +607,11 @@ class Bridge:
             mcp_enabled=os.environ.get('CX_SSH_MCP', '1') == '1')
         env.update(agent_env)
         args = self.launcher[:2] + overrides + self.launcher[2:]
+        if self.menu:
+            self.menu.launched()
         self.local = self.spawn(args, env)
-        self.terminal.switch(self.local, self.assistant_label)
+        if not self.menu or not self.menu.opened:
+            self.terminal.switch(self.local, self.assistant_label)
         self.resize()
 
     def output(self, data):
@@ -947,6 +964,10 @@ class Bridge:
 
     def keyboard(self, data):
         for packet in self.terminal.read_input(data):
+            if self.menu and self.menu.opened:
+                if not self.terminal.reply(packet):
+                    self.menu.handle(packet)
+                continue
             owner = self.remote if self.focus == 'remote' else self.local
             if self.terminal.pasting:
                 if packet != b'\x1b[201~' or self.terminal.paste_markers:
@@ -1033,6 +1054,8 @@ class Bridge:
                     self.notice('Remote terminal. Ctrl-] c returns to the assistant after login/interaction.')
                 elif byte == ord('c'):
                     self.activate()
+                elif byte == ord('s') and self.menu:
+                    self.menu.open()
                 elif byte == ord('q'):
                     self.result = 130
                     self.running = False
@@ -1062,6 +1085,8 @@ class Bridge:
 
     def loop(self):
         while self.running:
+            if self.menu:
+                self.menu.poll()
             if self.resize_pending:
                 self.resize()
             self.terminal.display.paint()
@@ -1070,7 +1095,10 @@ class Bridge:
             readable, _, _ = select.select(readers, [], [], .05)
             pending_escape = self.terminal.flush_input() if 0 not in readable else b''
             if pending_escape:
-                self.deliver_terminal(self.remote if self.focus == 'remote' else self.local, pending_escape)
+                if self.menu and self.menu.opened:
+                    self.menu.handle(pending_escape)
+                else:
+                    self.deliver_terminal(self.remote if self.focus == 'remote' else self.local, pending_escape)
             for source in readable:
                 if source == 0:
                     data = os.read(0, 4096)
@@ -1124,6 +1152,24 @@ class Bridge:
                             self.terminal.display.paint(force=True)
                             self.result = item[1].wait()
                             self.local = None
+                            if self.menu:
+                                self.menu.release()
+                                if self.menu.handoff(self.result):
+                                    continue
+                                if self.menu.opened:
+                                    self.menu.active = None
+                                    self.menu.message = 'Assistant exited. Choose a session or close the menu.'
+                                    self.menu.draw()
+                                    continue
+                                if self.result:
+                                    self.menu.active = None
+                                    self.menu.open()
+                                    self.menu.message = 'Assistant failed to resume/exit. Native ownership checks remain in force; choose another session or quit.'
+                                    self.menu.draw()
+                                    continue
+                                if self.pending or self.interactive:
+                                    self.notice('Assistant exited; live remote state is retained. Ctrl-] s selects a session; Ctrl-] q explicitly exits CX.')
+                                    continue
                             return
 
     def run(self):
@@ -1171,6 +1217,8 @@ class Bridge:
                     except ProcessLookupError:
                         pass
                     os.close(item[0])
+            if self.menu:
+                self.menu.shutdown()
             if hasattr(self, 'server'):
                 self.server.close()
             if hasattr(self, 'root') and self.cleanup_mount():

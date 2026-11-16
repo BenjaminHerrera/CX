@@ -17,17 +17,72 @@ Remove a local profile with `cx accounts remove NAME`. If both CLIs have that
 name, add `--agent codex` or `--agent claude`. Close its sessions first. Shared
 history is preserved; see [account removal](ACCOUNTS.md#remove-an-account).
 
+Delete a shared conversation with `cx sessions remove SESSION_ID`, optionally
+adding `--agent codex` or `--agent claude` to disambiguate. Use a full UUID and
+stop sessions for that CLI first. This permanently removes the conversation
+from all accounts sharing its history; see [session removal](ACCOUNTS.md#remove-a-session).
+
 [Accounts and shared history](ACCOUNTS.md) describes API-key authentication,
 private mounts, native resume, Claude project settings/MCP, and migration.
+To copy existing native conversations, preview with
+`node scripts/import-sessions.mjs --dry-run`, then run without `--dry-run`.
+See [native session import](ACCOUNTS.md#import-existing-native-sessions) for
+Node requirements, portable paths, conflict handling and SQLite limitations.
 Existing native homes are untouched. Explicit `CX_CODEX_HOME` retains legacy
 Codex operation outside managed history sharing. Rebuild the image after upgrade.
 
-Interactive managed Codex `resume` uses cx's shared-history picker to show
-conversations across local accounts. Choose a number, use `n`/`p` for pages, or
-`q` to cancel. `resume --all` removes directory filtering; explicit IDs and
-`--last` retain native behavior. Native Codex checks still decide whether the
-selected account may resume. See [shared resume](ACCOUNTS.md#shared-codex-resume-picker).
-Rebuild the image after updating to include this picker.
+## Named Session Menu
+
+Press **Ctrl-] s** while CX owns an interactive local or SSH terminal, or launch
+`cx sessions select /path/to/project`. Bare managed `resume` / `--resume` also
+opens Sessions. The menu has its own saved screen and a blue header; SSH keeps
+its green header. Python 3.11+ is required on the host for interactive managed
+sessions. Legacy `CX_CODEX_HOME` keeps native behavior and has no CX session menu.
+
+The blue banner says only `Sessions`. The current assistant and account are
+labeled below the title, separately from filters and shortcuts. Local assistant
+banners advertise Sessions instead of an unavailable SSH screen.
+
+The layout follows Codex's resume picker: a title, search field, filter controls,
+spaced session records, relative update times and a position indicator. The
+selected row has a cyan `›` cursor; `*` marks the active conversation separately.
+Press `/` to search names, projects, CLIs or IDs. While searching, letters edit
+the query; Enter resumes, Esc finishes editing and Ctrl-U clears it. Use Tab to
+focus CLI/status/sort controls and Left/Right to change their values. Active
+(non-archived) sessions are shown initially. Ctrl-O toggles comfortable/dense rows.
+Internal Codex subagent/reviewer threads are hidden by source metadata, not by
+name. F2 explicitly shows/hides them; no histories are deleted by filtering.
+
+Use Up/Down, Page Up/Down or the mouse wheel to move the highlighted row.
+The `*` marker identifies a known active session; the cursor does not activate it.
+Press Enter to resume, `r` to rename (Ctrl-U clears, Enter saves, Esc cancels),
+`d` or Delete to confirm removal (`y` confirms, `n`/Esc cancels), `f` to refresh,
+and Esc/`q` to return. Duplicate names remain separate CLI/UUID rows.
+
+Enter queues a handoff while an assistant is running. Exit that assistant cleanly
+with its native `/exit` or Ctrl-D at an empty prompt. CX then launches native
+resume with the selected row's CLI/UUID and current guidance; no text is injected
+into the old draft and its initial task is never replayed. Opening the menu and
+pressing `q` cancels a queued handoff. A failed native exit cancels it too. When
+switching CLIs, choose a configured account from the menu. The real CLI still
+checks credentials and conversation ownership. Failed resume stays visible on
+its saved screen; reopen Sessions to choose another row, or Ctrl-] q to exit CX.
+
+Switching is gated during authentication, manual SSH focus and unfinished remote
+commands. Return to assistant focus with Ctrl-] c first. An idle ready interactive
+allocation can survive a switch: the original SSH connection, cwd, bridge IDs,
+mounts and allocation remain intact. Live commands are checked again at handoff;
+unknown commands are never replayed. The assistant must exit cleanly before a
+switch; CX cannot infer that a native model/tool turn is idle from terminal text.
+
+The shortcut is not installed for exec/print or redirected commands and is not
+interpreted inside bracketed paste. Menu input never goes to the previous PTY.
+Cancel restores that PTY's saved screen, scroll position, draft, colors and modes.
+Shift-drag selects text; the existing Ctrl-] m wheel/selection toggle remains.
+Real Windows Terminal/WSL and live SSH switching still need manual validation.
+
+See [session names and safety](ACCOUNTS.md#session-names-and-menu-safety) for
+persistence, native discovery and deletion gates.
 
 ## Start a session
 

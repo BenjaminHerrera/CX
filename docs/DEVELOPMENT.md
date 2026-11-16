@@ -18,6 +18,10 @@ a runtime requirement. Python rendering dependencies are bundled in `bin/vendor`
 npm ci --prefix container/mcp --ignore-scripts
 node tests/smoke.mjs
 node tests/accounts.mjs
+node tests/sessions.mjs
+node tests/session-menu.mjs
+python3 -B tests/session_menu.py
+node tests/import-sessions.mjs
 node tests/codex-resume.mjs
 node tests/remote-client.mjs
 node tests/mcp.mjs
@@ -58,6 +62,33 @@ ownership rejection with the native check enabled, plus the production shared
 history listing client. `node tests/codex-resume.mjs` covers the cx picker and
 native CLI handoff. Passing an API-style fixture test does not prove subscription
 account compatibility; report native restrictions and host tests separately.
+
+Session deletion uses `container/cx-sessions.mjs`, mounted read-only by the host
+launcher in a network-disabled container with histories only. It reuses the
+Codex app-server client and native `thread/delete`; never replace that operation
+with direct database writes. `tests/sessions.mjs` covers file/index isolation,
+collision handling, native failures and unsafe paths. Set `CX_NATIVE_HISTORY=1`
+to add real Codex fixture deletion, SQLite cleanup, spawned descendants and
+preservation of similar UUIDs in the other storage namespace. Keep the exact
+lookup guards: native 0.169.0 can fuzzy-match a different rollout when an ID is
+absent from active or archived storage (see the [native lookup implementation](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/rollout/src/list.rs)). The helper reads the single native state
+database for descendant IDs and refuses conflicting database versions.
+
+`scripts/import-sessions.mjs` is a host Node 24 maintenance utility, also
+installed as `program/bin/cx-import-sessions.mjs`. It uses only built-in modules,
+copies allowed history paths, snapshots native SQLite for read-only integrity
+checks, and never merges databases or imports credentials. Additions need
+source/package coverage, not Docker build inputs. `tests/import-sessions.mjs`
+checks dry runs, repeat imports, conflicts/dependencies, indexes, compressed
+rollouts, independent copies, path boundaries, source preservation and WAL
+snapshots. SQLite cache rows are not evidence that a rollout is unimportable.
+Check backing files, ordinals, projection offsets and ancestor lengths; require
+`--skip-unavailable` before omitting unavailable histories and their descendants.
+`CX_NATIVE_HISTORY=1` adds real Codex discovery in an initialized shared store,
+plus paginated resume that compares native turns/items before and after import,
+with temporary homes and no provider login or model requests. Codex's
+[materialization pipeline](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/thread-store/src/local/thread_history_materialization.rs)
+rebuilds these projections from durable rollout records.
 
 ## Component map
 
@@ -130,3 +161,35 @@ the server. Document new options in help and `docs/USAGE.md`, setup changes in
 Add distribution files to the package allowlist. Update `VERSION` and release
 references only when preparing a requested release. Follow the
 [release checklist](GITHUB.md#release-checklist); never publish a used portable bundle.
+
+
+## Session Menu Development
+
+`bin/cx_sessions.py` owns the menu model, saved pane, keyboard actions and bounded
+asynchronous worker. `bin/cx-session-supervisor.py` reuses the PTY/screen plumbing
+for local sessions without invoking SSH or loading its configuration. The SSH
+supervisor retains its existing transport and calls the same menu controller.
+Opening the menu changes display/input routing, not remote focus/readiness.
+
+`container/cx-session-menu.mjs` runs as a history-only, network-disabled utility,
+reusing `cx-sessions.mjs` for deletion and `cx-codex-resume.mjs` for native RPC.
+Keep mutation requests bound to an explicit CLI/UUID. Never replay an initial
+task during handoff, kill a potentially busy assistant to switch, or infer an
+active ID from recent history. Recheck remote ownership at handoff, not just at
+selection. Idle ready allocations remain owned by the same bridge.
+
+Run `session-menu.mjs` for native pagination/naming and history safety fixtures;
+`CX_NATIVE_HISTORY=1` adds real Codex naming/discovery with a disposable rollout
+and no provider requests. `session_menu.py` covers keyboard/modal routing,
+cursor preservation, Unicode, resize, clean/failed/busy handoff, helper startup failure, retained
+allocation identity and a real local PTY draft-restoration check. Run existing
+screens/SSH/removal/account suites after changing those seams. Fixtures do not
+establish real Docker, Claude live resume, Windows Terminal selection/paste or
+site scheduler behavior. See `docs/CX7-VALIDATION.md` for remaining live gates.
+
+The resume-style menu uses a local filtered view keyed by CLI/UUID. Search never
+reads chat previews. Keep internal-source filtering separate from display names;
+F2 explicitly requests reviewer/subagent rows and labels them. Test search-mode
+key isolation, filter/sort/density changes and narrow layouts in session_menu.py,
+and native request/source filtering in session-menu.mjs. Native helper mutations
+retain exact IDs even when the visible list is filtered.

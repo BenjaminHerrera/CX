@@ -86,7 +86,7 @@ export async function chooseHistory(request,{client,ask,write}={}){
     const rows=result.data.filter(row=>uuid.test(row.id)).slice(0,20);
     if(!rows.length&&page===0)throw new Error('No matching shared conversations. Try resume --all or --include-non-interactive.');
     write('\nShared Codex history\n');
-    rows.forEach((row,index)=>write(`${index+1}) ${display(row.name||row.preview||'(no message yet)')} [${row.id.slice(0,8)}]\n`));
+    rows.forEach((row,index)=>write(`${index+1}) ${display(row.name||`Untitled Session [${row.id.slice(0,8)}]`)} [${row.id}]\n`));
     const answer=await ask(`Choose conversation${result.nextCursor?' / n next':''}${page?' / p previous':''} / q cancel: `);
     if(answer===null)return null;
     const choice=answer.trim();

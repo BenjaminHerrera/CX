@@ -4,12 +4,12 @@ Start with the [development guide](DEVELOPMENT.md) for local setup and component
 workflows. See [GitHub maintenance](GITHUB.md) for triage, repository settings,
 and the release checklist. The [documentation index](README.md) lists all guides.
 
-The launcher is Bash; the optional host SSH bridge uses Python 3.11+ standard
+The launcher is Bash; interactive supervision and the SSH bridge use Python 3.11+ standard
 library modules plus bundled pure Python pyte/wcwidth sources for screen
 rendering. The container client and wrapper tests use Node.js built-in
 modules. The MCP suite requires the locked SDK dependencies; other suites need no npm dependencies.
 Host Node.js is needed for maintenance, not ordinary cx use. Host Python is
-required only for SSH mode and its tests.
+required for managed interactive sessions, SSH mode and their tests.
 
 ## Offline checks
 
@@ -20,6 +20,10 @@ remain in the source distribution.
 ```bash
 node tests/smoke.mjs
 node tests/accounts.mjs
+node tests/sessions.mjs
+node tests/session-menu.mjs
+python3 -B tests/session_menu.py
+node tests/import-sessions.mjs
 node tests/remote-client.mjs
 npm ci --prefix container/mcp --ignore-scripts
 node tests/mcp.mjs
@@ -30,6 +34,8 @@ python3 -B tests/screens.py
 
 | Suite | Coverage |
 |---|---|
+| `import-sessions.mjs` | Copy-only native history migration, dry run, independent copies, archive/compression deduplication, conflicts, metadata merge, SQLite/WAL and missing/truncated rollout checks; opt-in native discovery and paginated resume |
+| `sessions.mjs` | Exact-ID removal, CLI collisions, transcript/index preservation, symlink refusal and native error handling; opt-in native Codex fixtures cover archives, descendants and SQLite cleanup |
 | `smoke.mjs` | Shell syntax, Docker argument generation, workspace layout, file/directory mounts, masking, piped tasks, credential/path rejection, install/upgrade/removal, environments, packaging, and extracted editions |
 | `screens.py` | Saved screen isolation, full-width bars, normal/alternate scrollback, pinned history, resize, Unicode, dim text and background shading, indexed/RGB colors, underline styles, standalone imports, and optional native VT tests |
 | `slurm_setup.py` | Fake SSH server setup, separate aliases, paths with spaces, job-ID patterns, idempotence, hook discovery, configuration privacy, and refusal of unmanaged hooks |
@@ -182,3 +188,11 @@ compute nodes through the MCP bridge, ran commands, and closed both jobs; the
 CPU test also confirmed shell state persists across commands. The scheduler
 showed neither job remaining afterward. Other sites and allocation modes
 still need their own checks.
+
+
+Named-session release checks are recorded in [CX-7 validation](CX7-VALIDATION.md).
+Menu fixtures and native Codex naming checks do not establish live Docker, SSH
+handoff, Windows Terminal selection/paste, or scheduler compatibility. Confirm
+fresh guidance and native ownership failures on an integrated host before release.
+Claude writer leases cover interactive supervision and managed exec/print launches;
+inspect stale leases/gates only with the related writers and maintenance stopped.
