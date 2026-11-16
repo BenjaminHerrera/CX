@@ -39,27 +39,50 @@ try {
     path.join(process.cwd(), '.claude/settings.local.json')]) check(read(file), file);
 
   const args = process.argv.slice(2);
-  // Skip values for other native options so prompt text resembling an option
-  // cannot accidentally become a configuration source. A positional ends options.
-  const single = new Set(['--model', '--append-system-prompt', '--system-prompt', '--agent',
-    '--resume', '-r', '--output-format', '--input-format', '--max-turns', '--max-budget-usd',
-    '--effort', '--permission-mode', '--setting-sources', '--system-prompt-snapshot',
-    '--system-prompt-file', '--append-system-prompt-file', '--session-id', '--plugin-dir',
-    '--fallback-model', '--json-schema']);
+  // Use this installed CLI's option declarations, including aliases and
+  // variadic/optional values. Do not maintain a partial list that can silently
+  // skip validation when Claude adds another value-taking option.
+  const options = new Map();
+  for (const line of (process.env.CX_CLAUDE_HELP ?? '').split('\n')) {
+    if (!/^  -\S/.test(line)) continue;
+    const declaration = line.trim().split(/\s{2,}/)[0];
+    const value = declaration.match(/(<[^>]+>|\[[^\]]+\])/);
+    const spec = {takesValue: !!value, optional: value?.[0].startsWith('['),
+      variadic: value?.[0].includes('...')};
+    for (const flag of declaration.split(/[<\[]/, 1)[0].match(/--?[\w-]+/g) ?? []) options.set(flag, spec);
+  }
+  // Some supported options are hidden from native help. Keep explicit arities
+  // for these; an unknown option fails visibly rather than bypassing the check.
+  for (const flag of ['--max-turns', '--system-prompt-file', '--append-system-prompt-file']) {
+    if (!options.has(flag)) options.set(flag, {takesValue: true});
+  }
+  if (!options.has('--settings') || !options.has('--mcp-config')) {
+    throw new Error('Cannot determine Claude option arity; rebuild the image or use --no-ssh-mcp.');
+  }
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '--' || !arg.startsWith('-')) break;
-    if (arg.startsWith('--settings=') || arg.startsWith('--mcp-config=')) {
-      config(arg.slice(arg.indexOf('=') + 1));
-    } else if (arg === '--settings') {
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) config(args[++i]);
-    } else if (arg === '--mcp-config' || arg === '--add-dir') {
-      // These native options are variadic; --settings takes exactly one value.
+    if (arg === '--') break;
+    // Native options may follow the prompt. Only -- ends option parsing.
+    if (!arg.startsWith('-') || arg === '-') continue;
+    const equal = arg.indexOf('=');
+    const flag = equal < 0 ? arg : arg.slice(0, equal);
+    const spec = options.get(flag);
+    if (!spec) throw new Error(`Cannot validate Claude option ${flag}; use its long form, rebuild the image or use --no-ssh-mcp.`);
+    const isConfig = flag === '--settings' || flag === '--mcp-config';
+    if (equal >= 0) {
+      if (isConfig) config(arg.slice(equal + 1));
+    } else if (spec.takesValue && i + 1 < args.length &&
+      (!spec.optional || !args[i + 1].startsWith('-'))) {
+      // Required values can themselves look like options (e.g. prompt text).
+      const value = args[++i];
+      if (isConfig) config(value);
+    } else continue;
+    if (spec.variadic) {
       while (i + 1 < args.length && !args[i + 1].startsWith('-')) {
         const value = args[++i];
-        if (arg === '--mcp-config') config(value);
+        if (isConfig) config(value);
       }
-    } else if (single.has(arg) && i + 1 < args.length && !args[i + 1].startsWith('-')) i++;
+    }
   }
 } catch (error) {
   console.error(`cx: ${error.message}`);

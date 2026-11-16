@@ -78,7 +78,9 @@ configured; `cx_ssh` is reserved and conflicts fail before assistant startup.
 `container/cx-claude-config.mjs` validates Claude configs inside the container so
 absolute paths, bind mounts and ignore masks match the CLI view. It scans the
 active user/project sources and explicit config arguments, excluding unrelated
-project entries saved in the account config.
+project entries saved in the account config. Native option arity comes from
+the installed CLI's help, including aliases, optional and variadic values;
+unknown arity fails explicitly rather than silently skipping later configs.
 `--no-ssh-mcp` retains the command-line bridge and manual authentication guidance.
 Both assistants reuse command tracking, cancellation and Slurm readiness matching.
 The assistant bar shows the selected CLI/account. See [validation](CX2-VALIDATION.md)

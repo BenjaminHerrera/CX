@@ -143,7 +143,7 @@ case "$agent" in
                 case "$1" in
                     --) parsing=false ;;
                     exec|e) args+=(--print); shift; [[ "${1:-}" != - ]] || shift; break ;;
-                    --model|--settings|--mcp-config|--append-system-prompt|--system-prompt|--agent|--resume|-r|--output-format|--input-format|--add-dir|--max-turns|--max-budget-usd|--effort|--permission-mode|--setting-sources|--system-prompt-snapshot|--system-prompt-file|--append-system-prompt-file|--session-id|--plugin-dir|--fallback-model|--json-schema)
+                    --model|--settings|--mcp-config|--append-system-prompt|--system-prompt|--agent|--agents|--name|-n|--resume|-r|--output-format|--input-format|--add-dir|--max-turns|--max-budget-usd|--effort|--permission-mode|--setting-sources|--system-prompt-snapshot|--system-prompt-file|--append-system-prompt-file|--session-id|--plugin-dir|--fallback-model|--json-schema)
                         # --resume can omit its value for the interactive picker.
                         args+=("$1"); shift
                         if (($#)) && [[ "$1" != -* ]]; then args+=("$1"); shift; fi
@@ -159,7 +159,7 @@ case "$agent" in
         if [[ -n "${CX_SSH_SOCKET:-}" && "${CX_SSH_MCP:-1}" == 1 ]]; then
             # Validate the effective container view, after masks/overlays and cx
             # task translation. Never resolve container paths on the host.
-            node "$(dirname -- "${BASH_SOURCE[0]}")/cx-claude-config.mjs" "${NATIVE_ARGS[@]}"
+            CX_CLAUDE_HELP="$help" node "$(dirname -- "${BASH_SOURCE[0]}")/cx-claude-config.mjs" "${NATIVE_ARGS[@]}"
         fi
         guidance="$(cat "${CX_GUIDANCE_FILE:-/opt/cx/guidance.txt}")"
         if [[ -n "${CX_SSH_INSTRUCTIONS:-}" ]]; then guidance+=" ${CX_SSH_INSTRUCTIONS}"; fi

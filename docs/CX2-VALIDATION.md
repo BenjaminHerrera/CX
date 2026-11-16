@@ -16,11 +16,20 @@ The review regressions cover container-visible absolute config paths, single-val
 conflicts, unrelated MCP servers and opt-out. Rebuild images after this update
 (the Claude SSH image capability is now `io.cx.ssh-agents=2`).
 
-Review-fix validation: `node tests/accounts.mjs` (19 checks),
-`node tests/smoke.mjs` (25 checks, both extracted editions), and
-`python3 -B tests/ssh_bridge.py` (60 tests) passed, along with shell syntax,
-Node syntax and `git diff --check`. These are offline fixtures, not live Docker
-mount or provider validation.
+The follow-up option regressions cover `--name`, `-n`, `--agents`, equals forms,
+optional/variadic native values, options after a prompt, and the literal `--`
+boundary. Validation uses the installed CLI's help declarations to determine
+arity; unrecognized options produce a clear error instead of skipping checks.
+Use the long option spelling, rebuild, or explicitly choose `--no-ssh-mcp` if
+an option's arity cannot be determined. Claude's `--name`/`--agents` options also
+preserve cx `exec` translation.
+
+Latest review-fix validation: `node tests/accounts.mjs` (20 checks),
+`node tests/smoke.mjs` (25 checks, both extracted editions), shell/Node syntax
+and `git diff --check`. Five additional checker reproductions passed with help
+from the installed Claude binary, without model requests. The 60 SSH bridge
+tests passed on the prior review fix; transport code is unchanged here. These
+are offline checks, not live Docker mount or provider validation.
 
 ## Open Live Gates
 

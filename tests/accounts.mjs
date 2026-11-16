@@ -120,7 +120,23 @@ const fake=`#!/usr/bin/env node
 const fs=require('node:fs');const path=require('node:path');const a=process.argv.slice(2);
 const parsed=require('node:util').parseArgs({args:a,options:{agent:{type:'string'}},strict:false,allowPositionals:true});
 const agent=path.basename(process.argv[1]);const home=process.env[agent==='codex'?'CODEX_HOME':'CLAUDE_CONFIG_DIR'];
-if(a.includes('--help')){console.log('--system-prompt-snapshot --append-system-prompt');process.exit(0);}
+if(a.includes('--help')){console.log([
+  'Options:',
+  '  --system-prompt-snapshot <on|off>  Snapshot behavior',
+  '  --append-system-prompt <prompt>  Append guidance',
+  '  --system-prompt <prompt>  Set guidance',
+  '  --settings <file-or-json>  Session settings',
+  '  --mcp-config <configs...>  MCP configs',
+  '  --add-dir <directories...>  Additional directories',
+  '  -r, --resume [value]  Resume a conversation',
+  '  -p, --print  Print output',
+  '  -n, --name <name>  Session name',
+  '  --agents <json-or-file>  Agent definitions',
+  '  --output-format <format>  Output format',
+  '  -d, --debug [filter]  Optional debug filter',
+  '  --tools <tools...>  Tool list',
+  '  --future-native-option <value>  Simulate another installed native option'
+].join('\\n'));process.exit(0);}
 const action=agent==='codex'?a[0]:a[1];
 if(action==='login'&&a[1]!=='status'){fs.writeFileSync(home+'/refresh.tmp','fresh-'+path.basename(home));fs.renameSync(home+'/refresh.tmp',home+'/auth.json');}
 if(action==='logout')fs.rmSync(home+'/auth.json',{force:true});
@@ -235,8 +251,8 @@ check('Claude SSH settings takes one value and leaves exec Markdown tasks intact
     assert.equal(r.status,0,r.stderr);
     const args=JSON.parse(r.stdout).args;
     assert.deepEqual(args.slice(args.indexOf('--settings')),['--settings','settings.json','--print','README.md']);
-    // Prompt text and a second -- are literal, even if they look like options.
-    for(const args of [['literal prompt','--settings','README.md'],['--','--','--settings','README.md']]){
+    // Required prompt values and a second -- are literal, even if they look like options.
+    for(const args of [['--system-prompt','--settings','README.md'],['--','--','--settings','README.md']]){
       const r=adapter(['--cx-session',...args],sshEnv);assert.equal(r.status,0,r.stderr);
     }
   } finally {fs.unlinkSync(settings);fs.unlinkSync(readme);}
@@ -265,6 +281,24 @@ check('Claude SSH excludes inactive projects while retaining active user and pro
       for(const name of ['settings.json','settings.local.json'])fs.rmSync(path.join(adapterWorkspace,'.claude',name),{force:true});
     }
   }
+});
+check('Claude SSH checks configs after native option values and preserves argument boundaries',()=>{
+  const config=path.join(adapterWorkspace,'conflicting.json');fs.writeFileSync(config,conflict);
+  try {
+    for(const prefix of [[],['--name','Review Session'],['-n','Review Session'],['--name=Review Session'],
+      ['--agents','{}'],['--agents={}'],['--future-native-option','arbitrary value'],
+      ['--debug','filter'],['--debug'],['--tools','Read','Edit'],['a prompt']]){
+      const r=adapter(['--cx-session','--print',...prefix,'--mcp-config',config],sshEnv);
+      assert.notEqual(r.status,0,JSON.stringify(prefix));assert.match(r.stderr,/cx_ssh is reserved/);assert.equal(r.stdout,'');
+    }
+    const task=adapter(['--cx-session','--name','Review Session','--agents','{}','exec','a task'],sshEnv);
+    assert.equal(task.status,0,task.stderr);assert.ok(JSON.parse(task.stdout).args.includes('--print'));
+    for(const args of [['--system-prompt','--mcp-config'],['--','--','--mcp-config',config]]){
+      const r=adapter(['--cx-session',...args],sshEnv);assert.equal(r.status,0,r.stderr);
+    }
+    const unknown=adapter(['--cx-session','--not-in-native-help','value','--mcp-config',config],sshEnv);
+    assert.notEqual(unknown.status,0);assert.match(unknown.stderr,/Cannot validate Claude option/);
+  } finally {fs.unlinkSync(config);}
 });
 console.log(`\n${checks} account/adapter checks passed; no live provider authentication.`);
 } finally {fs.rmSync(temp,{recursive:true,force:true});}
