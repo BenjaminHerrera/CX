@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 2.0.1 — 2026-11-16
+
+- Switch Sessions immediately on Enter while preserving the previous assistant
+  process, saved screen and draft; restore running sessions without replaying
+  tasks. Keep SSH work/authentication gates and Claude writer leases intact.
+- Default Sessions to name sorting and compact rows, with separate right-aligned
+  CLI/update metadata and a stacked layout on narrow terminals. Pad metadata to
+  align vertical separators; color Codex rows light blue and Claude rows orange.
+
 - Add a task-oriented user handbook and generated GitHub wiki, covering both
   CLIs, session management, SSH/Slurm, imports, persistence and upgrades.
   Update contributor guidance to branch from main after v2 integration, and
@@ -18,8 +27,8 @@
 - Add a saved blue Sessions menu in managed local and SSH sessions: Ctrl-] s,
   cursor/page navigation, stable names, persistent rename and confirmed deletion
   through the existing removal backend. Keep instance-local active selection and
-  queue native resume until the current assistant exits cleanly; never inject a
-  quit command or replay a task. Keep SSH command/allocation state in the bridge.
+  preserve previous assistants as running sessions during immediate switching;
+  never inject a quit command or replay a task. Keep SSH command/allocation state in the bridge.
 - Discover Codex history with paginated native APIs and persist explicit native
   names with thread/name/set. Keep per-CLI/UUID explicit CX names above imported
   titles, and show neutral labels for unnamed histories instead of chat previews.

@@ -11,7 +11,7 @@ Repository Markdown is the source of truth and is included in both distribution 
 | [Getting Started](GETTING-STARTED.md) | Check prerequisites, install, choose Codex or Claude, sign in and open a project |
 | [Installation](INSTALL.md) | Custom prefixes, portable bundles, Docker/FUSE prerequisites and removal |
 | [Accounts and History Reference](ACCOUNTS.md) | Subscription/API-key profiles, authentication, shared storage and native ownership limits |
-| [Sessions](SESSIONS.md) | Open the menu, search, rename, delete and complete a queued switch |
+| [Sessions](SESSIONS.md) | Open the menu, search, rename, delete and switch between saved assistants |
 | [Workspaces and Environments](WORKSPACES.md) | Host/container paths, extra files, filtering and persistent development tools |
 | [SSH and Remote Files](SSH.md) | Connect through an alias, hand off authentication, use commands and mount server files |
 | [Slurm Setup](SLURM.md) | Choose shared paths per alias and use existing CPU/GPU allocation functions |
@@ -49,7 +49,8 @@ or make remote commands read-only when a file mount is read-only. See the
 ## Validation and Versions
 
 The multi-CLI and menu integration is merged into `main`; `v2` is no longer
-the implementation base. This did not change `VERSION`, currently `1.2.1`.
+the implementation base. The current package version is **2.0.1**, including
+immediate switching with saved assistants and the updated Sessions layout.
 Use [Upgrade and Back Up](UPGRADING.md) for the current source workflow.
 
 [CX-2 validation](CX2-VALIDATION.md) and [CX-7 validation](CX7-VALIDATION.md)

@@ -26,6 +26,15 @@ def fit(text, columns):
     return result
 
 
+def cell_width(text):
+    return sum(max(0, wcwidth(char)) for char in text)
+
+
+def right_align(text, columns):
+    text = fit(text, columns)
+    return ' '*max(0, columns-cell_width(text))+text
+
+
 def relative_time(value, now=None):
     try:
         seconds = max(0, (time.time() if now is None else now)-float(value))
@@ -49,17 +58,20 @@ class SessionMenu:
         self.opened = False
         self.rows, self.cursor, self.top = [], 0, 0
         self.all_rows = None
-        self.query, self.cli_filter, self.status_filter, self.sort = '', 'All', 'Active', 'Updated'
+        self.query, self.cli_filter, self.status_filter, self.sort = '', 'All', 'Active', 'Name'
         self.control = None
-        self.dense = False
+        self.dense = True
         self.include_internal = False
         self.mode, self.text, self.message = 'list', '', ''
         self.active = None
+        self.saved = {}
+        self.live_row = None
         self.queued = None
         self.worker = None
         self.lease = None
         self.decoder = codecs.getincrementaldecoder('utf-8')('replace')
         self.pasting = False
+        self.cx_escape = False
         self.data_home = Path(os.environ['CX_DATA_HOME'])
         for index, arg in enumerate(bridge.launcher[2:], 2):
             if arg in ('resume', '--resume', '-r') and index+1 < len(bridge.launcher) and re.fullmatch(r'[0-9a-fA-F-]{36}', bridge.launcher[index+1]):
@@ -78,7 +90,13 @@ class SessionMenu:
     def apply_filters(self):
         key = self.key(self.selected()) if self.selected() else None
         terms = self.query.casefold().split()
-        rows = [row for row in (self.all_rows if self.all_rows is not None else self.rows)
+        sources = {self.key(row): row for row in (self.all_rows if self.all_rows is not None else self.rows)}
+        for saved in self.saved.values():
+            row = saved['row']
+            sources.setdefault(self.key(row), row)
+        if self.live_row:
+            sources.setdefault(self.key(self.live_row), self.live_row)
+        rows = [row for row in sources.values()
                 if (self.cli_filter == 'All' or row['agent'] == self.cli_filter.lower())
                 and (self.status_filter == 'All' or bool(row.get('archived')) == (self.status_filter == 'Archived'))
                 and (self.include_internal or not row.get('internal'))
@@ -100,7 +118,9 @@ class SessionMenu:
             return
         account = os.environ.get('CX_ACCOUNT')
         accounts = self.accounts(row['agent'])
-        if row['agent'] == os.environ.get('CX_AGENT') and account in accounts:
+        if self.key(row) in self.saved:
+            self.choose(row, self.saved[self.key(row)]['account'])
+        elif row['agent'] == os.environ.get('CX_AGENT') and account in accounts:
             self.choose(row, account)
         else:
             self.mode, self.target = 'account', dict(row)
@@ -169,6 +189,7 @@ class SessionMenu:
             return
         self.previous = (self.bridge.terminal.display.active, self.bridge.terminal.display.label)
         self.opened, self.mode, self.pasting, self.control = True, 'list', False, None
+        self.cx_escape = False
         self.bridge.escape = False
         self.bridge.terminal.state(self.owner)['modes'].add(2004)
         self.bridge.terminal.display.compact_headers.add(self.owner)
@@ -177,6 +198,14 @@ class SessionMenu:
         self.draw()
 
     def close(self):
+        if not self.bridge.local and self.saved and not self.queued:
+            # A failed new resume must not turn Esc into termination of the
+            # preserved assistant. Return to its existing PTY instead.
+            saved = next(reversed(self.saved.values()))
+            self.choose(saved['row'], saved['account'])
+            if self.opened:
+                self.draw()
+            return
         self.opened = False
         self.bridge.terminal.switch(*self.previous)
         if not self.bridge.local and not self.bridge.host and not self.queued:
@@ -187,7 +216,8 @@ class SessionMenu:
 
     def page_size(self):
         height = self.bridge.terminal.display.lines
-        return max(1, (height-5-(6 if height >= 18 else 4))//(1 if self.dense else 3))
+        row_height = (2 if self.bridge.terminal.display.columns < 32 else 1) if self.dense else 3
+        return max(1, (height-5-(6 if height >= 18 else 4))//row_height)
 
     def accounts(self, agent):
         root = self.data_home / 'profiles' / agent
@@ -197,18 +227,52 @@ class SessionMenu:
 
     def choose(self, row, account):
         bridge = self.bridge
-        if self.key(row) == self.active and bridge.local:
+        if (self.key(row) == self.active or self.live_row and self.key(row) == self.key(self.live_row)) and bridge.local:
             self.close()
             return
         if not self.can_switch():
             self.message = 'Switch refused: remote work/authentication/manual focus is active. Return to assistant focus when ready.'
             return
+        saved = self.saved.get(self.key(row))
+        if saved and saved['account'] != account:
+            self.message = 'Switch refused: this conversation is already running with account '+str(saved['account'])+'. Select its running session instead.'
+            return
         self.queued = (dict(row), account)
-        self.close()
         if bridge.local:
-            bridge.notice('Session switch queued. Exit the assistant cleanly (/exit or Ctrl-D at an empty prompt); no input is injected. Ctrl-] s then q cancels the queued switch.')
-        else:
-            self.handoff(0)
+            self.park()
+        self.close()
+        self.handoff(0)
+
+    def background_items(self):
+        return [saved['item'] for saved in self.saved.values()]
+
+    def park(self):
+        row = self.live_row
+        if row is None:
+            row = next((dict(row) for row in (self.all_rows or self.rows) if self.key(row) == self.active), None)
+        if row is None:
+            # A new native session has no authoritative UUID yet. Give its live
+            # PTY a private menu identity; never guess from recent history.
+            row = dict(agent=os.environ.get('CX_AGENT', 'codex'),
+                       id=self.active[1] if self.active else 'live-'+str(uuid.uuid4()),
+                       name='Running '+os.environ.get('CX_AGENT', 'codex').title()+' session',
+                       project=self.bridge.launcher[1], updated=time.time(), local_only=not self.active)
+        self.saved[self.key(row)] = dict(row=row, item=self.bridge.local, lease=self.lease,
+                                        launcher=self.bridge.launcher[:], account=os.environ.get('CX_ACCOUNT'),
+                                        active=self.active, label=self.bridge.assistant_label)
+        self.bridge.local, self.lease, self.live_row = None, None, None
+
+    def background_exited(self, item, status):
+        key = next(key for key, saved in self.saved.items() if saved['item'] is item)
+        saved = self.saved.pop(key)
+        if saved['lease']:
+            saved['lease'].unlink(missing_ok=True)
+        if saved['row'].get('local_only'):
+            self.all_rows = [row for row in (self.all_rows or self.rows) if self.key(row) != key]
+        self.message = 'Background assistant exited'+(' with an error' if status else '')+'. No command was replayed.'
+        if self.opened:
+            self.apply_filters()
+            self.draw()
 
     def can_switch(self):
         bridge = self.bridge
@@ -255,11 +319,23 @@ class SessionMenu:
         os.environ.update(CX_AGENT=agent, CX_ACCOUNT=account, CX_SELECTED_PROFILE=str(self.data_home/'profiles'/agent/account))
         self.bridge.assistant_label = agent.upper()+' / '+account
         self.active = self.key(row)
+        saved = self.saved.pop(self.key(row), None)
+        if saved:
+            self.bridge.local, self.lease = saved['item'], saved['lease']
+            self.bridge.launcher = saved['launcher']
+            self.bridge.assistant_label = saved['label']
+            self.active = saved['active']
+            self.live_row = saved['row']
+            self.bridge.focus = 'local'
+            self.bridge.terminal.switch(self.bridge.local, self.bridge.assistant_label)
+            self.bridge.resize()
+            return True
+        self.live_row = dict(row)
         # Completed assistant panes need not retain unbounded scrollback across
         # switches. The remote pane and its state are never discarded.
         terminal = self.bridge.terminal
         for owner in list(terminal.display.panes):
-            if owner is not self.owner and owner is not self.bridge.remote:
+            if owner is not self.owner and owner is not self.bridge.remote and owner not in self.background_items():
                 terminal.display.panes.pop(owner, None)
                 terminal.display.header_hints.pop(owner, None)
                 terminal.display.compact_headers.discard(owner)
@@ -271,6 +347,7 @@ class SessionMenu:
             if not self.bridge.local:
                 self.release()
                 self.active = None
+                self.live_row = None
             if not self.opened:
                 self.open()
             self.message = 'Cannot start selected assistant: '+clean(error)+'. No automatic retry; remote state is retained.'
@@ -304,6 +381,9 @@ class SessionMenu:
 
     def shutdown(self):
         self.release()
+        for saved in self.saved.values():
+            if saved['lease']:
+                saved['lease'].unlink(missing_ok=True)
         if self.worker:
             self.worker.terminate()
             self.worker.stdout.close()
@@ -330,6 +410,14 @@ class SessionMenu:
         if legacy is None:
             legacy = self.bridge.legacy_key(packet)
         packet = legacy if legacy is not None else packet
+        if self.cx_escape:
+            self.cx_escape = False
+            if packet == b'q':
+                self.bridge.running = False
+            return
+        if packet == b'\x1d':
+            self.cx_escape = True
+            return
         if self.mode in ('list', 'search'):
             if re.fullmatch(rb'\x1b\[<6[45];\d+;\d+M', packet):
                 self.move(-3 if packet.startswith(b'\x1b[<64;') else 3)
@@ -414,11 +502,15 @@ class SessionMenu:
             self.request('list')
         elif not self.worker and row:
             if packet == b'r':
+                if row.get('local_only'):
+                    self.message = 'This live assistant has no known native ID. Rename it using the native CLI.'
+                    self.draw()
+                    return
                 self.decoder.reset()
                 self.mode, self.text, self.target = 'rename', row['name'], dict(row)
             elif packet in (b'd', b'\x1b[3~'):
-                if self.key(row) == self.active:
-                    self.message = 'Exit the active assistant before deleting this conversation.'
+                if self.key(row) == self.active or self.key(row) in self.saved or row.get('local_only'):
+                    self.message = 'Exit the running assistant before deleting this conversation.'
                 else:
                     self.mode, self.target = 'delete', dict(row)
             elif packet in (b'\r', b'\n'):
@@ -450,20 +542,41 @@ class SessionMenu:
                  ('\033[36m'+fit(query, width)+'\033[0m') if self.mode == 'search' else dim(query), '']
         if height < 18:
             lines = [lines[0], lines[1], lines[3], lines[4]]
+        metadata_width = min(32, width//2)
         for index, row in enumerate(self.rows[self.top:self.top+page], self.top):
             chosen = index == self.cursor
             cursor = '›' if chosen else ' '
             active = ' *' if self.key(row) == self.active else ''
+            if self.live_row and self.key(row) == self.key(self.live_row):
+                active = ' *'
             tag = ' [internal]' if row.get('internal') else ''
-            name = fit(f"  {cursor} {row['name']}{active}{tag}", width)
+            if self.key(row) in self.saved:
+                tag += ' [running]'
             archived = ' · archived' if row.get('archived') else ''
-            metadata = f"    {relative_time(row['updated']):<12} {row['agent']} · {row['project']}{archived}"
-            if self.dense:
-                suffix = f"  {row['agent']} · {relative_time(row['updated'])}{archived}"
-                name = fit(f"  {cursor} {row['name']}{active}{tag}", max(0, width-len(suffix)))+suffix
-                lines.append(('\033[1;36m'+name+'\033[0m') if chosen else name)
+            updated = relative_time(row['updated'])
+            if width < 32:
+                updated = updated.replace('just now', 'now').replace(' ago', '').split(',')[0]
+            metadata = f"{row['agent']} · {updated}{archived}"
+            marker = active+tag
+            prefix = f' {cursor} '
+            color = '135;206;250' if row['agent'] == 'codex' else '217;119;87'
+            def paint(text, faint=False):
+                return ('\033[38;2;'+color+'m'+('\033[1m' if chosen else '')+
+                        ('\033[2m' if faint else '')+text+'\033[0m')
+            if width >= 32:
+                left_width = max(0, width-metadata_width-3)
+                marker = fit(marker, max(0, left_width-cell_width(prefix)))
+                name = prefix+fit(row['name'], max(0, left_width-cell_width(prefix+marker)))+marker
+                name += ' '*max(0, left_width-cell_width(name))+' │ '+right_align(metadata, metadata_width)
+                lines.append(paint(name))
             else:
-                lines += [('\033[1;36m'+name+'\033[0m') if chosen else name, dim(metadata), '']
+                # Stack the columns on small terminals instead of letting a
+                # long title consume or masquerade as the metadata column.
+                marker = fit(marker, max(0, width-cell_width(prefix)))
+                name = prefix+fit(row['name'], max(0, width-cell_width(prefix+marker)))+marker
+                lines += [paint(name), paint(right_align(metadata, width), faint=True)]
+            if not self.dense:
+                lines += ([paint(fit('    '+row['project'], width), faint=True), ''] if width >= 32 else [''])
         if not self.rows:
             lines.append(dim(' No matching sessions.' if self.query or self.all_rows else ' No saved sessions yet.'))
         selected = self.selected()

@@ -6,8 +6,8 @@
 
 The multi-CLI and session-menu work formerly developed on `v2` is now merged
 into `main`. New installations and upgrades should use `main`. The branch name
-did not assign a semantic release number: the package still reports the value
-in `VERSION` (currently `1.2.1`). No published release archive is required to
+did not itself assign a semantic release number. The current package version
+is **2.0.1**. No published release archive is required to
 install from source.
 
 1. Exit running CX sessions and stop other writers before moving/backing up data.
@@ -19,6 +19,7 @@ git switch main
 git pull --ff-only
 ./install.sh
 cx --version
+# Expected: cx 2.0.1
 cx --doctor
 ```
 
@@ -29,6 +30,21 @@ Restart CX afterwards. Host files and image contents are separate updates;
 `./install.sh --no-build` updates only the host program. Build the image before
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
+
+## Changes in 2.0.1
+
+Enter in Sessions now switches immediately while keeping the previous assistant
+alive. Select its `[running]` row to restore its process, screen and draft.
+Background work can continue, and Ctrl-] q exits CX and stops all its saved
+assistants. The menu defaults to name sorting and compact rows, aligns its
+metadata column, and colors Codex rows light blue and Claude rows orange.
+SSH authentication and active-command safety gates still apply. See
+[Sessions](SESSIONS.md) for lifecycle details and temporary rows for unknown IDs.
+
+Reinstall or update portable program files and restart CX to load these host
+menu changes. Rebuild the image when upgrading from older 1.x adapters; no
+credentials or histories are migrated automatically. Live-check limitations
+remain recorded in the [validation notes](README.md#validation-and-versions).
 
 ## Keep the Right Data
 

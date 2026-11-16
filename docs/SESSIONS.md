@@ -45,7 +45,12 @@ names remain separate conversations; check their CLI and ID.
 
 While editing a search, letters go into the search field. Enter resumes the
 highlighted result, Esc leaves search editing, and Ctrl-U clears the query.
-Active/non-archived sessions are shown initially. Change the status control
+Active/non-archived sessions are shown initially, sorted by name in compact rows.
+CLI and last-updated metadata occupy a separate right-aligned area; narrow
+terminals stack that area below the name. The padded metadata column keeps
+vertical separators aligned across rows. Codex rows are light blue and Claude
+rows are warm orange; the selected row also has a bold cursor.
+Change the status control
 to find archived sessions. F2 changes visibility only; it does not delete
 internal threads or filter by their names.
 
@@ -56,21 +61,36 @@ native/new until CX has an explicit UUID; CX does not guess from recent messages
 ## Switch Without Losing Your Current Draft
 
 1. Open Sessions, highlight a conversation and press Enter.
-2. If an assistant is running, the choice is queued. Exit that assistant
-   cleanly using its native `/exit`, or Ctrl-D at an empty prompt.
-3. CX resumes the chosen CLI/UUID with current workspace and SSH guidance.
+2. CX keeps the current assistant running in a saved background session and
+   immediately resumes the selected conversation, or restores its existing PTY.
+3. Select a `[running]` row to return to its process, screen and unsent draft.
 
-Opening the menu does not quit the assistant or submit text into its prompt.
-Closing it restores the previous screen and draft. Reopen the menu and press
-`q` to cancel a queued handoff. A failed assistant exit cancels the handoff too.
+No manual `/exit` or Ctrl-D is required. Switching does not submit text or
+interrupt the old assistant. Background assistants can continue their work;
+only the selected assistant receives your keyboard input. Esc/`q` returns to
+the prior assistant; after a failed resume it restores the saved assistant.
 When switching CLIs, choose an existing compatible account in the menu.
 
+An assistant whose native ID is unknown appears as `Running Codex session` or
+`Running Claude session` when saved. This is a temporary PTY identity within
+this CX instance, not a guessed native conversation ID. Use that row to return;
+it cannot be renamed or deleted through the history helper. CX does not equate
+it with a newly discovered native history row. Avoid opening the same
+conversation again as a separate native resume.
+
 In SSH mode, return to assistant focus with **Ctrl-] c** before switching.
-Authentication, manual SSH focus and unfinished remote commands block handoff.
-An idle ready allocation and the existing SSH connection can stay in place.
-CX checks remote ownership again when the assistant exits and does not replay
-uncertain work. If resume fails, its error stays on the saved screen; reopen
-Sessions to choose another row, or use Ctrl-] q to exit CX.
+Authentication, manual SSH focus and unfinished remote commands block switching
+with an explanation. An idle ready allocation and the existing SSH connection
+stay in place. Remote ownership is checked again at handoff; uncertain work is
+never replayed. All assistants share the same serialized bridge, and background
+output continues to update its own saved screen. A restored process retains its
+existing context; a new resume receives current workspace and SSH guidance.
+
+Saved processes live only until this CX instance ends. **Ctrl-] q** explicitly
+exits CX, including from the menu, and stops all its assistants. To finish one
+assistant, return to it and exit using its native controls. If others remain,
+CX opens Sessions so you can select one. Running conversations cannot be deleted
+from the menu, and saved Claude writers retain their history leases.
 
 ## Rename or Delete
 

@@ -19,7 +19,8 @@ evidence and live-check limitations below remain a historical record.
 - Codex discovery/naming use native `thread/list` / `thread/name/set`; native
   deletion/reference/writer checks and plain/compressed history handling remain
   in the existing app-server/removal backend. No SQLite merging is introduced.
-- Enter queues resume until a clean assistant exit. CX cannot reliably infer a
+- Historical behavior before CX-11: Enter queued resume until a clean assistant
+  exit. CX cannot reliably infer a
   native model/tool turn's idle state, so it does not inject a quit command or
   kill an assistant to switch. A failed exit cancels the switch; remote ownership
   is checked again at handoff. Initial prompt/task arguments are never replayed.

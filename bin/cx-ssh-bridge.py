@@ -418,7 +418,7 @@ class Bridge:
         rows, columns = rows or 24, columns or 80
         self.terminal.display.resize(rows, columns)
         size = struct.pack('HHHH', max(1, rows - 1), columns, 0, 0)
-        for item in (self.remote, self.local):
+        for item in [self.remote, self.local]+(self.menu.background_items() if self.menu else []):
             if item:
                 try:
                     fcntl.ioctl(item[0], termios.TIOCSWINSZ, size)
@@ -1091,7 +1091,8 @@ class Bridge:
                 self.resize()
             self.terminal.display.paint()
             readers = [0, self.server] + list(self.clients)
-            readers += [item[0] for item in (self.remote, self.local) if item]
+            assistants = [self.local]+(self.menu.background_items() if self.menu else [])
+            readers += [item[0] for item in [self.remote]+assistants if item]
             readable, _, _ = select.select(readers, [], [], .05)
             pending_escape = self.terminal.flush_input() if 0 not in readable else b''
             if pending_escape:
@@ -1126,7 +1127,7 @@ class Bridge:
                         self.clients.pop(source, None)
                         source.close()
                 else:
-                    item = self.remote if self.remote and source == self.remote[0] else self.local
+                    item = next(item for item in [self.remote]+assistants if item and source == item[0])
                     try:
                         data = os.read(source, 65536)
                     except OSError as exc:
@@ -1137,7 +1138,7 @@ class Bridge:
                         if item is self.remote:
                             self.output(data)
                         else:
-                            self.terminal.render(self.local, data)
+                            self.terminal.render(item, data)
                     else:
                         os.close(source)
                         if item is self.remote:
@@ -1148,6 +1149,8 @@ class Bridge:
                             self.notice('SSH closed. Ctrl-] r reconnects with a new shell.')
                             if self.mount_path:
                                 self.notice('The /workspace/remote mount may be disconnected. Restart cx to recreate it.')
+                        elif item is not self.local:
+                            self.menu.background_exited(item, item[1].wait())
                         else:
                             self.terminal.display.paint(force=True)
                             self.result = item[1].wait()
@@ -1156,9 +1159,16 @@ class Bridge:
                                 self.menu.release()
                                 if self.menu.handoff(self.result):
                                     continue
+                                self.menu.active, self.menu.live_row = None, None
                                 if self.menu.opened:
                                     self.menu.active = None
                                     self.menu.message = 'Assistant exited. Choose a session or close the menu.'
+                                    self.menu.draw()
+                                    continue
+                                if self.menu.saved:
+                                    self.menu.active, self.menu.live_row = None, None
+                                    self.menu.open()
+                                    self.menu.message = 'Assistant exited. Select a saved running session or resume another conversation.'
                                     self.menu.draw()
                                     continue
                                 if self.result:
@@ -1206,7 +1216,7 @@ class Bridge:
             signal.signal(signal.SIGINT, old_int)
             for client in list(self.clients):
                 client.close()
-            for item in (self.remote, self.local):
+            for item in [self.remote, self.local]+(self.menu.background_items() if self.menu else []):
                 if item:
                     try:
                         os.killpg(item[1].pid, signal.SIGTERM)
