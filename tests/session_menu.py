@@ -50,6 +50,9 @@ class MenuTests(unittest.TestCase):
         self.menu.rows = [dict(self.menu.rows[0], id=f'{i:08x}-1111-4111-8111-111111111111') for i in range(50)]
         self.menu.handle(b'\x1b[6~')
         self.assertGreater(self.menu.cursor, 0)
+        before = self.menu.cursor
+        self.menu.handle(b'\x1b[<65;5;5M')
+        self.assertEqual(self.menu.cursor, before+3)
         self.menu.handle(b'\x1b[3~')
         target = self.menu.target.copy()
         self.menu.handle(b'n')
