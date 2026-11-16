@@ -192,7 +192,6 @@ class SessionMenu:
         self.cx_escape = False
         self.bridge.escape = False
         self.bridge.terminal.state(self.owner)['modes'].add(2004)
-        self.bridge.terminal.display.compact_headers.add(self.owner)
         self.bridge.terminal.switch(self.owner, 'Sessions')
         self.request('list')
         self.draw()
@@ -335,10 +334,8 @@ class SessionMenu:
         # switches. The remote pane and its state are never discarded.
         terminal = self.bridge.terminal
         for owner in list(terminal.display.panes):
-            if owner is not self.owner and owner is not self.bridge.remote and owner not in self.background_items():
+            if owner is not self.owner and owner is not self.bridge.help.owner and owner is not self.bridge.remote and owner not in self.background_items():
                 terminal.display.panes.pop(owner, None)
-                terminal.display.header_hints.pop(owner, None)
-                terminal.display.compact_headers.discard(owner)
                 terminal.states.pop(owner, None)
                 terminal.buffers.pop(owner, None)
         try:
@@ -414,6 +411,8 @@ class SessionMenu:
             self.cx_escape = False
             if packet == b'q':
                 self.bridge.running = False
+            elif packet == b'?':
+                self.bridge.help.open()
             return
         if packet == b'\x1d':
             self.cx_escape = True

@@ -23,6 +23,31 @@ retain native CLI resume behavior. The menu requires host Python 3.11+ and an
 interactive terminal; it is not enabled in redirected tasks or legacy
 `CX_CODEX_HOME` mode.
 
+## Shortcut Help
+
+Every CX header uses `VIEW[/account]  --  Ctrl-] ?: Help Menu`, for example
+`CODEX/personal  --  Ctrl-] ?: Help Menu` or
+`Sessions  --  Ctrl-] ?: Help Menu`. Press **Ctrl-]**, release it, then **?**.
+The help hint is the only shortcut in the header; Help Menu contains the
+complete controls, including Sessions editing and confirmation keys.
+
+Help works in list, search, rename, deletion confirmation, account selection
+and error states. Esc closes help and restores your filters, selection, unsaved
+name/search text, previous pane, scroll position and draft. Repeated requests
+keep one help view. Arrows, Page keys or the wheel scroll the reference. Bare
+`?` remains ordinary input, and pasted text cannot open help.
+
+SSH authentication and busy/disconnected states do not prevent opening help.
+It does not reconnect, change readiness, submit input or interrupt commands.
+Help uses an alias-reference style: a yellow banner, yellow section rules,
+black-on-yellow shortcut badges with one space on each side and aligned yellow
+descriptions. Only keybindings appear in the reference. The view/account
+identity stays visible; Esc restores the original header color. Narrow
+terminals shorten the label/help text while retaining `Ctrl-] ?` when it fits.
+History offsets and temporary notices appear separately in the terminal footer
+or the relevant view body, never in place of the help hint. Native CLI headers
+are controlled by Codex/Claude and are unchanged.
+
 ## Find and Manage a Conversation
 
 The blue Sessions screen shows the current account, persistent session names,

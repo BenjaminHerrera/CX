@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 2.1.0 — 2026-11-16
+
+- Style Help Menu after the alias reference, with a yellow banner, section rules,
+  shortcut badges with one space on each side and aligned descriptions. List
+  only keybindings, without unrelated information entries.
+
+- Add Ctrl-] ? Help Menu to every CX header, including Sessions modal views,
+  SSH login/disconnection and assistant screens. Restore drafts, focus and menu
+  state on Esc; keep pasted text and bare question marks as ordinary input.
+- Standardize headers as VIEW[/account]  --  Ctrl-] ?: Help Menu. Move other
+  shortcut hints into help and show notices/history offsets separately.
+
 ## 2.0.1 — 2026-11-16
 
 - Switch Sessions immediately on Enter while preserving the previous assistant

@@ -49,6 +49,24 @@ class ScreenTests(unittest.TestCase):
         self.display.select(self.local, 'CODEX')
         self.assert_bar(self.draw(), 'CODEX', 'blue')
 
+    def test_all_header_labels_reserve_the_help_binding(self):
+        from cx_screen import wcswidth
+        for label in ('SSH', 'CODEX / personal', 'CLAUDE / 研究アカウント', 'Sessions'):
+            self.display.select(self.local, label)
+            self.display.notice('A very long notice '*30)
+            for width in (120, 80, 32, 27, 20, 8, 5):
+                self.display.resize(24, width)
+                header = self.display.header()
+                self.assertEqual(wcswidth(header), width)
+                self.assertNotIn('|', header)
+                self.assertNotIn(' / ', header)
+                if width >= 27:
+                    self.assertIn('  --  Ctrl-] ?: Help Menu', header)
+                elif width >= 8:
+                    self.assertIn('Ctrl-] ?', header)
+                if width >= 80:
+                    self.assertEqual(header.strip(), label.replace(' / ', '/')+'  --  Ctrl-] ?: Help Menu')
+
     def test_screens_restore_without_background_output_leakage(self):
         self.display.feed(self.remote, b'SSH-ONLY-TEXT')
         self.assertIn('SSH-ONLY-TEXT', self.draw().display[1])
@@ -186,15 +204,17 @@ class ScreenTests(unittest.TestCase):
         self.assertNotEqual(history, live)
         self.assertTrue(screen.buffer[1][0].dim)
         self.assertEqual(screen.buffer[1][0].fg, 'green')
-        self.assertIn('HISTORY +6', screen.display[0])
+        self.assertIn('HISTORY +6', screen.display[-1])
+        self.assertIn('Ctrl-] ?: Help Menu', screen.display[0])
         self.assertTrue(screen.cursor.hidden)
         self.display.feed(self.remote, b'new-output\r\n')
-        self.assertEqual(self.draw().display[1:], history)
+        self.assertEqual(self.draw().display[1:-1], history[:-1])
+        self.assertIn('HISTORY +7', self.draw().display[-1])
         self.assertEqual((self.display.pane(self.remote).screen.cursor.x,
                           self.display.pane(self.remote).screen.cursor.y), cursor)
         self.display.follow(self.remote)
         screen = self.draw()
-        self.assertNotIn('HISTORY', screen.display[0])
+        self.assertNotIn('HISTORY', '\n'.join(screen.display))
         self.assertIn('new-output', '\n'.join(screen.display[1:]))
         self.assertFalse(screen.cursor.hidden)
 
@@ -251,15 +271,20 @@ class ScreenTests(unittest.TestCase):
         self.display.feed(self.local, b'before\x1b[1;2;3Hafter\x1b[?4mend')
         self.assertEqual(self.draw().display[1].rstrip(), 'beforeafterend')
 
-    def test_notice_only_changes_the_bar(self):
+    def test_notice_uses_footer_without_changing_header_or_saved_output(self):
         self.display.select(self.local, 'CODEX')
         self.display.feed(self.local, b'READABLE-CODEX-OUTPUT')
-        before = self.draw().display[1:]
+        before = self.draw().display[:]
+        saved = self.display.pane(self.local).screen.display[:]
         self.display.notice('SSH reconnected')
         screen = self.draw()
-        self.assertEqual(screen.display[1:], before)
-        self.assertIn('SSH reconnected', screen.display[0])
+        self.assertEqual(screen.display[0], before[0])
+        self.assertEqual(screen.display[1:-1], before[1:-1])
+        self.assertIn('SSH reconnected', screen.display[-1])
+        self.assertEqual(self.display.pane(self.local).screen.display, saved)
         self.assert_bar(screen, 'CODEX', 'blue')
+        self.display.message_until = 0
+        self.assertEqual(self.draw().display, before)
 
     def test_exiting_restores_the_enclosing_terminal(self):
         self.display.feed(self.remote, b'SSH-SESSION')
@@ -272,7 +297,9 @@ class ScreenTests(unittest.TestCase):
     def test_small_terminal_does_not_draw_below_its_height(self):
         self.display.resize(1, 8)
         self.physical.resize(8, 1)
-        self.assert_bar(self.draw(), 'SSH', 'green')
+        screen = self.draw()
+        self.assertEqual(screen.display[0], 'Ctrl-] ?')
+        self.assertTrue(all(screen.buffer[0][x].bg == 'green' for x in range(8)))
 
     def test_runtime_imports_without_site_packages(self):
         code = ('import sys; sys.path.insert(0, ' + repr(str(ROOT / 'bin')) + '); '

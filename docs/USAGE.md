@@ -44,9 +44,17 @@ opens Sessions. The menu has its own saved screen and a blue header; SSH keeps
 its green header. Python 3.11+ is required on the host for interactive managed
 sessions. Legacy `CX_CODEX_HOME` keeps native behavior and has no CX session menu.
 
-The blue banner says only `Sessions`. The current assistant and account are
-labeled below the title, separately from filters and shortcuts. Local assistant
-banners advertise Sessions instead of an unavailable SSH screen.
+Every CX banner offers `Ctrl-] ?: Help Menu`, including compact Sessions and
+all its modal/error states. Headers use `VIEW[/account]  --  Ctrl-] ?: Help Menu`:
+for example `CODEX/personal`, `CLAUDE/work`, `SSH` or `Sessions` before the
+separator. No other shortcut hints appear in the header. Press Ctrl-], release
+it, then ?; Esc restores the previous view, draft, scroll position, focus and
+Sessions editing/filter state. Arrow/Page keys or the wheel scroll the help.
+Repeated requests keep one overlay; bare ? and pasted text do not open help.
+Help identifies unavailable controls and works without input/reconnection or
+interruption during authentication, disconnection or active remote commands.
+Notices/history offsets appear separately in the terminal footer or view body.
+Native CLI headers remain controlled by the CLI.
 
 The layout follows Codex's resume picker: a title, search field, filter controls,
 compact session records sorted by name, relative update times and a position
@@ -375,6 +383,7 @@ contents as bridge shortcuts.
 
 While the assistant runs:
 
+- **Ctrl-] ?** opens Help Menu; Esc returns to the previous view without submitting input.
 - **Ctrl-] r** switches to the remote terminal for authentication or interaction.
 - **Ctrl-] c** returns to the assistant once that interaction is complete.
 - **Ctrl-] s** opens the named session menu.

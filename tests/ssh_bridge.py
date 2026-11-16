@@ -239,6 +239,12 @@ input()
                     output += os.read(master, 65536)
         try:
             until(b'AUTH challenge:')
+            os.write(master, b'\x1d?')
+            until(b'Open Help Menu.')
+            os.kill(process.pid, signal.SIGWINCH)
+            output = b''
+            os.write(master, b'\x1b')
+            until(b'AUTH challenge:')
             os.write(master, b'\x1dr\x1drtest-code\r')
             until(b'bash-')
             os.write(master, b'\x1dc')

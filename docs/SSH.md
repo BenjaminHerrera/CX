@@ -29,10 +29,23 @@ The project argument still selects a **local** directory.
 Do the first handoff only at a Bash prompt. Afterwards, switching saved screens
 does not type setup text into a password prompt or shell.
 
+## Shortcut Help
+
+The green SSH header reads `SSH  --  Ctrl-] ?: Help Menu`. Assistant headers
+use the same format with their CLI/account, such as `CLAUDE/work`. Press
+**Ctrl-]**, release it, then **?** for the full reference, including terminal
+switching, Sessions, wheel capture, Shift-drag selection and literal Ctrl-].
+Unavailable local/legacy controls are labeled. Esc restores the prior pane,
+scroll position and focus. Help is safe during login/MFA, active commands or
+disconnection: opening it sends no input and never reconnects or replays work.
+Temporary status and history offsets use a separate footer; the help hint stays
+in the header. Use arrows, Page keys or the wheel to scroll help.
+
 ## Navigate the Screens
 
 | Shortcut | Action |
 |---|---|
+| Ctrl-] ? | Open Help Menu; Esc restores the previous view |
 | Ctrl-] r | Show the SSH terminal |
 | Ctrl-] c | Show the assistant; initialize it on the first handoff |
 | Ctrl-] s | Open Sessions |

@@ -76,6 +76,8 @@ Environment:
   SSH also uses host OpenSSH configuration, an interactive terminal, and a
   remote Bash shell. Ctrl-] r opens SSH;
   Ctrl-] c hands control to the assistant. Ctrl-] q exits CX.
+  Every CX header offers Ctrl-] ?: Help Menu. Press Ctrl-], release, then ?.
+  Esc closes help and restores the previous view, draft and menu state.
   Ctrl-] s opens Sessions in managed interactive local and SSH sessions.
   / searches; Tab and Left/Right change CLI/status/sort; Ctrl-O changes density.
   F2 shows/hides internal reviewer threads (hidden initially).

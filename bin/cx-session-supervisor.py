@@ -16,7 +16,6 @@ class LocalBridge(module.Bridge):
         super().__init__(*args)
         self.focus = 'local'
         self.terminal.display.label = self.assistant_label
-        self.terminal.display.header_hints[None] = 'Ctrl-] s: Sessions'
 
     def connect(self):
         self.focus = 'local'
@@ -30,8 +29,7 @@ class LocalBridge(module.Bridge):
             return
         self.menu.launched()
         self.local = self.spawn(self.launcher, dict(os.environ, CX_SESSION_SUPERVISED='1'))
-        self.terminal.display.header_hints[self.local] = 'Ctrl-] s: Sessions'
-        if not self.menu.opened:
+        if not self.help.opened and not self.menu.opened:
             self.terminal.switch(self.local, self.assistant_label)
         self.resize()
 
@@ -40,7 +38,7 @@ class LocalBridge(module.Bridge):
 
     def switch_focus(self, focus):
         if focus == 'remote':
-            self.notice('This is a local CX session. Ctrl-] s opens Sessions.')
+            self.notice('SSH is unavailable in this local CX session.')
             return
         super().switch_focus('local')
 

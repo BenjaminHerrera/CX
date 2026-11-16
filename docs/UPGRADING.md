@@ -7,7 +7,7 @@
 The multi-CLI and session-menu work formerly developed on `v2` is now merged
 into `main`. New installations and upgrades should use `main`. The branch name
 did not itself assign a semantic release number. The current package version
-is **2.0.1**. No published release archive is required to
+is **2.1.0**. No published release archive is required to
 install from source.
 
 1. Exit running CX sessions and stop other writers before moving/backing up data.
@@ -19,7 +19,7 @@ git switch main
 git pull --ff-only
 ./install.sh
 cx --version
-# Expected: cx 2.0.1
+# Expected: cx 2.1.0
 cx --doctor
 ```
 
@@ -30,6 +30,25 @@ Restart CX afterwards. Host files and image contents are separate updates;
 `./install.sh --no-build` updates only the host program. Build the image before
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
+
+## Changes in 2.1.0
+
+Every CX header now offers **Ctrl-] ?: Help Menu**. Press Ctrl-], release it,
+then press ?. Help uses a yellow banner, shortcut badges with one space on
+both sides and aligned definitions. It lists keybindings only, including
+controls for the current Sessions modal. Esc restores the previous view,
+draft, scroll position, filters and editing state. Bare ? and pasted text
+remain ordinary input. Help does not authenticate, reconnect or interrupt work.
+
+Headers use `VIEW[/account]  --  Ctrl-] ?: Help Menu`; history offsets and
+operational notices appear separately in the footer or view body. The help
+banner is yellow; leaving help restores the prior blue or green banner.
+
+Update installed/portable program files and restart CX to load the new host
+help module. No new runtime dependency or data migration is required. Users
+already running the 2.0.1 image do not need to rebuild solely for this host UI
+change; rebuild to refresh its MCP version metadata or when upgrading older
+adapters. Source archives do not include a prebuilt Docker image.
 
 ## Changes in 2.0.1
 

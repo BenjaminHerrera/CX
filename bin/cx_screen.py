@@ -261,8 +261,7 @@ class SessionDisplay:
         self.deliver = deliver
         self.columns, self.rows = 80, 24
         self.panes = {}
-        self.header_hints = {}
-        self.compact_headers = set()
+        self.header_styles = {}
         self.active = None
         self.label = 'SSH'
         self.enabled = False
@@ -333,30 +332,37 @@ class SessionDisplay:
             data = data[count:]
 
     def header(self):
-        hint = self.header_hints.get(self.active, 'Ctrl-] c: assistant' if self.label == 'SSH' else 'Ctrl-] r: SSH')
-        text = f' {self.label}'
-        compact = self.active in self.compact_headers
-        if hint and not compact:
-            text += '  |  '+hint
-        offset = self.pane(self.active).screen.scroll_offset
-        if offset and not compact:
-            text += f'  |  HISTORY +{offset}  Ctrl-] b: live'
-        if compact:
-            pass
-        elif self.message and time.monotonic() < self.message_until:
-            text += '  |  ' + self.message
-        elif not offset:
-            text += '  |  Shift-drag: select' if self.mouse_scroll else '  |  Mouse: selection'
+        label = self.label.replace(' / ', '/')
+        label = ''.join(char for char in label if char.isprintable())
+        hint = 'Ctrl-] ?: Help Menu'
+        if self.columns < len(hint)+8:
+            hint = 'Ctrl-] ?'
+        budget = self.columns-len(hint)-7  # leading space and two-spaced --
+        if budget >= 1:
+            text = ' '+self.clip(label, budget)+'  --  '+hint
+        else:
+            text = hint
+        return self.clip(text, self.columns, pad=True)
+
+    @staticmethod
+    def clip(text, columns, pad=False):
         result, width = '', 0
         for char in text:
             cells = wcwidth(char)
             if cells < 0:
                 continue
-            if width + cells > self.columns:
+            if width + cells > columns:
                 break
             result += char
             width += cells
-        return result + ' ' * (self.columns - width)
+        return result + (' ' * (columns-width) if pad else '')
+
+    def status(self):
+        offset = self.pane(self.active).screen.scroll_offset
+        parts = [f'HISTORY +{offset}'] if offset else []
+        if self.message and time.monotonic() < self.message_until:
+            parts.append(self.message)
+        return '  '.join(parts)
 
     @classmethod
     def style(cls, char):
@@ -418,7 +424,8 @@ class SessionDisplay:
             identity = (screen, offset, screen.history_added)
             header = self.header()
             color = 42 if self.label == 'SSH' else 44
-            rows = [f'\033[0;1;97;{color}m' + header + '\033[0m']
+            style = self.header_styles.get(self.active, f'0;1;97;{color}')
+            rows = [f'\033[{style}m' + header + '\033[0m']
             count = min(self.lines, self.rows - 1)
             if offset:
                 history = list(screen.history.top) + [screen.buffer[y] for y in range(screen.lines)]
@@ -431,6 +438,14 @@ class SessionDisplay:
                 for y in screen.dirty:
                     if 0 <= y < count:
                         rows[y + 1] = self.row(screen, y)
+            # Status is a physical footer overlay, never written into a PTY's
+            # saved screen. Always restore its underlying row after expiry.
+            status = self.status()
+            if count:
+                if not offset:
+                    rows[count] = self.row(screen, count-1)
+                if status:
+                    rows[count] = '\033[0;2m'+self.clip(status, self.columns, pad=True)+'\033[0m'
             output = []
             if self.last is None or self.last[0] != rows:
                 # Applications never draw directly on the physical terminal.
@@ -440,7 +455,7 @@ class SessionDisplay:
                     if self.last is None or y >= len(self.last[0]) or row != self.last[0][y]:
                         output.append(f'\033[{y + 1};1H' + row)
             cursor = (min(screen.cursor.x, self.columns - 1), screen.cursor.y + 1,
-                      screen.cursor.hidden or bool(offset) or self.rows < 2)
+                      screen.cursor.hidden or bool(offset) or self.rows < 2 or bool(status and screen.cursor.y == count-1))
             if output or self.last is None or self.last[1] != cursor:
                 output.append(f'\033[{min(cursor[1] + 1, self.rows)};{cursor[0] + 1}H')
                 output.append('\033[?25l' if cursor[2] else '\033[?25h')

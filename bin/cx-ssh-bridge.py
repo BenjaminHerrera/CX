@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cx_screen import SessionDisplay
 from cx_agent import ssh_overrides
 from cx_sessions import SessionMenu
+from cx_help import HelpMenu
 
 
 class TerminalIO:
@@ -356,6 +357,7 @@ class Bridge:
             self.assistant_label += ' / ' + os.environ['CX_ACCOUNT']
         self.terminal = TerminalIO(self.deliver_terminal)
         self.menu = SessionMenu(self) if os.environ.get('CX_SESSION_MENU') == '1' else None
+        self.help = HelpMenu(self)
 
     def deliver_terminal(self, owner, data):
         if owner is not None and (owner is self.remote or owner is self.local):
@@ -364,7 +366,7 @@ class Bridge:
                 data = data[count:]
 
     def switch_focus(self, focus):
-        if self.menu and self.menu.opened:
+        if self.help.opened or self.menu and self.menu.opened:
             return
         if focus == 'remote' and self.interactive:
             self.interactive['ready'] = False
@@ -373,6 +375,13 @@ class Bridge:
                              'SSH' if focus == 'remote' else self.assistant_label)
 
     def notice(self, message):
+        if self.help.opened:
+            self.help.message = message
+            self.help.new_notice = True
+            if self.menu and self.menu.opened:
+                self.menu.message = message
+            self.help.draw()
+            return
         if self.menu and self.menu.opened:
             self.menu.message = message
             self.menu.draw()
@@ -389,7 +398,7 @@ class Bridge:
         white = '\033[97m' if color else ''
         header = '\033[0;97;43m' if color else ''
         reset = '\033[0m' if color else ''
-        lines = ['', f'{header} CX — SSH Session {reset}', '']
+        lines = ['', f'{header}SSH  --  Ctrl-] ?: Help Menu{reset}', '']
 
         def row(command, description):
             lines.append(f'  {yellow}{command:<24}{white} {description}{reset}')
@@ -398,15 +407,7 @@ class Bridge:
         row('Remote directory', self.directory or 'Remote login directory')
         if self.mount_mode:
             row('Container files', '/workspace/remote (' + self.mount_mode + ') via SSHFS')
-        lines.extend(['', f'{header} Login / Terminal Controls {reset}', ''])
         row('Log in', 'Complete SSH authentication/MFA and reach a Bash prompt.')
-        row('Ctrl-] c', 'Start the assistant after login, or return to it.')
-        row('Ctrl-] s', 'Open the named session menu (managed interactive accounts).')
-        row('Ctrl-] r', 'Open the remote terminal for authentication or interaction.')
-        row('Ctrl-] q', 'Exit this cx SSH-mode session.')
-        row('Ctrl-] b', 'Return to the live view after scrolling history.')
-        row('Ctrl-] m', 'Toggle wheel scrolling; Shift-drag selects text when on.')
-        row('Ctrl-] Ctrl-]', 'Send a literal Ctrl-] to the selected terminal.')
         lines.extend(['', f'{reset}'])
         self.terminal.render(self.remote, ('\r\n'.join(lines) + '\r\n').encode())
 
@@ -427,6 +428,8 @@ class Bridge:
         self.resize_pending = False
         if self.menu and self.menu.opened:
             self.menu.draw()
+        if self.help.opened:
+            self.help.draw()
         self.terminal.display.paint(force=True)
 
     def spawn(self, args, env=None):
@@ -512,7 +515,7 @@ class Bridge:
         else:
             self.switch_focus('local')
             self.resize()
-            self.notice('Assistant terminal. Ctrl-] r opens the remote terminal.')
+            self.notice('Assistant terminal.')
 
     def is_mounted(self, mountpoint):
         # Inspect the mount table without touching a possibly stalled FUSE server.
@@ -610,7 +613,7 @@ class Bridge:
         if self.menu:
             self.menu.launched()
         self.local = self.spawn(args, env)
-        if not self.menu or not self.menu.opened:
+        if not self.help.opened and (not self.menu or not self.menu.opened):
             self.terminal.switch(self.local, self.assistant_label)
         self.resize()
 
@@ -704,7 +707,7 @@ class Bridge:
                 else:
                     self.ready = True
                     self.switch_focus('local')
-                    self.notice('Remote shell ready. Starting/resuming assistant. Ctrl-] r opens SSH.')
+                    self.notice('Remote shell ready. Starting/resuming assistant.')
                     self.start_local()
 
     def interactive_observe(self, data):
@@ -964,6 +967,10 @@ class Bridge:
 
     def keyboard(self, data):
         for packet in self.terminal.read_input(data):
+            if self.help.opened:
+                if not self.terminal.reply(packet):
+                    self.help.handle(packet)
+                continue
             if self.menu and self.menu.opened:
                 if not self.terminal.reply(packet):
                     self.menu.handle(packet)
@@ -1045,13 +1052,18 @@ class Bridge:
 
     def keyboard_bytes(self, data):
         for byte in data:
+            if self.help.opened:
+                self.help.handle(bytes([byte]))
+                continue
             if self.escape:
                 self.escape = False
-                if byte == ord('r'):
+                if byte == ord('?'):
+                    self.help.open()
+                elif byte == ord('r'):
                     self.switch_focus('remote')
                     if not self.remote:
                         self.connect()
-                    self.notice('Remote terminal. Ctrl-] c returns to the assistant after login/interaction.')
+                    self.notice('Remote terminal. Complete login or interaction directly.')
                 elif byte == ord('c'):
                     self.activate()
                 elif byte == ord('s') and self.menu:
@@ -1064,8 +1076,7 @@ class Bridge:
                 elif byte == ord('m'):
                     self.terminal.mouse_scroll = not self.terminal.mouse_scroll
                     self.terminal.apply_mouse()
-                    self.notice('Wheel scrolling on; Shift-drag selects text.' if self.terminal.mouse_scroll else
-                                'Wheel scrolling off; drag selects text. Ctrl-] m enables scrolling.')
+                    self.notice('Wheel capture on.' if self.terminal.mouse_scroll else 'Wheel capture off.')
                 elif byte == 29:
                     item = self.remote if self.focus == 'remote' else self.local
                     if item:
@@ -1087,6 +1098,7 @@ class Bridge:
         while self.running:
             if self.menu:
                 self.menu.poll()
+            self.help.retain()
             if self.resize_pending:
                 self.resize()
             self.terminal.display.paint()
@@ -1096,7 +1108,9 @@ class Bridge:
             readable, _, _ = select.select(readers, [], [], .05)
             pending_escape = self.terminal.flush_input() if 0 not in readable else b''
             if pending_escape:
-                if self.menu and self.menu.opened:
+                if self.help.opened:
+                    self.help.handle(pending_escape)
+                elif self.menu and self.menu.opened:
                     self.menu.handle(pending_escape)
                 else:
                     self.deliver_terminal(self.remote if self.focus == 'remote' else self.local, pending_escape)

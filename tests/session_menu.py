@@ -346,13 +346,13 @@ class MenuTests(unittest.TestCase):
     def test_menu_banner_is_simple_and_prior_header_is_restored(self):
         display=self.bridge.terminal.display
         display.notice('A transient transport notice')
-        self.assertEqual(display.header().strip(),'Sessions')
+        self.assertEqual(display.header().strip(),'Sessions  --  Ctrl-] ?: Help Menu')
         self.menu.close()
         self.bridge.terminal.switch(self.bridge.local,'CODEX / work')
-        self.assertIn('CODEX / work',display.header())
-        self.assertIn('Ctrl-] r: SSH',display.header())
+        self.assertIn('CODEX/work',display.header())
+        self.assertIn('Ctrl-] ?: Help Menu',display.header())
         self.menu.open()
-        self.assertEqual(display.header().strip(),'Sessions')
+        self.assertEqual(display.header().strip(),'Sessions  --  Ctrl-] ?: Help Menu')
 
     def test_local_banners_offer_sessions_without_an_ssh_shortcut(self):
         spec=importlib.util.spec_from_file_location('local_bridge',ROOT/'bin/cx-session-supervisor.py')
@@ -363,12 +363,12 @@ class MenuTests(unittest.TestCase):
         bridge.spawn=Mock(return_value=(88,Mock()))
         bridge.resize=Mock()
         bridge.start_local()
-        self.assertIn('Ctrl-] s: Sessions',bridge.terminal.display.header())
+        self.assertIn('Ctrl-] ?: Help Menu',bridge.terminal.display.header())
         self.assertNotIn('SSH',bridge.terminal.display.header())
 
     def test_transport_notice_is_visible_below_the_compact_menu_banner(self):
         module.Bridge.notice(self.bridge,'SSH disconnected; command outcome unknown.')
-        self.assertEqual(self.bridge.terminal.display.header().strip(),'Sessions')
+        self.assertEqual(self.bridge.terminal.display.header().strip(),'Sessions  --  Ctrl-] ?: Help Menu')
         screen=self.bridge.terminal.display.pane(self.menu.owner).screen
         self.assertIn('SSH disconnected; command outcome unknown.','\n'.join(screen.display))
 
@@ -409,6 +409,175 @@ class MenuTests(unittest.TestCase):
         self.bridge.resize = Mock()
         self.bridge.start_local()
         self.assertIs(self.bridge.terminal.display.active, self.menu.owner)
+
+
+class HelpTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        env = patch.dict(os.environ, CX_DATA_HOME=self.temp.name, CX_SESSION_MENU='1', CX_AGENT='claude', CX_ACCOUNT='work')
+        env.start(); self.addCleanup(env.stop)
+        self.bridge = module.Bridge('host', '/remote', ['/cx', '/project'])
+        self.bridge.local, self.bridge.remote = (77, Mock()), (99, Mock())
+        self.bridge.focus, self.bridge.ready = 'local', True
+        self.bridge.terminal.switch(self.bridge.local, self.bridge.assistant_label)
+        self.bridge.menu.request = Mock()
+        self.bridge.menu.rows = [dict(agent='claude', id=ID, name='Session', project='/p', updated=1)]
+        self.writer = patch.object(module.os, 'write', side_effect=lambda fd, data: len(data))
+        self.write = self.writer.start(); self.addCleanup(self.writer.stop)
+
+    def test_both_cli_account_labels_and_ssh_identity_survive_help(self):
+        for agent in ('codex', 'claude'):
+            for account in ('personal', '研究'):
+                label = agent.upper()+' / '+account
+                self.bridge.terminal.switch(self.bridge.local, label)
+                self.bridge.help.open()
+                self.assertEqual(self.bridge.terminal.display.header().strip(), agent.upper()+'/'+account+'  --  Ctrl-] ?: Help Menu')
+                self.bridge.help.close()
+                self.assertEqual(self.bridge.terminal.display.label, label)
+        self.bridge.terminal.switch(self.bridge.remote, 'SSH')
+        self.bridge.help.open()
+        self.assertEqual(self.bridge.terminal.display.label, 'SSH')
+        self.assertEqual(self.bridge.terminal.display.header().strip(), 'SSH  --  Ctrl-] ?: Help Menu')
+        self.bridge.help.close()
+        self.write.assert_not_called()
+
+    def test_help_alias_palette_and_restored_banner(self):
+        display = self.bridge.terminal.display
+        self.bridge.help.open()
+        self.assertEqual(display.header_styles[self.bridge.help.owner], '0;30;43')
+        screen = display.pane(self.bridge.help.owner).screen
+        title = next(i for i, line in enumerate(screen.display) if line.startswith('Help Menu'))
+        self.assertEqual(screen.buffer[title][0].fg, 'brightbrown')
+        key = next(i for i, line in enumerate(screen.display) if 'Ctrl-] ?' in line)
+        self.assertEqual(screen.buffer[key][1].bg, 'brown')
+        self.assertEqual(screen.buffer[key][1].fg, 'black')
+        self.bridge.help.close()
+        self.assertNotIn(display.active, display.header_styles)
+
+    def test_badges_have_one_space_and_descriptions_align(self):
+        display = self.bridge.terminal.display
+        display.resize(120, 100)
+        self.bridge.help.open()
+        screen = display.pane(self.bridge.help.owner).screen
+        columns = []
+        entries = list(self.bridge.help.entries())
+        self.assertFalse({'Safety', 'Native input', 'Scrollback', 'Sessions state', 'Help navigation'} & {key for key, _ in entries})
+        for key, _ in entries:
+            row = next(i for i, line in enumerate(screen.display) if line.startswith(' '+key+' '))
+            cells = screen.buffer[row]
+            badge = ''.join(cells[x].data for x in range(screen.columns) if cells[x].bg == 'brown')
+            self.assertEqual(badge, ' '+key+' ')
+            end = len(key)+2
+            columns.append(next(x for x in range(end, screen.columns) if cells[x].data != ' '))
+        self.assertEqual(len(set(columns)), 1)
+        self.bridge.help.close()
+
+    def test_connection_banner_advertises_only_help(self):
+        self.bridge.terminal.render = Mock()
+        self.bridge.connection_help()
+        text = self.bridge.terminal.render.call_args.args[1].decode()
+        self.assertIn('SSH  --  Ctrl-] ?: Help Menu', text)
+        self.assertNotIn('Ctrl-] r', text)
+        self.assertNotIn('Ctrl-] c', text)
+
+    def test_open_close_keeps_focus_draft_history_and_busy_state(self):
+        for focus, ready in (('remote', False), ('local', True)):
+            self.bridge.focus, self.bridge.ready = focus, ready
+            owner = self.bridge.remote if focus == 'remote' else self.bridge.local
+            self.bridge.terminal.switch(owner, 'SSH' if focus == 'remote' else self.bridge.assistant_label)
+            pane = self.bridge.terminal.display.pane(owner)
+            pane.feed(b'\033[31mUNSENT DRAFT')
+            pane.screen.scroll_offset = 4
+            before = pane.screen.display[:]
+            pending = self.bridge.pending = {'job_id': ID}
+            interactive = self.bridge.interactive = {'ready': False}
+            self.bridge.keyboard(b'\x1d?')
+            self.assertTrue(self.bridge.help.opened)
+            self.assertIs(self.bridge.terminal.display.active, self.bridge.help.owner)
+            self.bridge.keyboard(b'\x1d?')
+            self.bridge.help.handle(b'\x1b')
+            self.assertFalse(self.bridge.help.opened)
+            self.assertIs(self.bridge.terminal.display.active, owner)
+            self.assertEqual(self.bridge.focus, focus)
+            self.assertEqual(self.bridge.ready, ready)
+            self.assertIs(self.bridge.pending, pending)
+            self.assertIs(self.bridge.interactive, interactive)
+            self.assertEqual(pane.screen.display, before)
+            self.assertEqual(pane.screen.scroll_offset, 4)
+            self.assertEqual(pane.screen.buffer[0][0].fg, 'red')
+        self.write.assert_not_called()
+
+    def test_help_restores_every_sessions_modal_and_filter(self):
+        menu = self.bridge.menu
+        menu.open()
+        menu.query, menu.cli_filter, menu.control = 'Session', 'Claude', 'sort'
+        menu.target, menu.account_rows, menu.account_index = menu.rows[0], ['work'], 0
+        for mode in ('list', 'search', 'rename', 'delete', 'account'):
+            menu.mode, menu.text = mode, 'Unsent 日本語?'
+            menu.draw()
+            before = (menu.mode, menu.text, menu.query, menu.cursor, menu.control, menu.target, menu.account_index)
+            self.bridge.keyboard(b'\x1d?')
+            self.assertTrue(self.bridge.help.opened, mode)
+            self.assertEqual(menu.mode, mode)
+            self.assertIn('Enter', [key for key, _ in self.bridge.help.entries()])
+            self.bridge.help.handle(b'\x1b')
+            self.assertEqual((menu.mode, menu.text, menu.query, menu.cursor, menu.control, menu.target, menu.account_index), before)
+            self.assertIs(self.bridge.terminal.display.active, menu.owner)
+        menu.request.assert_called_once_with('list')
+        self.write.assert_not_called()
+
+    def test_bare_question_and_paste_never_open_help(self):
+        self.bridge.keyboard(b'?')
+        self.write.assert_called_with(77, b'?')
+        self.bridge.keyboard(b'\x1b[200~\x1d?\x1b[201~')
+        self.assertFalse(self.bridge.help.opened)
+        self.bridge.menu.open()
+        self.bridge.menu.mode, self.bridge.menu.text = 'rename', ''
+        self.bridge.menu.target = self.bridge.menu.rows[0]
+        self.bridge.keyboard(b'\x1b[200~\x1d?\x1b[201~')
+        self.assertEqual(self.bridge.menu.text, '?')
+        self.assertFalse(self.bridge.help.opened)
+
+    def test_help_scroll_resize_repeat_and_paste_are_isolated(self):
+        self.bridge.help.open()
+        owners = set(self.bridge.terminal.display.panes)
+        self.bridge.help.open()
+        self.assertEqual(set(self.bridge.terminal.display.panes), owners)
+        self.bridge.keyboard(b'\x1b[6~')
+        self.assertGreater(self.bridge.help.top, 0)
+        for width in (120, 40, 15, 80):
+            self.bridge.terminal.display.resize(12, width)
+            self.bridge.help.draw()
+            self.assertLessEqual(self.bridge.help.top, self.bridge.help.limit)
+            self.assertIn('Ctrl-] ?', self.bridge.terminal.display.header())
+        self.bridge.keyboard(b'\x1b[200~\x1b\x1dq\x1b[201~')
+        self.assertTrue(self.bridge.help.opened)
+        self.assertTrue(self.bridge.running)
+        self.bridge.keyboard(b'\x1dq')
+        self.assertFalse(self.bridge.running)
+        self.write.assert_not_called()
+
+    def test_disconnected_and_legacy_local_help_report_unavailable_controls(self):
+        self.bridge.host, self.bridge.remote, self.bridge.ready, self.bridge.menu = '', None, False, None
+        self.bridge.help.open()
+        text = '\n'.join(description for _, description in self.bridge.help.entries())
+        self.assertIn('Unavailable in local mode', text)
+        self.assertIn('Unavailable in legacy mode', text)
+        self.bridge.notice('SSH disconnected; outcome unknown. '*10)
+        self.assertNotIn('outcome', self.bridge.terminal.display.header())
+        self.assertIn('Ctrl-] ?: Help Menu', self.bridge.terminal.display.header())
+        self.bridge.help.handle(b'\x1b')
+        self.assertIn('outcome unknown', self.bridge.terminal.display.status())
+        self.write.assert_not_called()
+
+    def test_underlying_view_change_does_not_dismiss_help(self):
+        self.bridge.help.open()
+        self.bridge.menu.open()
+        self.bridge.help.retain()
+        self.assertIs(self.bridge.terminal.display.active, self.bridge.help.owner)
+        self.bridge.help.handle(b'\x1b')
+        self.assertIs(self.bridge.terminal.display.active, self.bridge.menu.owner)
 
 
 class PtyTests(unittest.TestCase):
@@ -503,11 +672,15 @@ class PtyTests(unittest.TestCase):
                 self.assertIn(needle, output)
             try:
                 until(b'NATIVE READY')
-                os.write(master, b'draft\x1ds')
+                os.write(master, b'NATIVE-DRAFT-XYZ\x1d?')
+                until(b'Open Help Menu.')
+                os.write(master, b'\x1b')
+                until(b'NATIVE-DRAFT-XYZ')
+                os.write(master, b'\x1ds')
                 until(b'PTY Session')
                 os.write(master, b'\x1b[Bq\r')
                 process.wait(timeout=10)
-                self.assertEqual(log.read_text(), 'draft\n')
+                self.assertEqual(log.read_text(), 'NATIVE-DRAFT-XYZ\n')
                 self.assertEqual(process.returncode, 0)
             finally:
                 if process.poll() is None:

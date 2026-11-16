@@ -335,3 +335,12 @@ The original task is discarded on new resume, while project/additional mounts
 and freshly generated SSH instructions are kept. Restored PTYs retain their
 existing launch context. CX exit cleans up every owned assistant, while failure
 to start a selected resume leaves saved processes and remote state available.
+
+
+`bin/cx_help.py` owns a read-only saved-screen shortcut overlay. Terminal and
+Sessions prefix paths open it independently of remote readiness and modal
+state; its input and paste handling never forward keys to a native PTY. Esc
+restores the underlying view and modes. Async native exits may change the
+underlying view, so help reattaches to the new owner rather than a dead PTY.
+All CX headers reserve the help hint; notices and history offsets use a
+physical footer without modifying the native saved screen.

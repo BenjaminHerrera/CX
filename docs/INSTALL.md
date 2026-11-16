@@ -5,7 +5,7 @@
 The multi-CLI/session-menu integration is merged into `main`. Use a checkout
 of `main` for the current source installation. The examples below also cover
 packaged editions when archives are available; they do not imply that a GitHub
-release has been published. The current source version is `2.0.1`.
+release has been published. The current source version is `2.1.0`.
 
 ## 1. Prepare Docker
 
@@ -56,11 +56,11 @@ If you received both archives and the checksum file:
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf cx-2.0.1-install.tar.gz
-cd cx-2.0.1-install
+tar -xzf cx-2.1.0-install.tar.gz
+cd cx-2.1.0-install
 ```
 
-For portable use, extract `cx-2.0.1-portable.tar.gz` instead. The checksum command
+For portable use, extract `cx-2.1.0-portable.tar.gz` instead. The checksum command
 expects both archives to be present; if you downloaded only one, compare its
 `sha256sum` output with its matching line in `SHA256SUMS`. Checksums detect
 accidental changes; they do not authenticate an untrusted publisher.
@@ -105,13 +105,13 @@ path. Legacy mode cannot be combined with managed selection or Claude.
 The image defaults to Claude 2.1.323; set `CX_CLAUDE_VERSION` before building for
 an override. `CX_CODEX_VERSION` remains supported. Both Claude self-update paths
 are disabled; update through an image rebuild. Claude permission bypass requires
-a non-root host UID. The current package version is 2.0.1.
+a non-root host UID. The current package version is 2.1.0.
 
 ## Portable edition
 
 ```bash
-tar -xzf cx-2.0.1-portable.tar.gz
-cd cx-2.0.1-portable
+tar -xzf cx-2.1.0-portable.tar.gz
+cd cx-2.1.0-portable
 ./cx --build
 ./cx accounts add --agent codex --account personal --auth subscription
 ./cx --agent codex --account personal --login
@@ -147,15 +147,17 @@ workspace environments are not part of the program update.
 
 <a id="upgrading-to-121"></a>
 
-### Upgrading to 2.0.1
+<a id="upgrading-to-201"></a>
 
-From the updated repository or extracted `cx-2.0.1-install` directory,
+### Upgrading to 2.1.0
+
+From the updated repository or extracted `cx-2.1.0-install` directory,
 on your Linux/WSL host outside cx:
 
 ```bash
 ./install.sh
 cx --version
-# Expected: cx 2.0.1
+# Expected: cx 2.1.0
 ```
 
 Reuse your original `--prefix` if customized. The default build installs the
@@ -177,14 +179,14 @@ User MCP configuration is preserved. The session-only name `cx_ssh` is
 reserved; rename a conflicting server or use `--no-ssh-mcp`. This feature does
 not change Codex approval settings or grant additional permissions.
 
-For portable upgrades, extract `cx-2.0.1-portable.tar.gz`, transfer private
+For portable upgrades, extract `cx-2.1.0-portable.tar.gz`, transfer private
 `data/` while sessions are stopped, merge intentional configuration changes,
 and run `./cx --build`. Never replace saved data with an empty directory.
 Credentials, environment stores, and workspace paths are unchanged.
 
 ### Workspace migration from 1.0.x
 
-The three-folder layout was introduced in 1.1.0 and is unchanged in 2.0.1.
+The three-folder layout was introduced in 1.1.0 and is unchanged in 2.1.0.
 When upgrading from 1.0.x or older, rebuild the image and update scripts:
 
 | Previous container path | 1.1.x container path |

@@ -26,7 +26,7 @@ files=(
     .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/feature_request.yml
     .github/ISSUE_TEMPLATE/question.yml .github/ISSUE_TEMPLATE/config.yml
     .github/PULL_REQUEST_TEMPLATE.md .github/workflows/ci.yml
-    bin/cx bin/cx_sessions.py bin/cx-session-supervisor.py bin/cx_agent.py bin/cx-accounts.sh bin/cx-ssh-bridge.py bin/cx-slurm-setup.py bin/cx_screen.py config/config.toml
+    bin/cx bin/cx_help.py bin/cx_sessions.py bin/cx-session-supervisor.py bin/cx_agent.py bin/cx-accounts.sh bin/cx-ssh-bridge.py bin/cx-slurm-setup.py bin/cx_screen.py config/config.toml
     container/cx-agent container/cx-claude-config.mjs container/cx-codex-resume.mjs container/cx-guidance.txt container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
     container/mcp/package.json container/mcp/package-lock.json container/mcp/server.mjs
     container/cx-sessions.mjs container/cx-session-menu.mjs tests/sessions.mjs tests/session-menu.mjs tests/session_menu.py
