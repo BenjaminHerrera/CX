@@ -90,6 +90,8 @@ function exactLookupGuards(root,ids,transcripts,guards){
 function claudeSession(root,id){
   if(!root)return null;
   directory(root);
+  const live=path.join(root,'cx-live');
+  if(directory(live)&&fs.readdirSync(live).length)throw new Error('A Claude instance may still be writing shared history. Exit Claude cleanly before deleting; inspect stale cx-live leases manually.');
   const projects=path.join(root,'projects'),transcripts=[],trees=[],edits=[];
   if(!directory(projects))return null;
   for(const name of fs.readdirSync(projects)){
@@ -175,6 +177,7 @@ export async function removeSession({id,agent,codexRoot,claudeRoot,codexHome,cre
   id=id.toLowerCase();
   if(agent&&!['codex','claude'].includes(agent))throw new Error('Invalid --agent.');
   let codex;
+  let claudeLock;
   const staged=[],guards=[];
   try{
     // Complete discovery and validation before deleting anything. A collision
@@ -184,6 +187,13 @@ export async function removeSession({id,agent,codexRoot,claudeRoot,codexHome,cre
     if(codex&&claude)throw new Error('Session ID exists for both CLIs; specify --agent codex or --agent claude.');
     if(!codex&&!claude)throw new Error(`Unknown session: ${id}`);
     const selected=codex||claude;
+    if(claude){
+      const lock=path.join(claudeRoot,'cx-delete-lock');
+      fs.mkdirSync(lock,{mode:0o700});
+      claudeLock=lock;
+      const live=path.join(claudeRoot,'cx-live');
+      if(directory(live)&&fs.readdirSync(live).length)throw new Error('A Claude instance may still be writing shared history; exit it cleanly before deletion.');
+    }
     for(const edit of selected.edits){
       const temporary=edit.file+`.cx-remove-${randomUUID()}`;
       staged.push({temporary,file:edit.file});
@@ -204,6 +214,7 @@ export async function removeSession({id,agent,codexRoot,claudeRoot,codexHome,cre
     finally{
       for(const file of guards)fs.rmSync(file,{force:true});
       for(const {temporary} of staged)fs.rmSync(temporary,{force:true});
+      if(claudeLock)fs.rmdirSync(claudeLock);
     }
   }
 }

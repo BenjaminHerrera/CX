@@ -41,6 +41,8 @@ jobs:
         run: |
           node tests/accounts.mjs
           node tests/codex-resume.mjs
+          node tests/session-menu.mjs
+          python3 -B tests/session_menu.py
           node tests/sessions.mjs
           node tests/import-sessions.mjs
       - name: Remote CLI checks

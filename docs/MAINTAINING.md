@@ -4,12 +4,12 @@ Start with the [development guide](DEVELOPMENT.md) for local setup and component
 workflows. See [GitHub maintenance](GITHUB.md) for triage, repository settings,
 and the release checklist. The [documentation index](README.md) lists all guides.
 
-The launcher is Bash; the optional host SSH bridge uses Python 3.11+ standard
+The launcher is Bash; interactive supervision and the SSH bridge use Python 3.11+ standard
 library modules plus bundled pure Python pyte/wcwidth sources for screen
 rendering. The container client and wrapper tests use Node.js built-in
 modules. The MCP suite requires the locked SDK dependencies; other suites need no npm dependencies.
 Host Node.js is needed for maintenance, not ordinary cx use. Host Python is
-required only for SSH mode and its tests.
+required for managed interactive sessions, SSH mode and their tests.
 
 ## Offline checks
 
@@ -21,6 +21,8 @@ remain in the source distribution.
 node tests/smoke.mjs
 node tests/accounts.mjs
 node tests/sessions.mjs
+node tests/session-menu.mjs
+python3 -B tests/session_menu.py
 node tests/import-sessions.mjs
 node tests/remote-client.mjs
 npm ci --prefix container/mcp --ignore-scripts
@@ -186,3 +188,11 @@ compute nodes through the MCP bridge, ran commands, and closed both jobs; the
 CPU test also confirmed shell state persists across commands. The scheduler
 showed neither job remaining afterward. Other sites and allocation modes
 still need their own checks.
+
+
+Named-session release checks are recorded in [CX-7 validation](CX7-VALIDATION.md).
+Menu fixtures and native Codex naming checks do not establish live Docker, SSH
+handoff, Windows Terminal selection/paste, or scheduler compatibility. Confirm
+fresh guidance and native ownership failures on an integrated host before release.
+Claude writer leases cover interactive supervision and managed exec/print launches;
+inspect stale leases/gates only with the related writers and maintenance stopped.

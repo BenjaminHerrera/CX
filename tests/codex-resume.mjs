@@ -36,6 +36,7 @@ await check('picker supports pagination, cancellation, EOF and safe terminal lab
   const result=await chooseHistory(pickerRequest(['resume','--all']),{client:{rpc:async(method,params)=>{assert.equal(method,'thread/list');return pages[params.cursor||'start'];}},ask:async()=>choices.shift(),write:text=>output+=text});
   assert.ok(output.includes(`[${first}]`));assert.ok(output.includes(`[${second}]`));
   assert.equal(result,second);assert.equal(output.includes('\x1b'),false);assert.ok(output.includes('Choose a listed number'));
+  assert.ok(output.includes('Untitled Session [11111111]'));assert.equal(output.includes('spoof'),false);
   for(const answer of ['q',null])assert.equal(await chooseHistory(pickerRequest(['resume']),{client:{rpc:async()=>pages.start},ask:async()=>answer,write:()=>{}}),null);
 });
 fs.writeFileSync(path.join(bin,'codex'),`#!/usr/bin/env node

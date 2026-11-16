@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add a saved blue Sessions menu in managed local and SSH sessions: Ctrl-] s,
+  cursor/page navigation, stable names, persistent rename and confirmed deletion
+  through the existing removal backend. Keep instance-local active selection and
+  queue native resume until the current assistant exits cleanly; never inject a
+  quit command or replay a task. Keep SSH command/allocation state in the bridge.
+- Discover Codex history with paginated native APIs and persist explicit native
+  names with thread/name/set. Keep per-CLI/UUID explicit CX names above imported
+  titles, and show neutral labels for unnamed histories instead of chat previews.
+- Protect Claude deletion with conservative managed-writer leases and an atomic
+  deletion gate. Record live terminal/Docker/site checks separately from fixtures.
+
 - Add a standalone native session import script for Codex and Claude, with
   dry run, custom paths, duplicate/conflict handling, private independent copies
   and index merging. Preserve native originals and exclude credentials/settings;

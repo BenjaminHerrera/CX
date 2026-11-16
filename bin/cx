@@ -26,6 +26,7 @@ Usage:
   cx accounts default --agent codex|claude --account NAME
   cx accounts remove NAME [--agent codex|claude]
   cx sessions remove ID [--agent codex|claude]
+  cx sessions select [PROJECT] [--agent codex|claude --account NAME]
 
 Examples:
   cx .
@@ -73,7 +74,11 @@ Environment:
   SSH mode supports Codex and Claude through the same bridge and MCP adapter.
   SSH mode uses host SSH configuration and requires host Python 3.11+, OpenSSH,
   an interactive terminal, and a remote Bash shell. Ctrl-] r opens SSH;
-  Ctrl-] c hands control to Codex. Ctrl-] q exits the SSH-mode session.
+  Ctrl-] c hands control to the assistant. Ctrl-] q exits CX.
+  Ctrl-] s opens Sessions in managed interactive local and SSH sessions.
+  Arrows/Page keys move; Enter queues resume; r renames; d/Delete confirms
+  deletion shared by all accounts of that CLI; Esc/q closes; f refreshes.
+  Queued resume waits for a clean native assistant exit; no text is injected.
   SSH and Codex use separate saved screens with a full-width top bar:
   green for SSH and blue for Codex. No tmux installation is required.
   --ssh-mount exposes --remote-dir at /workspace/remote read-only; --ssh-mount=rw
@@ -573,6 +578,17 @@ run_container() {
             --env "CX_SSH_MOUNT_MODE=${CX_SSH_MOUNT_MODE}")
         CODEX_ARGS=(--add-dir /workspace/remote "${CODEX_ARGS[@]}")
     fi
+    local writer_lease="" writer_directory
+    if [[ "$AGENT" == claude && "$LEGACY_ACCOUNT" == false ]]; then
+        writer_directory="$DATA_HOME/history/claude/cx-live"
+        private_directory "$writer_directory"
+        writer_lease="$(mktemp "$writer_directory/launcher.XXXXXXXX")"
+        printf '{"pid":%s,"account":"%s"}\n' "$$" "$ACCOUNT" >"$writer_lease"
+        if [[ -e "$DATA_HOME/history/claude/cx-delete-lock" || -L "$DATA_HOME/history/claude/cx-delete-lock" ]]; then
+            rm -f -- "$writer_lease"
+            die "Claude history deletion is in progress; retry launch after it completes."
+        fi
+    fi
     if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
         "${ssh_args[@]}" \
         --name "cx-$(date +%s)-$$" \
@@ -607,6 +623,9 @@ run_container() {
         docker_status=$?
     fi
 
+    # Leave a conservative marker after a forced/crashed launcher; clear only
+    # after Docker has returned normally, including a native nonzero exit.
+    [[ -z "$writer_lease" ]] || rm -f -- "$writer_lease"
     return "$docker_status"
 }
 
@@ -766,12 +785,24 @@ doctor() {
 }
 
 sessions_command() {
-    [[ "${1:-}" == remove ]] || die "Usage: cx sessions remove ID [--agent codex|claude]"
+    if [[ "${1:-}" == select ]]; then
+        shift
+        [[ -t 0 && -t 1 ]] || die "Session selection requires an interactive terminal."
+        [[ -z "${CX_CODEX_HOME:-}" ]] || die "Session menu supports managed history only; unset CX_CODEX_HOME."
+        exec env CX_SESSION_OPEN=1 "$CX_ROOT/bin/cx" "$@"
+    fi
+    local action="${1:-}" session_id=""
+    [[ "$action" == remove || "$action" == menu-backend ]] || die "Usage: cx sessions select [PROJECT] [--agent CLI --account NAME] | cx sessions remove ID [--agent CLI]"
     shift
     account_options "$@"
-    ((${#SELECTION_ARGS[@]} == 1)) && [[ -z "$ACCOUNT" ]] || die "Usage: cx sessions remove ID [--agent codex|claude]"
-    local session_id="${SELECTION_ARGS[0]}" cli directory destination found=false
-    [[ "$session_id" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || die "Use the full session UUID."
+    local cli directory destination found=false
+    if [[ "$action" == remove ]]; then
+        ((${#SELECTION_ARGS[@]} == 1)) && [[ -z "$ACCOUNT" ]] || die "Usage: cx sessions remove ID [--agent codex|claude]"
+        session_id="${SELECTION_ARGS[0]}"
+        [[ "$session_id" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || die "Use the full session UUID."
+    else
+        (($# == 0)) || die "Unexpected menu backend arguments."
+    fi
     [[ -z "${CX_CODEX_HOME:-}" ]] || die "Session removal supports managed history only. Unset CX_CODEX_HOME first."
     check_data_home
     [[ ! -L "$DATA_HOME/history" ]] || die "Refusing symlinked history storage."
@@ -793,15 +824,50 @@ sessions_command() {
     ensure_image
     local -a selection=()
     [[ -z "$AGENT" ]] || selection=(--agent "$AGENT")
-    docker run --rm --user "$(id -u):$(id -g)" \
+    local -a utility_args=() utility_terminal=()
+    if [[ "$action" == menu-backend ]]; then
+        utility_terminal=(-i)
+        utility_args=(/opt/cx-session-tools/cx-session-menu.mjs)
+    else
+        utility_args=(/opt/cx-session-tools/cx-sessions.mjs remove "$session_id" "${selection[@]}")
+    fi
+    docker run --rm "${utility_terminal[@]}" --user "$(id -u):$(id -g)" \
         --network none --read-only --cap-drop ALL --security-opt no-new-privileges=true \
         --tmpfs "/tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777" \
         --tmpfs "/codex-home:rw,nosuid,nodev,size=16m,mode=700,uid=$(id -u),gid=$(id -g)" \
         "${history_mounts[@]}" "${history_env[@]}" \
         --mount "type=bind,src=$CX_ROOT/container/cx-sessions.mjs,dst=/opt/cx-session-tools/cx-sessions.mjs,readonly" \
         --mount "type=bind,src=$CX_ROOT/container/cx-codex-resume.mjs,dst=/opt/cx-session-tools/cx-codex-resume.mjs,readonly" \
+        --mount "type=bind,src=$CX_ROOT/container/cx-session-menu.mjs,dst=/opt/cx-session-tools/cx-session-menu.mjs,readonly" \
         --env HOME=/tmp/cx-home --env CODEX_HOME=/codex-home --env CODEX_SQLITE_HOME=/cx-history/sqlite \
-        --entrypoint node "$IMAGE" /opt/cx-session-tools/cx-sessions.mjs remove "$session_id" "${selection[@]}"
+        --entrypoint node "$IMAGE" "${utility_args[@]}"
+}
+
+interactive_session() {
+    local escaped=false command_position=true
+    while (($#)); do
+        case "$1" in
+            --)
+                if [[ "$escaped" == true ]]; then return 0; fi
+                [[ "$AGENT" != claude ]] || command_position=false
+                escaped=true; shift; continue ;;
+            --help|-h|--version|-V|--print) return 1 ;;
+            -p)
+                [[ "$AGENT" != claude ]] || return 1
+                shift; (($# == 0)) || shift; continue ;;
+            --resume|-r)
+                shift
+                if (($#)) && [[ "$1" != -* ]]; then shift; fi
+                continue ;;
+            --model|-m|-c|--config|--profile|--enable|--disable|-C|--cd|--name|-n|--agents|--agent|--settings|--setting-sources|--permission-mode|--mcp-config|--add-dir|--add-file|--append-system-prompt|--system-prompt|--effort|--session-id)
+                shift; (($# == 0)) || shift; continue ;;
+            exec|e) [[ "$command_position" == false ]] || return 1 ;;
+            -*) ;;
+            *) command_position=false ;;
+        esac
+        shift
+    done
+    return 0
 }
 
 main() {
@@ -895,6 +961,18 @@ main() {
         command -v sshfs >/dev/null || die "--ssh-mount requires sshfs on the host."
         command -v fusermount3 >/dev/null || command -v fusermount >/dev/null || die "--ssh-mount requires fusermount3 or fusermount on the host."
     fi
+    local session_interactive=true argument
+    interactive_session "${forwarded[@]}" || session_interactive=false
+    if [[ -t 0 && -t 1 && "$session_interactive" == true && "$LEGACY_ACCOUNT" == false && "${CX_SESSION_SUPERVISED:-}" != 1 ]]; then
+        local -a picker_args=()
+        for argument in "${forwarded[@]}"; do
+            case "$argument" in --all|--include-non-interactive) ;; *) picker_args+=("$argument") ;; esac
+        done
+        if ((${#picker_args[@]} == 1)) && [[ "${picker_args[0]}" == resume || "${picker_args[0]}" == --resume ]]; then
+            export CX_SESSION_OPEN=1
+        fi
+        export CX_SESSION_MENU=1 CX_SESSION_SUPERVISED=1 CX_DATA_HOME="$DATA_HOME" CX_AGENT="$AGENT" CX_ACCOUNT="$ACCOUNT" CX_SELECTED_PROFILE="$HOST_CODEX_HOME"
+    fi
     if [[ "$saw_ssh" == true ]]; then
         [[ "$ssh_host" != -* ]] || die "Invalid SSH host."
         [[ -z "${CX_SSH_BRIDGE_DIR:-}" ]] || die "Nested SSH bridges are unsupported."
@@ -909,6 +987,13 @@ main() {
         [[ "$LEGACY_ACCOUNT" == true ]] || ssh_selection=(--agent "$AGENT" --account "$ACCOUNT")
         exec env "CX_AGENT=$AGENT" "CX_ACCOUNT=$ACCOUNT" "CX_SELECTED_PROFILE=$HOST_CODEX_HOME" "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
             "$CX_ROOT/bin/cx" "$workspace" "${ssh_selection[@]}" "${forwarded[@]}"
+    fi
+    if [[ "${CX_SESSION_MENU:-}" == 1 && -z "${CX_SSH_BRIDGE_DIR:-}" && "${CX_SESSION_CHILD:-}" != 1 ]]; then
+        if [[ "$session_interactive" == true ]]; then
+            command -v python3 >/dev/null || die "Interactive session menus require Python 3 on the host."
+            python3 -c "import tomllib" 2>/dev/null || die "Interactive session menus require Python 3.11 or newer."
+            exec env CX_SESSION_CHILD=1 python3 "$CX_ROOT/bin/cx-session-supervisor.py" "$CX_ROOT/bin/cx" "$workspace" --agent "$AGENT" --account "$ACCOUNT" "${forwarded[@]}"
+        fi
     fi
     run_container "$workspace" "${forwarded[@]}"
 }

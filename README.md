@@ -11,6 +11,7 @@ remote commands, file access, and interactive Slurm CPU/GPU sessions.
 
 - A consistent workspace for your project, extra directories, and individual files.
 - Named accounts with private credentials/settings and shared history within each CLI.
+- A blue Sessions screen with stable names, cursor navigation, rename and confirmed deletion.
 - Installed and portable editions with persistent development environments.
 - Optional SSH mode with separate terminal screens, tracked commands, and MCP tools.
 - Optional SSHFS browsing/editing and per-server Slurm interactive setup.
@@ -24,7 +25,9 @@ Linux or WSL2 with Bash 4+, GNU coreutils, `sed`, `tar`/`gzip`, a running
 with access to the selected CLI. Claude permission bypass requires a non-root user. Default container limits are 8 GB memory and 4 CPUs;
 [these are configurable](docs/USAGE.md#settings).
 
-SSH additionally requires host Python 3.11+, OpenSSH, an interactive terminal,
+Interactive managed sessions require host Python 3.11+ for saved screens and the
+`Ctrl-] s` session menu. Redirected tasks and maintenance utilities do not.
+SSH additionally requires OpenSSH, an interactive terminal,
 and remote Bash. Remote file mounts require SSHFS/FUSE and server SFTP support.
 Native macOS and Windows shells are outside the supported scope.
 
@@ -57,6 +60,7 @@ cx . --add-file ~/notes.md                 # Share one existing writable file
 cx --shell                                # Open a container shell
 cx --help                                 # Show launcher options
 cx sessions remove SESSION_ID              # Delete a shared conversation by full ID
+cx sessions select .                       # Open the named session menu
 ```
 
 Interactive launches show a combined CLI/account picker. Scripts need an explicit

@@ -19,6 +19,8 @@ npm ci --prefix container/mcp --ignore-scripts
 node tests/smoke.mjs
 node tests/accounts.mjs
 node tests/sessions.mjs
+node tests/session-menu.mjs
+python3 -B tests/session_menu.py
 node tests/import-sessions.mjs
 node tests/codex-resume.mjs
 node tests/remote-client.mjs
@@ -159,3 +161,28 @@ the server. Document new options in help and `docs/USAGE.md`, setup changes in
 Add distribution files to the package allowlist. Update `VERSION` and release
 references only when preparing a requested release. Follow the
 [release checklist](GITHUB.md#release-checklist); never publish a used portable bundle.
+
+
+## Session Menu Development
+
+`bin/cx_sessions.py` owns the menu model, saved pane, keyboard actions and bounded
+asynchronous worker. `bin/cx-session-supervisor.py` reuses the PTY/screen plumbing
+for local sessions without invoking SSH or loading its configuration. The SSH
+supervisor retains its existing transport and calls the same menu controller.
+Opening the menu changes display/input routing, not remote focus/readiness.
+
+`container/cx-session-menu.mjs` runs as a history-only, network-disabled utility,
+reusing `cx-sessions.mjs` for deletion and `cx-codex-resume.mjs` for native RPC.
+Keep mutation requests bound to an explicit CLI/UUID. Never replay an initial
+task during handoff, kill a potentially busy assistant to switch, or infer an
+active ID from recent history. Recheck remote ownership at handoff, not just at
+selection. Idle ready allocations remain owned by the same bridge.
+
+Run `session-menu.mjs` for native pagination/naming and history safety fixtures;
+`CX_NATIVE_HISTORY=1` adds real Codex naming/discovery with a disposable rollout
+and no provider requests. `session_menu.py` covers keyboard/modal routing,
+cursor preservation, Unicode, resize, clean/failed/busy handoff, helper startup failure, retained
+allocation identity and a real local PTY draft-restoration check. Run existing
+screens/SSH/removal/account suites after changing those seams. Fixtures do not
+establish real Docker, Claude live resume, Windows Terminal selection/paste or
+site scheduler behavior. See `docs/CX7-VALIDATION.md` for remaining live gates.

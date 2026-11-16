@@ -23,8 +23,10 @@ Linux filesystem for normal Linux permissions.
 
 ## Optional SSH prerequisites
 
-Local sessions do not require Python or host SSH setup. For `--ssh`, install
-Python 3.11+ and OpenSSH on the host and use an interactive terminal. The
+Managed interactive local sessions require host Python 3.11+ for the saved-screen
+session menu, but no SSH setup. Noninteractive tasks and history maintenance do
+not require host Python. For `--ssh`, also install OpenSSH and use an interactive
+terminal. The
 remote session must reach a Bash shell. Host SSH aliases, keys, agents, jump
 hosts, and authentication policies are used directly; no third-party Python
 packages are needed: the terminal renderer and its pure Python libraries

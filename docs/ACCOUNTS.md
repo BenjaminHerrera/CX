@@ -406,3 +406,51 @@ on the user's installation; availability elsewhere depends on native account
 restrictions. Native tmux checks are skipped where tmux is unavailable. Do not
 interpret simulator success or a requested skip as a live pass. CX-1 stays open
 and the PR stays draft until explicitly approved for a status change or merge.
+
+
+## Session Names and Menu Safety
+
+`cx sessions select [PROJECT]` and **Ctrl-] s** open the same named menu for both
+CLIs. It lists native project/time/UUID context, never chat snippets as names.
+Codex uses paginated `thread/list` for active and archived histories, covering
+native plain/compressed histories
+without reading or merging SQLite directly. Claude reads explicit `custom-title`
+metadata or an index's `customTitle`; summaries and message previews are ignored.
+An unnamed row is `Untitled Session [short-id]`. Native project paths may be the
+container's `/workspace` rather than the host project's original path.
+
+Rename writes a separate `history/CLI/cx-names/UUID.json` file, with mode 0600 and
+an atomic replacement per ID. These explicit CX names take precedence over native
+titles and subsequent imports/messages. Codex also uses native `thread/name/set`;
+Claude has no offline naming API, so CX does not edit its transcript. Shared
+history makes these names visible to every account of that CLI. Equal UUIDs in
+the two CLIs have independent names. No transcript filenames, ownership or chat
+content are rewritten by CX. Removal uses the existing native/reference-aware
+backend and never falls back to database merging.
+
+Each supervisor holds active selection in its own process. Resume by an explicit
+UUID is marked active immediately; a native new session or native picker is
+identified as native/new until CX has an explicit selected UUID. CX never guesses
+active identity from the newest message, which could belong to another instance.
+The current CLI/account is always shown; moving the cursor changes neither.
+Native account checks can reject a resume even though the shared history is visible.
+
+Deletion confirmation identifies the name, CLI and full UUID and warns that all
+accounts of that CLI share the result. The current selected session cannot be
+deleted while its assistant is open. Native Codex writer/reference checks remain
+in force. Claude has no corresponding offline deletion API: each managed Claude
+interactive or exec/print launch creates a `history/claude/cx-live/INSTANCE.json` lease. Deletion refuses
+while any Claude lease exists, even for another row, rather than guessing which
+file a native client may write next. Exit all Claude instances cleanly first.
+An atomic `cx-delete-lock` directory also prevents new managed Claude writers
+from starting during deletion. Unmanaged/legacy clients are outside this guard;
+stop them before deletion too.
+
+A crashed/killed supervisor or interrupted deletion may leave a lease or gate.
+Inspect that the corresponding CX/Docker instances and maintenance processes
+have stopped before manually removing stale `cx-live` entries or `cx-delete-lock`.
+CX never clears them automatically or retries an uncertain mutation. Menu backend
+containers have networking disabled and mount histories plus read-only tools,
+without account homes, project files or provider credentials. Install/portable
+and custom `CX_DATA_HOME` use the same paths relative to their selected data root.
+Legacy `CX_CODEX_HOME` keeps native sessions and does not offer this menu.

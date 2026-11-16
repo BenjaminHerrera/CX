@@ -17,6 +17,7 @@ const fs=require('node:fs');const args=process.argv.slice(2);
 fs.appendFileSync(process.env.CX_TEST_LOG,JSON.stringify(args)+'\\n');
 if(args[0]==='image'&&args.includes('--format'))console.log(args.some(a=>a.includes('io.cx.ssh-agents'))?(process.env.CX_TEST_OLD_SSH_IMAGE?'1':'2'):(process.env.CX_TEST_OLD_IMAGE?'0':'1'));
 if(args[0]==='run'&&process.env.CX_TEST_EXIT)process.exit(Number(process.env.CX_TEST_EXIT));
+if(args[0]==='run'&&process.env.CX_TEST_LIVE_DIR&&!fs.readdirSync(process.env.CX_TEST_LIVE_DIR).length)process.exit(77);
 `,{mode:0o755});
 const launcher=path.join(root,'bin/cx');
 function run(args=[],extra={}){const r=spawnSync('bash',[launcher,...args],{cwd:project,env:{...env,...extra},encoding:'utf8'});return r;}
@@ -82,7 +83,12 @@ check('session removal mounts only shared histories and read-only tools without 
   assert.equal(a[a.indexOf('--entrypoint')+1],'node');
   for(const agent of ['codex','claude'])assert.ok(a.some(x=>x.startsWith(`type=bind,src=${data}/history/${agent},`)));
   assert.equal(a.some(x=>x.includes('/profiles/')||x.includes('dst=/workspace/main')||x.includes('API_KEY')),false);
-  assert.equal(a.filter(x=>x.includes('cx-session-tools/')&&x.endsWith(',readonly')).length,2);
+  assert.equal(a.filter(x=>x.includes('cx-session-tools/')&&x.endsWith(',readonly')).length,3);
+  clear();ok(['sessions','menu-backend']);const menu=last();
+  assert.ok(menu.includes('-i'));assert.equal(menu[menu.indexOf('--network')+1],'none');
+  assert.equal(menu.at(-1),'/opt/cx-session-tools/cx-session-menu.mjs');
+  assert.equal(menu.some(x=>x.includes('/profiles/')||x.includes('dst=/workspace/main')),false);
+  clear();assert.notEqual(run(['sessions','select']).status,0);assert.equal(calls().length,0);
   clear();ok(['sessions','remove',id,'--agent','claude']);a=last();
   assert.deepEqual(a.slice(-4),['remove',id,'--agent','claude']);
   assert.equal(a.some(x=>x.startsWith(`type=bind,src=${data}/history/codex,`)),false);
@@ -229,6 +235,16 @@ const adapterWorkspace=path.join(temp,'adapter workspace'),adapterProject=path.j
 for(const d of [ca,cb,path.join(adapterWorkspace,'.claude'),path.join(adapterProject,'.claude')])fs.mkdirSync(d,{recursive:true});
 const adapterEnv={...env,CLAUDE_CONFIG_DIR:ca,CODEX_HOME:ca,CX_AGENT:'claude',CX_PROJECT_ROOT:adapterProject,CX_GUIDANCE_FILE:path.join(root,'container/cx-guidance.txt'),ANTHROPIC_API_KEY:'unrelated-fixture',OPENAI_API_KEY:'unrelated-fixture'};
 const adapter=(args,extra={},input)=>spawnSync('bash',[path.join(root,'container/cx-agent'),...args],{cwd:adapterWorkspace,env:{...adapterEnv,...extra},input,encoding:'utf8'});
+check('interactive supervision respects task verbs, native flag values and wrapper boundaries',()=>{
+  const text=fs.readFileSync(launcher,'utf8'),start=text.indexOf('interactive_session() {'),end=text.indexOf('\nmain() {',start);
+  const body=text.slice(start,end)+'\nAGENT="$1"; shift; interactive_session "$@"';
+  for(const [agent,args,status] of [
+    ['codex',['exec','task'],1],['claude',['--print','task'],1],['claude',['-p','task'],1],
+    ['codex',['-p','native-profile'],0],['claude',['--name','exec'],0],['claude',['--agents','{}','exec','task'],1],
+    ['codex',['--model','exec','a prompt'],0],['claude',['--','exec'],0],['claude',['--resume','exec'],0],
+    ['claude',['--resume','fixture','--print'],1],['codex',['--','--','exec'],0]
+  ])assert.equal(spawnSync('bash',['-c',body,'cx-test',agent,...args],{env,encoding:'utf8'}).status,status,JSON.stringify([agent,args]));
+});
 check('selected-account refresh/logout never overwrites another account',()=>{
   fs.writeFileSync(cb+'/auth.json','untouched');
   assert.equal(adapter(['--cx-auth','login']).status,0);
@@ -281,6 +297,17 @@ check('Claude SSH keeps its native project overlay and rejects old images',()=>{
   assert.ok(last().includes('CX_SSH_INSTRUCTIONS=current context'));
   const failed=run(pair('claude','work'),{CX_SSH_BRIDGE_DIR:temp,CX_SSH_HOST:'fixture',CX_TEST_OLD_SSH_IMAGE:'1'});
   assert.notEqual(failed.status,0);assert.match(failed.stderr,/lacks Claude SSH support/);
+});
+check('managed Claude exec holds a writer lease and deletion gates refuse new writers',()=>{
+  const live=path.join(data,'history/claude/cx-live'),lock=path.join(data,'history/claude/cx-delete-lock');
+  ok(pair('claude','work','exec','fixture'),{CX_TEST_LIVE_DIR:live});
+  assert.deepEqual(fs.readdirSync(live),[]);
+  const failed=run(pair('claude','work','exec','fixture'),{CX_TEST_EXIT:'29'});assert.equal(failed.status,29);assert.deepEqual(fs.readdirSync(live),[]);
+  fs.mkdirSync(lock);clear();
+  try {
+    const refused=run(pair('claude','work','exec','fixture'));assert.notEqual(refused.status,0);assert.match(refused.stderr,/deletion is in progress/);
+    assert.equal(calls().some(x=>x[0]==='run'),false);assert.deepEqual(fs.readdirSync(live),[]);
+  } finally {fs.rmdirSync(lock);}
 });
 check('API-key auth is selected privately and never supplied as native arguments',()=>{
   fs.writeFileSync(ca+'/api-key','selected-fixture');

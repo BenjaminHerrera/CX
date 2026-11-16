@@ -306,3 +306,22 @@ parent allocation; only one nested command runs at a time. Manual focus gates
 input, and shell disappearance or disconnect yields unknown outcomes. The
 outer function removes its rendezvous file on normal return; interrupted or
 disconnected sessions can leave stale files requiring manual cleanup.
+
+
+## Named Session Menu
+
+Managed interactive local sessions run under a host PTY supervisor; local mode
+reuses the saved-screen/input classes but never starts SSH. SSH mode keeps the
+existing bridge, remote shell and command records. `SessionMenu` adds a third
+isolated pane and asynchronously invokes a history-only Docker helper, so remote
+framing and MCP polling continue while lists/actions load. The menu consumes its
+own keys, replies and paste and restores the prior pane without submitting input.
+
+Names are native explicit titles plus per-CLI/UUID CX sidecars with explicit-name
+precedence. Backend operations require exact CLI/UUID pairs. Deletion reuses the
+native Codex/reference checks and Claude deletion implementation, with conservative
+managed Claude writer leases and a deletion gate. No global active-selection file
+exists. Enter stages a native resume; a clean assistant exit and a fresh remote
+ownership check complete it. The original task is discarded on that handoff,
+while project/additional mounts and freshly generated SSH instructions are kept.
+Failed native exits or newly busy bridge state cancel switching without replay.
