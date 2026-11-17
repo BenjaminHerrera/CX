@@ -132,12 +132,12 @@ cd dist
 sha256sum -c SHA256SUMS
 ```
 
-For version 2.1.0 the outputs are:
+For version 2.1.1 the outputs are:
 
 ```text
 dist/
-├── cx-2.1.0-install.tar.gz
-├── cx-2.1.0-portable.tar.gz
+├── cx-2.1.1-install.tar.gz
+├── cx-2.1.1-portable.tar.gz
 └── SHA256SUMS
 ```
 

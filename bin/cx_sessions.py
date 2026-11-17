@@ -541,7 +541,16 @@ class SessionMenu:
                  ('\033[36m'+fit(query, width)+'\033[0m') if self.mode == 'search' else dim(query), '']
         if height < 18:
             lines = [lines[0], lines[1], lines[3], lines[4]]
-        metadata_width = min(32, width//2)
+        now = time.time()
+        def metadata_text(row):
+            updated = relative_time(row['updated'], now=now)
+            if width < 32:
+                updated = updated.replace('just now', 'now').replace(' ago', '').split(',')[0]
+            archived = ' · archived' if row.get('archived') else ''
+            return f"{row['agent']} · {updated}{archived}"
+        # Size against the filtered list, not only the current page, so the
+        # divider stays stable while scrolling. Reserve at least half for names.
+        metadata_width = min(width//2, max((cell_width(metadata_text(row)) for row in self.rows), default=0))
         for index, row in enumerate(self.rows[self.top:self.top+page], self.top):
             chosen = index == self.cursor
             cursor = '›' if chosen else ' '
@@ -551,11 +560,7 @@ class SessionMenu:
             tag = ' [internal]' if row.get('internal') else ''
             if self.key(row) in self.saved:
                 tag += ' [running]'
-            archived = ' · archived' if row.get('archived') else ''
-            updated = relative_time(row['updated'])
-            if width < 32:
-                updated = updated.replace('just now', 'now').replace(' ago', '').split(',')[0]
-            metadata = f"{row['agent']} · {updated}{archived}"
+            metadata = metadata_text(row)
             marker = active+tag
             prefix = f' {cursor} '
             color = '135;206;250' if row['agent'] == 'codex' else '217;119;87'

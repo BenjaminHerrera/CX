@@ -311,6 +311,41 @@ class MenuTests(unittest.TestCase):
                         self.assertEqual(char.fg, color)
                         self.assertEqual(char.bold, index == selected)
 
+    def test_metadata_width_tracks_longest_filtered_row_and_stays_stable_across_pages(self):
+        now = 1800000000
+        base = self.menu.rows[0]
+        recent = dict(base, name='Recent', updated=now-120)
+        older = dict(base, id=OTHER, name='Older', updated=1, agent='claude')
+        with patch('cx_sessions.time.time', return_value=now):
+            self.menu.rows = [recent]
+            for width in (120, 80, 38):
+                self.bridge.terminal.display.resize(24, width)
+                self.menu.draw()
+                screen = self.bridge.terminal.display.pane(self.menu.owner).screen
+                line = next(line for line in screen.display if '› Recent' in line)
+                expected = min(width//2, len('codex · 2m ago'))
+                self.assertEqual(line.index('│'), width-expected-2)
+                self.assertIn('│ codex · 2m ago', line)
+            self.bridge.terminal.display.resize(24, 80)
+            self.menu.rows = [recent]+[dict(recent, id=str(i)) for i in range(25)]+[older]
+            positions = []
+            for cursor in (0, len(self.menu.rows)-1):
+                self.menu.cursor = cursor
+                self.menu.draw()
+                screen = self.bridge.terminal.display.pane(self.menu.owner).screen
+                line = next(line for line in screen.display if '› ' in line and '│' in line)
+                positions.append(line.index('│'))
+            self.assertEqual(positions[0], positions[1])
+            self.assertEqual(positions[0], 80-len('claude · Jan 01, 1970')-2)
+            self.menu.replace([recent, older])
+            self.menu.cli_filter = 'Codex'
+            self.menu.apply_filters()
+            self.menu.draw()
+            screen = self.bridge.terminal.display.pane(self.menu.owner).screen
+            line = next(line for line in screen.display if '› Recent' in line)
+            self.assertEqual(line.index('│'), 80-len('codex · 2m ago')-2)
+
+
     def test_internal_toggle_is_explicit_and_marked(self):
         internal=dict(self.menu.rows[0],id=OTHER,name='Guardian review',internal=True)
         self.menu.replace(self.menu.rows+[internal])

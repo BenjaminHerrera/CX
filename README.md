@@ -31,10 +31,10 @@ with that pair or select it in the account picker. The
 [Getting Started guide](docs/GETTING-STARTED.md) walks through both choices.
 
 The `v2` integration is now on `main`. Use `main` for installs and new work;
-the package version is **2.1.0**. This version adds a yellow shortcut Help Menu
-to every CX header, available with Ctrl-] ?, while preserving saved assistants,
-drafts and Sessions state. See [upgrading](docs/UPGRADING.md) for existing
-installations and image rebuilds.
+the package version is **2.1.1**. This patch reduces Sessions metadata padding
+by sizing the column to its longest entry. Ctrl-] ? opens the yellow shortcut
+Help Menu; saved assistants, drafts and Sessions state are preserved. See
+[upgrading](docs/UPGRADING.md) for existing installations and image rebuilds.
 
 ## Everyday Use
 

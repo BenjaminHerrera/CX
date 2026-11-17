@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.1.1 — 2026-11-16
+
+- Size the Sessions metadata column to the longest metadata in the filtered
+  list, reducing excess padding while keeping separators aligned across pages.
+  Narrow layouts still reserve room for session names.
+
 ## 2.1.0 — 2026-11-16
 
 - Style Help Menu after the alias reference, with a yellow banner, section rules,

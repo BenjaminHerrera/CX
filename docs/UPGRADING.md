@@ -7,7 +7,7 @@
 The multi-CLI and session-menu work formerly developed on `v2` is now merged
 into `main`. New installations and upgrades should use `main`. The branch name
 did not itself assign a semantic release number. The current package version
-is **2.1.0**. No published release archive is required to
+is **2.1.1**. No published release archive is required to
 install from source.
 
 1. Exit running CX sessions and stop other writers before moving/backing up data.
@@ -19,7 +19,7 @@ git switch main
 git pull --ff-only
 ./install.sh
 cx --version
-# Expected: cx 2.1.0
+# Expected: cx 2.1.1
 cx --doctor
 ```
 
@@ -30,6 +30,15 @@ Restart CX afterwards. Host files and image contents are separate updates;
 `./install.sh --no-build` updates only the host program. Build the image before
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
+
+## Changes in 2.1.1
+
+Sessions metadata now uses the longest metadata string in the filtered list
+instead of a fixed-width column. This reduces empty space, keeps separators
+aligned across pages, and recalculates when filters or terminal width change.
+Narrow terminals retain space for names and the existing stacked layout.
+Update the host program and restart CX; this layout fix needs no image rebuild
+or data migration.
 
 ## Changes in 2.1.0
 
