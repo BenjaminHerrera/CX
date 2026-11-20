@@ -8,6 +8,12 @@
   network or remote commands. Both editions require an image rebuild.
 - Add offline MCP startup regressions and a Docker verifier for restrictive
   source modes, arbitrary non-root UID, simulated status and packaged launchers.
+- Record the owner-confirmed pass of `scripts/verify-mcp-image.sh --build` for
+  CX-13, merged in [PR #14](https://github.com/BenjaminHerrera/CX/pull/14).
+  Docker image permissions and packaged startup passed for both CLIs and both
+  editions. Native MCP tool use through Codex and Claude in live SSH sessions
+  remains a separate release check. See the
+  [validation record](docs/MAINTAINING.md#cx-13-validation-target-v212).
 
 ## 2.1.1 — 2026-11-16
 

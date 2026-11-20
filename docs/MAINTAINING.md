@@ -207,19 +207,20 @@ inspect stale leases/gates only with the related writers and maintenance stopped
 
 ## CX-13 Validation (Target v2.1.2)
 
-The fix normalizes public MCP runtime permissions during the image build and
-checks installed startup under the session UID/GID. Existing images need a
-rebuild; source-file chmod alone does not fix an already built image. See
+The fix merged into `main` in [PR #14](https://github.com/BenjaminHerrera/CX/pull/14)
+(merge commit `223570a`). It normalizes public MCP runtime permissions during
+the image build and checks installed startup under the session UID/GID.
+Existing images need a rebuild; source-file chmod alone does not fix an already
+built image. See
 [rebuild instructions](INSTALL.md#cx-13-mcp-adapter-rebuild-target-v212) and
 [probe development](DEVELOPMENT.md#mcp-image-startup-checks).
 
-Local validation covers the existing MCP suite, seven preflight checks, both
-launcher configuration paths, failure diagnostics/opt-out and both extracted
-package editions. Docker was unavailable in the CX development container; the
-following image results were reported separately by the owner on 2026-11-19.
+**Docker verification: passed (owner-confirmed).** The owner confirmed that
+`./scripts/verify-mcp-image.sh --build` passed after PR review, satisfying the
+Docker image and packaged-startup verification gate for CX-13. The recorded
+Docker-host run used Codex 0.171.0 and Claude Code 2.1.323.
 
-The owner ran `./scripts/verify-mcp-image.sh --build` on the Docker host and
-reported all checks passing:
+The passing script covers:
 
 - A disposable image built from MCP sources forced to 0600 initialized and
   discovered tools as UID/GID 23456; `ssh_status` succeeded against the simulated
@@ -228,10 +229,18 @@ reported all checks passing:
 - Deliberately unreadable and unloadable installed adapters produced the expected
   `adapter_permission` and `adapter_load` failures.
 - Install and portable editions both passed the session-user startup preflight
-  and native `--version` launch for Codex 0.171.0 and Claude Code 2.1.323.
+  and native `--version` launch for both CLIs.
+
+Local review also passed the existing MCP suite, seven preflight checks, 25
+smoke/install/package checks, remote-client checks, documentation and syntax
+checks. GitHub's Offline checks passed. The review container could not rerun
+Docker, and its account suite stopped because host Python 3 was unavailable;
+those review limitations are separate from the confirmed Docker-host result.
 
 The test packages still reported CX 2.1.1; the v2.1.2 release version has not yet
 been assigned. These results establish the image/permission and packaged-startup
-checks, not native CLI invocation of MCP tools, provider authentication or live
-SSH execution. Those integration checks remain unverified. No real remote
-command or scheduler allocation was requested or performed by this verifier.
+checks. Before release, verify native MCP discovery and `ssh_status` use from
+both Codex and Claude in SSH sessions. Native CLI invocation of MCP tools,
+provider authentication and live SSH execution remain unverified for this fix.
+No real remote command or scheduler allocation was requested or performed by
+the Docker verifier.

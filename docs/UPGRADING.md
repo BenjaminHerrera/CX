@@ -31,14 +31,17 @@ Restart CX afterwards. Host files and image contents are separate updates;
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
 
-## Pending CX-13 Fix (Target v2.1.2)
+## CX-13 MCP Startup Fix (Target v2.1.2)
 
-When installing the CX-13 MCP startup fix, rebuild the Docker image in either
-edition, not only the host launcher. This differs from the host-only metadata
-layout fix in 2.1.1. See [MCP rebuild guidance](INSTALL.md#cx-13-mcp-adapter-rebuild-target-v212)
+The CX-13 MCP startup fix is merged into `main` in
+[PR #14](https://github.com/BenjaminHerrera/CX/pull/14), targeting v2.1.2.
+Rebuild the Docker image in either edition, not only the host launcher.
+This differs from the host-only metadata layout fix in 2.1.1. See
+[MCP rebuild guidance](INSTALL.md#cx-13-mcp-adapter-rebuild-target-v212)
 for installed/portable commands, permission/load diagnostics and the temporary
-`--no-ssh-mcp` fallback. Do not infer live Docker or provider validation from
-passing source-tree tests.
+`--no-ssh-mcp` fallback. The owner confirmed that the Docker verification script
+passed; [validation details](MAINTAINING.md#cx-13-validation-target-v212)
+record its coverage and the remaining native MCP/provider/SSH checks.
 
 ## Changes in 2.1.1
 
