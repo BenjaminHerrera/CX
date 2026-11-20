@@ -16,6 +16,7 @@ fs.writeFileSync(path.join(bin,'docker'),`#!/usr/bin/env node
 const fs=require('node:fs');const args=process.argv.slice(2);
 fs.appendFileSync(process.env.CX_TEST_LOG,JSON.stringify(args)+'\\n');
 if(args[0]==='image'&&args.includes('--format'))console.log(args.some(a=>a.includes('io.cx.ssh-agents'))?(process.env.CX_TEST_OLD_SSH_IMAGE?'1':'2'):(process.env.CX_TEST_OLD_IMAGE?'0':'1'));
+if(args.includes('/opt/cx-mcp-check.mjs')&&process.env.CX_TEST_PREFLIGHT_FAIL){console.error('adapter_permission: EACCES fixture');process.exit(31);}
 if(args[0]==='run'&&process.env.CX_TEST_EXIT)process.exit(Number(process.env.CX_TEST_EXIT));
 if(args[0]==='run'&&process.env.CX_TEST_LIVE_DIR&&!fs.readdirSync(process.env.CX_TEST_LIVE_DIR).length)process.exit(77);
 `,{mode:0o755});
@@ -297,6 +298,22 @@ check('Claude SSH keeps its native project overlay and rejects old images',()=>{
   assert.ok(last().includes('CX_SSH_INSTRUCTIONS=current context'));
   const failed=run(pair('claude','work'),{CX_SSH_BRIDGE_DIR:temp,CX_SSH_HOST:'fixture',CX_TEST_OLD_SSH_IMAGE:'1'});
   assert.notEqual(failed.status,0);assert.match(failed.stderr,/lacks Claude SSH support/);
+});
+check('both SSH clients preflight as the session user and retain actionable failures',()=>{
+  for(const [agent,account] of [['codex','alpha'],['claude','work']]){
+    const extra={CX_SSH_BRIDGE_DIR:temp,CX_SSH_HOST:'fixture'};
+    clear();ok(pair(agent,account,'--version'),extra);
+    const probe=calls().find(args=>args.includes('/opt/cx-mcp-check.mjs'));
+    assert.ok(probe);const launch=last();
+    assert.equal(probe[probe.indexOf('--user')+1],launch[launch.indexOf('--user')+1]);
+    assert.equal(probe[probe.indexOf('--network')+1],'none');
+    assert.equal(probe.some(arg=>arg.includes('dst=/cx-ssh')||arg.includes('dst=/codex-home')||arg.includes('dst=/claude-home')),false);
+    clear();const failed=run(pair(agent,account,'--version'),{...extra,CX_TEST_PREFLIGHT_FAIL:'1'});
+    assert.notEqual(failed.status,0);assert.match(failed.stderr,/adapter_permission: EACCES fixture/);
+    assert.match(failed.stderr,/cx --rebuild/);assert.equal(calls().filter(args=>args[0]==='run').length,1);
+    clear();ok(pair(agent,account,'--version'),{...extra,CX_SSH_MCP:'0',CX_TEST_PREFLIGHT_FAIL:'1'});
+    assert.equal(calls().some(args=>args.includes('/opt/cx-mcp-check.mjs')),false);
+  }
 });
 check('managed Claude exec holds a writer lease and deletion gates refuse new writers',()=>{
   const live=path.join(data,'history/claude/cx-live'),lock=path.join(data,'history/claude/cx-delete-lock');

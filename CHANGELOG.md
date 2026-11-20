@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- CX-13 (target v2.1.2): normalize image MCP runtime permissions regardless of
+  restrictive source modes. Validate installed adapter initialization and tool
+  discovery as the session UID/GID, with bounded diagnostics and no credentials,
+  network or remote commands. Both editions require an image rebuild.
+- Add offline MCP startup regressions and a Docker verifier for restrictive
+  source modes, arbitrary non-root UID, simulated status and packaged launchers.
+
 ## 2.1.1 — 2026-11-16
 
 - Size the Sessions metadata column to the longest metadata in the filtered

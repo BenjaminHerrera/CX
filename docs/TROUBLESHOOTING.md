@@ -21,6 +21,7 @@ do not. Shell commands typed inside a CX shell cannot fix host Docker access.
 |---|---|
 | `cx: command not found` | Add `PREFIX/bin` to host PATH; default `~/.local/bin` |
 | Docker unavailable | Start the local daemon; check host/WSL integration and `docker info` as your user |
+| `adapter_permission`, `adapter_load`, `adapter_handshake` or `adapter_timeout` before SSH assistant launch | Read the bounded diagnostic, update the source and rebuild the image in either edition; use `--no-ssh-mcp` temporarily. See [MCP rebuild guidance](INSTALL.md#cx-13-mcp-adapter-rebuild-target-v212). Do not replay uncertain remote work. |
 | Image missing or adapter incompatible | Build/rebuild the image from the updated checkout, then restart CX |
 | No profiles in the picker | Run `cx accounts list`; create a profile and log in explicitly |
 | Noninteractive launch asks for an account | Supply both `--agent` and `--account`, or save an automation default |

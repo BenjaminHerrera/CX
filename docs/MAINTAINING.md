@@ -32,6 +32,7 @@ node tests/import-sessions.mjs
 node tests/remote-client.mjs
 npm ci --prefix container/mcp --ignore-scripts
 node tests/mcp.mjs
+node tests/mcp-preflight.mjs
 python3 -B tests/ssh_bridge.py
 python3 -B tests/slurm_setup.py
 python3 -B tests/screens.py
@@ -46,6 +47,7 @@ python3 -B tests/screens.py
 | `screens.py` | Saved screen isolation, full-width bars, normal/alternate scrollback, pinned history, resize, Unicode, dim text and background shading, indexed/RGB colors, underline styles, standalone imports, and optional native VT tests |
 | `slurm_setup.py` | Fake SSH server setup, separate aliases, paths with spaces, job-ID patterns, idempotence, hook discovery, configuration privacy, and refusal of unmanaged hooks |
 | `remote-client.mjs` | Command transport, quoting, streamed output, and returned exit status |
+| `mcp-preflight.mjs` | Real source adapter initialization, simulated status, unreadable/missing code, loader/protocol failures, bounded diagnostics and timeout; no installed-image claims |
 | `mcp.mjs` | SDK discovery, input validation, structured results, command routing, and adapter restarts |
 | `ssh_bridge.py` | Real PTYs with fake SSH, persistent shell state, framing, terminal handoff, resizing/restoration, manual input exclusion, terminal-reply ownership, Windows/enhanced keyboard modes, paste, wheel routing/encoding, capture toggle, history controls, theme reply isolation, TTY restoration, and mocked SSHFS setup/cleanup/instructions |
 
@@ -202,3 +204,34 @@ handoff, Windows Terminal selection/paste, or scheduler compatibility. Confirm
 fresh guidance and native ownership failures on an integrated host before release.
 Claude writer leases cover interactive supervision and managed exec/print launches;
 inspect stale leases/gates only with the related writers and maintenance stopped.
+
+## CX-13 Validation (Target v2.1.2)
+
+The fix normalizes public MCP runtime permissions during the image build and
+checks installed startup under the session UID/GID. Existing images need a
+rebuild; source-file chmod alone does not fix an already built image. See
+[rebuild instructions](INSTALL.md#cx-13-mcp-adapter-rebuild-target-v212) and
+[probe development](DEVELOPMENT.md#mcp-image-startup-checks).
+
+Local validation covers the existing MCP suite, seven preflight checks, both
+launcher configuration paths, failure diagnostics/opt-out and both extracted
+package editions. Docker was unavailable in the CX development container; the
+following image results were reported separately by the owner on 2026-11-19.
+
+The owner ran `./scripts/verify-mcp-image.sh --build` on the Docker host and
+reported all checks passing:
+
+- A disposable image built from MCP sources forced to 0600 initialized and
+  discovered tools as UID/GID 23456; `ssh_status` succeeded against the simulated
+  bridge for both CLI configurations. The verifier also checked root ownership,
+  readability and lack of write access to installed runtime files.
+- Deliberately unreadable and unloadable installed adapters produced the expected
+  `adapter_permission` and `adapter_load` failures.
+- Install and portable editions both passed the session-user startup preflight
+  and native `--version` launch for Codex 0.171.0 and Claude Code 2.1.323.
+
+The test packages still reported CX 2.1.1; the v2.1.2 release version has not yet
+been assigned. These results establish the image/permission and packaged-startup
+checks, not native CLI invocation of MCP tools, provider authentication or live
+SSH execution. Those integration checks remain unverified. No real remote
+command or scheduler allocation was requested or performed by this verifier.

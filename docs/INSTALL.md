@@ -107,6 +107,28 @@ an override. `CX_CODEX_VERSION` remains supported. Both Claude self-update paths
 are disabled; update through an image rebuild. Claude permission bypass requires
 a non-root host UID. The current package version is 2.1.1.
 
+## CX-13 MCP Adapter Rebuild (Target v2.1.2)
+
+The startup-permission fix requires rebuilding the Docker image for **both
+installed and portable editions**. A host-only update cannot repair a root-owned
+0600 `/opt/cx-mcp/server.mjs` in an existing image. Install the updated source
+with the default image build, or run `cx --rebuild` after `./install.sh --no-build`.
+For portable use, update the program files while retaining private `data/`, then
+run `./cx --rebuild`. Restart sessions after rebuilding.
+
+The image makes MCP runtime code and dependencies readable and directories
+traversable without allowing session-user writes. Credential and bridge-socket
+permissions are unchanged. Startup preflight runs as the assistant UID/GID and
+checks a bounded MCP initialize/tools-list handshake without credentials or
+access to the remote bridge. It reports permission/load/handshake errors before
+the assistant launches, with bounded server stderr. Successful preflight does
+not establish an SSH connection or authenticate a provider.
+
+Use `--ssh HOST --no-ssh-mcp` as a temporary opt-out if an image cannot yet be
+rebuilt; `cx-remote` remains available. Never replay an earlier command whose
+outcome is unknown. See [image validation](MAINTAINING.md#cx-13-validation-target-v212)
+for the restrictive-source Docker regression command and unverified live gates.
+
 ## Portable edition
 
 ```bash
