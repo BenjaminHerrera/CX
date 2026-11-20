@@ -48,7 +48,9 @@ jobs:
       - name: Remote CLI checks
         run: node tests/remote-client.mjs
       - name: MCP checks
-        run: node tests/mcp.mjs
+        run: |
+          node tests/mcp.mjs
+          node tests/mcp-preflight.mjs
       - name: SSH bridge checks
         run: python3 -B tests/ssh_bridge.py
       - name: Slurm setup checks

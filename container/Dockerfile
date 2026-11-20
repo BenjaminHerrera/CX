@@ -46,11 +46,13 @@ COPY cx-entrypoint cx-env cx-remote cx-agent cx-codex-resume.mjs cx-claude-confi
 LABEL io.cx.accounts="1"
 LABEL io.cx.ssh-agents="2"
 COPY cx-guidance.txt /opt/cx/guidance.txt
-COPY mcp/ /opt/cx-mcp/
-RUN cd /opt/cx-mcp && npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY --chown=0:0 mcp/ /opt/cx-mcp/
+RUN cd /opt/cx-mcp && npm ci --omit=dev --ignore-scripts && npm cache clean --force \
+    && chmod -R a+rX,go-w /opt/cx-mcp
 
 # The actual UID/GID is supplied by `docker run`.
 RUN chmod 0755 /usr/local/bin/cx-entrypoint /usr/local/bin/cx-env /usr/local/bin/cx-remote /usr/local/bin/cx-agent \
+    && chmod 0644 /usr/local/bin/cx-codex-resume.mjs /usr/local/bin/cx-claude-config.mjs /opt/cx/guidance.txt \
     && mkdir -p /workspace/main /workspace/cx-external /workspace/remote /workspace/.claude /cx-env /codex-home /claude-home /cx-history /home/codex \
     && chmod 1777 /workspace /cx-env /codex-home /home/codex
 

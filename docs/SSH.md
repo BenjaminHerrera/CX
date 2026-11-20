@@ -63,6 +63,13 @@ wheel capture is off. Managed interactive local sessions use the same renderer.
 
 ## Let the Assistant Use the Remote Shell
 
+Before registering `cx_ssh`, CX checks the installed adapter as the assistant
+UID/GID with a bounded initialize/tools-list exchange. This check is isolated
+from credentials and the SSH bridge; success means the adapter starts, not that
+SSH is connected. Missing, unreadable, unloadable or incompatible adapter errors
+include rebuild guidance and bounded stderr. The CX-13 permission fix needs an
+[image rebuild in either edition](INSTALL.md#cx-13-mcp-adapter-rebuild-target-v212).
+
 MCP registers `cx_ssh` for the selected CLI automatically. For example, ask:
 
 > Check the remote working directory and Git status. Report what you find.

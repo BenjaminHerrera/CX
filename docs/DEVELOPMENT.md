@@ -26,6 +26,7 @@ node tests/import-sessions.mjs
 node tests/codex-resume.mjs
 node tests/remote-client.mjs
 node tests/mcp.mjs
+node tests/mcp-preflight.mjs
 python3 -B tests/ssh_bridge.py
 python3 -B tests/slurm_setup.py
 python3 -B tests/screens.py
@@ -197,3 +198,30 @@ F2 explicitly requests reviewer/subagent rows and labels them. Test search-mode
 key isolation, filter/sort/density changes and narrow layouts in session_menu.py,
 and native request/source filtering in session-menu.mjs. Native helper mutations
 retain exact IDs even when the visible list is filtered.
+
+## MCP Image Startup Checks
+
+`container/cx-mcp-check.mjs` uses Node built-ins to start the installed server,
+initialize MCP and list the required tools within five seconds. The host
+launcher mounts this helper into a network-disabled, read-only container as the
+same UID/GID as the assistant, without profiles, credentials or a bridge mount.
+It probes the actual installed server and SDK; it does not use source code as a
+fallback or execute a remote tool. Diagnostics distinguish missing/unreadable
+code, loader failures, protocol failures and timeout, retaining bounded stderr.
+`--no-ssh-mcp` skips the probe and keeps the command-line bridge.
+
+Run `node tests/mcp-preflight.mjs` for non-root permission, dependency/syntax,
+handshake, timeout, bounded-output and simulated-status fixtures. Under root,
+the unreadable-file fixture is explicitly skipped. Existing MCP tests retain
+tracked-command routing/restart coverage. Fake-Docker launcher tests do not prove
+image permissions or native CLI tool use.
+
+On a consenting local Docker host, run `./scripts/verify-mcp-image.sh --build`.
+It builds a disposable image from MCP files forced to 0600, checks root-owned
+read-only code as UID/GID 23456, verifies discovery/status against a disposable
+bridge, and tests deliberate installed permission/load failures. It also runs
+installed and portable launchers for Codex and Claude with `--version`, exercising
+preflight without provider login or model requests. The disposable image and
+fixtures are removed afterwards. Without `--build`, it tests `CX_IMAGE` and does
+not establish resilience to restrictive source modes. Native CLI tool-use and
+live provider/SSH checks remain separate.

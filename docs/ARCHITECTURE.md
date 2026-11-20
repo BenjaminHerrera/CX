@@ -344,3 +344,14 @@ restores the underlying view and modes. Async native exits may change the
 underlying view, so help reattaches to the new owner rather than a dead PTY.
 All CX headers reserve the help hint; notices and history offsets use a
 physical footer without modifying the native saved screen.
+
+
+SSH MCP startup is validated separately from transport readiness. The host
+read-only mounts `container/cx-mcp-check.mjs` into an isolated container under
+the assistant UID/GID, with no credential/profile or bridge mounts and no
+network. The built-in-only probe reads the installed server, initializes MCP
+and lists tools; it never submits a command or invokes a status tool in normal
+preflight. Five-second/1-MiB output limits and 8-KiB stderr capture bound failures.
+The Docker build normalizes MCP code/dependency readability and directory
+traversal under root ownership without granting session-user writes. No
+credential or bridge-socket permissions are broadened.
