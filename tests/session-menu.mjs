@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {codexClient,listSessions,renameSession,clean} from '../container/cx-session-menu.mjs';
+import {spawnSync} from 'node:child_process';
+import {DatabaseSync} from 'node:sqlite';
+import {zstdCompressSync} from 'node:zlib';
+import {codexClient,listSessions,renameSession,clean,repairMenuPaths} from '../container/cx-session-menu.mjs';
 import {removeSession} from '../container/cx-sessions.mjs';
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'cx-menu-test-'));
 const id='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
@@ -69,6 +72,40 @@ try {
     fs.rmdirSync(lock);await removeSession({id,agent:'claude',claudeRoot});assert.equal(fs.existsSync(transcript),false);
     assert.equal(fs.existsSync(lock),false);
   });
+  await test('repair requires a verified full ID and preserves unrelated rows',async()=>{
+    const store=path.join(root,'repair'),home=path.join(root,'stable'),dir=path.join(store,'archived_sessions');
+    fs.mkdirSync(dir,{recursive:true});fs.mkdirSync(path.join(store,'sqlite'));
+    const dbFile=path.join(store,'sqlite/state_5.sqlite'),db=new DatabaseSync(dbFile);
+    const relative=uuid=>`archived_sessions/rollout-2026-11-15T00-00-00-${uuid}.jsonl.zst`;
+    const stale=uuid=>'/tmp/cx-menu-gone01/codex/'+relative(uuid);
+    for(const uuid of [id,other]) {
+      fs.writeFileSync(path.join(store,relative(uuid)),zstdCompressSync(
+        JSON.stringify({type:'session_meta',payload:{id}})+'\n'));
+    }
+    try {
+      db.exec('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, title TEXT)');
+      const add=db.prepare('INSERT INTO threads VALUES (?, ?, ?)');
+      const unrelated='33333333-3333-4333-8333-333333333333';
+      const traversal='44444444-4444-4444-8444-444444444444';
+      const symlink='55555555-5555-4555-8555-555555555555';
+      fs.writeFileSync(path.join(root,'outside.zst'),zstdCompressSync(
+        JSON.stringify({type:'session_meta',payload:{id:symlink}})+'\n'));
+      fs.symlinkSync(path.join(root,'outside.zst'),path.join(store,relative(symlink)));
+      add.run(id,stale(id),'Keep this title');add.run(other,stale(other),'Wrong metadata ID');
+      add.run(unrelated,'/some/other/history.jsonl','Other store');
+      add.run(traversal,'/tmp/cx-menu-gone01/codex/sessions/../'+relative(traversal),'Traversal');
+      add.run(symlink,stale(symlink),'Symlink');
+      await repairMenuPaths(store,home);
+      await repairMenuPaths(store,home);
+      const read=db.prepare('SELECT * FROM threads WHERE id=?');
+      assert.equal(read.get(id).rollout_path,path.join(home,relative(id)));
+      assert.equal(read.get(id).title,'Keep this title');
+      assert.equal(read.get(other).rollout_path,stale(other));
+      assert.equal(read.get(unrelated).rollout_path,'/some/other/history.jsonl');
+      assert.match(read.get(traversal).rollout_path,/sessions\/\.\.\//);
+      assert.equal(read.get(symlink).rollout_path,stale(symlink));
+    } finally {db.close();}
+  });
   if(process.env.CX_NATIVE_HISTORY==='1')await test('native Codex listing and naming use supported RPCs without model requests',async()=>{
     const nativeRoot=path.join(root,'native');
     for(const name of ['sessions/2026/11/15','archived_sessions','thread-writer-locks','sqlite'])fs.mkdirSync(path.join(nativeRoot,name),{recursive:true});
@@ -86,6 +123,29 @@ try {
       const page=await client.rpc('thread/list',{limit:100,modelProviders:[],currentAccountOnly:false});
       assert.equal(page.data.find(x=>x.id===id)?.name,'Native Menu Name');
     } finally {await client.close();}
+    const home=path.join(root,'native-work');
+    const db=new DatabaseSync(path.join(nativeRoot,'sqlite',
+      fs.readdirSync(path.join(nativeRoot,'sqlite')).find(name=>/^state_\d+\.sqlite$/.test(name))));
+    try {
+      const read=db.prepare('SELECT rollout_path FROM threads WHERE id=?');
+      const original=read.get(id).rollout_path;
+      assert.ok(original.startsWith(home+'/sessions/'));
+      const launch=()=>{
+        // A new utility container has an empty tmpfs at the same path.
+        fs.rmSync(home,{recursive:true,force:true});
+        const result=spawnSync(process.execPath,['container/cx-session-menu.mjs'],{
+          encoding:'utf8',input:'{"op":"list"}\n',timeout:15000,
+          env:{...process.env,CX_SESSION_CODEX_HISTORY:nativeRoot,CX_SESSION_CODEX_HOME:home}
+        });
+        assert.equal(result.status,0,result.stdout+result.stderr);
+        assert.ok(JSON.parse(result.stdout).rows.some(row=>row.id===id));
+        assert.equal(read.get(id).rollout_path,original);
+      };
+      launch();launch();
+      db.prepare('UPDATE threads SET rollout_path=? WHERE id=?')
+        .run('/tmp/cx-menu-gone99/codex/'+path.relative(home,original),id);
+      launch();launch();
+    } finally {db.close();}
   });
   console.log(`${count} menu backend checks passed; no provider calls.`);
 } finally {fs.rmSync(root,{recursive:true,force:true});}

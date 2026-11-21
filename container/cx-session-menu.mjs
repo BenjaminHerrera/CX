@@ -5,6 +5,8 @@ import os from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {createInterface} from 'node:readline';
+import {DatabaseSync} from 'node:sqlite';
+import {createZstdDecompress} from 'node:zlib';
 import {historyClient, listParams} from './cx-codex-resume.mjs';
 import {removeSession} from './cx-sessions.mjs';
 
@@ -23,12 +25,86 @@ function name(root,row) {
   const explicit=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')).name:null;
   return clean(explicit || row.name || `Untitled Session [${row.id.slice(0,8)}]`);
 }
-export async function codexClient(root, work, createClient=historyClient) {
-  const home=path.join(work,'codex');fs.mkdirSync(home,{recursive:true});
-  for(const item of ['sessions','archived_sessions','thread-writer-locks','session_index.jsonl','history.jsonl']) {
-    safe(path.join(root,item));fs.symlinkSync(path.join(root,item),path.join(home,item));
+// Only repair paths written by the old menu. Native paths and other stale
+// rows may refer to a different history store and must remain untouched.
+const oldMenuPath = /^\/tmp\/cx-menu-[a-zA-Z0-9]+\/codex\/((?:sessions|archived_sessions)\/.+)$/;
+const rolloutName = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]{36})(?:_[0-9a-f-]{36})?\.jsonl(?:\.zst)?$/i;
+
+async function rolloutMatches(root, relative, id) {
+  const parts = relative.split('/');
+  if (parts.some(part => !part || part === '.' || part === '..')) return false;
+  if (parts.at(-1).match(rolloutName)?.[1].toLowerCase() !== id.toLowerCase()) return false;
+  let file = root;
+  for (const [index, part] of parts.entries()) {
+    file = path.join(file, part);
+    const stat = fs.lstatSync(file,{throwIfNoEntry:false});
+    if (index === parts.length-1 ? !stat?.isFile() : !stat?.isDirectory()) return false;
   }
-  const client=createClient({config:[]},{env:{...process.env,CODEX_HOME:home,CODEX_SQLITE_HOME:path.join(root,'sqlite')}});
+  const source = fs.createReadStream(file, {flags:fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW, highWaterMark:8192});
+  const decoded = file.endsWith('.zst') ? createZstdDecompress() : source;
+  if (decoded !== source) {
+    source.on('error', error => decoded.destroy(error));
+    source.pipe(decoded);
+  }
+  try {
+    let header = '';
+    for await (const chunk of decoded.setEncoding('utf8')) {
+      const end = chunk.indexOf('\n');
+      header += end < 0 ? chunk : chunk.slice(0,end);
+      if (header.length > 65536) return false;
+      if (end >= 0) break;
+    }
+    const record = JSON.parse(header);
+    return record?.type === 'session_meta' && typeof record.payload?.id === 'string'
+      && record.payload.id.toLowerCase() === id.toLowerCase();
+  } catch (error) {
+    if (error instanceof SyntaxError || ['ENOENT','ELOOP'].includes(error.code) || error.code?.startsWith('Z_')) return false;
+    throw error;
+  } finally {
+    source.destroy();
+    decoded.destroy();
+  }
+}
+
+export async function repairMenuPaths(root, home) {
+  const state = path.join(root,'sqlite');
+  if (!safe(state)?.isDirectory()) return;
+  const files = fs.readdirSync(state).filter(name => /^state_\d+\.sqlite$/.test(name));
+  if (files.length !== 1) return; // Let native Codex choose or migrate its database.
+  const file = path.join(state,files[0]);
+  if (!safe(file)?.isFile()) return;
+  for (const suffix of ['-wal','-shm','-journal']) safe(file+suffix);
+  const db = new DatabaseSync(file, {timeout:2000});
+  try {
+    const columns = db.prepare('PRAGMA table_info(threads)').all();
+    if (!['id','rollout_path'].every(name=>columns.some(col=>col.name===name))) return;
+    const stale = db.prepare("SELECT id, rollout_path FROM threads WHERE rollout_path GLOB '/tmp/cx-menu-*/codex/*'").all();
+    const update = db.prepare('UPDATE threads SET rollout_path=? WHERE id=? AND rollout_path=?');
+    for (const row of stale) {
+      const relative = row.rollout_path.match(oldMenuPath)?.[1];
+      if (!relative || !validId(row.id) || fs.existsSync(row.rollout_path)) continue;
+      if (await rolloutMatches(root,relative,row.id)) {
+        // Compare the old value to avoid overwriting a concurrent native update.
+        update.run(path.join(home,relative),row.id,row.rollout_path);
+      }
+    }
+  } finally { db.close(); }
+}
+
+export async function codexClient(root, home, createClient=historyClient) {
+  root=path.resolve(root);home=path.resolve(home);
+  if (!safe(root)?.isDirectory()) throw Error('Expected managed Codex history directory.');
+  safe(home);fs.mkdirSync(home,{recursive:true,mode:0o700});
+  for(const item of ['sessions','archived_sessions','thread-writer-locks','session_index.jsonl','history.jsonl']) {
+    const target=path.join(root,item), link=path.join(home,item);
+    safe(target);
+    try {fs.symlinkSync(target,link);}
+    catch(error) {
+      if(error.code!=='EEXIST'||!fs.lstatSync(link).isSymbolicLink()||fs.readlinkSync(link)!==target)throw error;
+    }
+  }
+  await repairMenuPaths(root,home);
+  const client=createClient({config:[]},{env:{...process.env,HOME:home,CODEX_HOME:home,CODEX_SQLITE_HOME:path.join(root,'sqlite')}});
   try {await client.rpc('initialize',{clientInfo:{name:'cx-session-menu',version:'1'},capabilities:{experimentalApi:true}});client.notify('initialized');return client;}
   catch(e){await client.close();throw e;}
 }
@@ -105,7 +181,7 @@ async function main() {
       await removeSession({id:req.id,agent:req.agent,codexRoot,claudeRoot,codexHome:path.join(work,'remove')});
       const root=req.agent==='codex'?codexRoot:claudeRoot;if(root&&validId(req.id))fs.rmSync(names(root,req.id).file,{force:true});
     } else {
-      if(codexRoot)client=await codexClient(codexRoot,work);
+      if(codexRoot)client=await codexClient(codexRoot,process.env.CX_SESSION_CODEX_HOME || path.join(codexRoot,'cx-menu-home'));
       const rows=await listSessions({codexRoot,claudeRoot,client,includeInternal:req.op==='rename'||req.includeInternal===true});
       if(req.op==='list') {console.log(JSON.stringify({rows}));return;}
       if(req.op!=='rename')throw Error('Unknown menu operation.');

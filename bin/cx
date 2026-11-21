@@ -852,7 +852,7 @@ sessions_command() {
         --mount "type=bind,src=$CX_ROOT/container/cx-sessions.mjs,dst=/opt/cx-session-tools/cx-sessions.mjs,readonly" \
         --mount "type=bind,src=$CX_ROOT/container/cx-codex-resume.mjs,dst=/opt/cx-session-tools/cx-codex-resume.mjs,readonly" \
         --mount "type=bind,src=$CX_ROOT/container/cx-session-menu.mjs,dst=/opt/cx-session-tools/cx-session-menu.mjs,readonly" \
-        --env HOME=/tmp/cx-home --env CODEX_HOME=/codex-home --env CODEX_SQLITE_HOME=/cx-history/sqlite \
+        --env HOME=/tmp/cx-home --env CODEX_HOME=/codex-home --env CX_SESSION_CODEX_HOME=/codex-home --env CODEX_SQLITE_HOME=/cx-history/sqlite \
         --entrypoint node "$IMAGE" "${utility_args[@]}"
 }
 
