@@ -31,10 +31,9 @@ with that pair or select it in the account picker. The
 [Getting Started guide](docs/GETTING-STARTED.md) walks through both choices.
 
 The `v2` integration is now on `main`. Use `main` for installs and new work;
-the package version is **2.1.1**. This patch reduces Sessions metadata padding
-by sizing the column to its longest entry. Ctrl-] ? opens the yellow shortcut
-Help Menu; saved assistants, drafts and Sessions state are preserved. See
-[upgrading](docs/UPGRADING.md) for existing installations and image rebuilds.
+the package version is **2.1.2**. This patch fixes SSH MCP startup permissions
+for Codex and Claude. Rebuild the Docker image after updating either edition.
+See [upgrading](docs/UPGRADING.md) for the steps.
 
 ## Everyday Use
 

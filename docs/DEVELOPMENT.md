@@ -225,3 +225,8 @@ preflight without provider login or model requests. The disposable image and
 fixtures are removed afterwards. Without `--build`, it tests `CX_IMAGE` and does
 not establish resilience to restrictive source modes. Native CLI tool-use and
 live provider/SSH checks remain separate.
+
+Run `CX_NATIVE_MCP=1 node tests/native-history.mjs` to verify that real Codex
+and Claude binaries discover and call `ssh_status` through the source adapter.
+The test uses disposable homes, a loopback model simulator and a Unix-socket
+bridge fixture. Set `CX_NATIVE_CODEX` or `CX_NATIVE_CLAUDE` to select binaries.

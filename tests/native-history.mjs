@@ -5,11 +5,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import net from 'node:net';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
-if(process.env.CX_NATIVE_HISTORY!=='1'){
-  console.log('SKIP native history: set CX_NATIVE_HISTORY=1 and CX_NATIVE_CLAUDE to a compatible Claude binary.');
+const mcpOnly = process.env.CX_NATIVE_MCP === '1';
+if(process.env.CX_NATIVE_HISTORY!=='1' && !mcpOnly){
+  console.log('SKIP native history: set CX_NATIVE_HISTORY=1 for history or CX_NATIVE_MCP=1 for SSH MCP tool use.');
   process.exit(0);
 }
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -17,26 +19,59 @@ const temp=fs.mkdtempSync(path.join(root,'.cx-test-native-'));
 const shared=path.join(temp,'shared'), cwd=path.join(temp,'workspace');
 fs.mkdirSync(cwd);fs.mkdirSync(shared);
 const seen=[];
-const server=http.createServer(async(req,res)=>{
+const statusMarker = 'CX_NATIVE_MCP_STATUS_RESULT';
+function statusTool(body) {
+  if (!mcpOnly || JSON.stringify(body).includes(statusMarker)) return;
+  const tool = body.tools?.find(tool => tool.name === 'mcp__cx_ssh__ssh_status');
+  if (tool) return tool;
+  const namespace = body.tools?.find(tool => tool.name === 'mcp__cx_ssh' &&
+    tool.tools?.some(entry => entry.name === 'ssh_status'));
+  if (namespace) return {name:'ssh_status', namespace:namespace.name};
+  throw new Error('Native CLI must advertise cx_ssh ssh_status to the fixture model');
+}
+const server=http.createServer((req,res)=>handleRequest(req,res).catch(error=>{
+  fixtureError ??= error;
+  res.destroy();
+}));
+let fixtureError;
+async function handleRequest(req,res){
   const chunks=[];for await(const c of req)chunks.push(c);
   const body=JSON.parse(Buffer.concat(chunks).toString()||'{}');
   if(req.url.includes('count_tokens')){res.setHeader('Content-Type','application/json');res.end('{"input_tokens":10}');return;}
   if(req.url.includes('messages')){
     seen.push({agent:'claude',key:req.headers['x-api-key'],body});
     const message={id:'msg_fixture',type:'message',role:'assistant',model:body.model,content:[{type:'text',text:'CX native history fixture'}],stop_reason:'end_turn',stop_sequence:null,usage:{input_tokens:10,output_tokens:5}};
+    const tool = statusTool(body);
+    if (tool) {
+      message.content = [{type:'tool_use', id:'toolu_status', name:tool.name, input:{}}];
+      message.stop_reason = 'tool_use';
+    }
     if(!body.stream){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(message));return;}
     res.setHeader('Content-Type','text/event-stream');
     const event=(type,data)=>res.write(`event: ${type}\ndata: ${JSON.stringify({type,...data})}\n\n`);
     event('message_start',{message:{...message,content:[],stop_reason:null}});
-    event('content_block_start',{index:0,content_block:{type:'text',text:''}});
-    event('content_block_delta',{index:0,delta:{type:'text_delta',text:message.content[0].text}});
+    event('content_block_start',{index:0,content_block:tool ? message.content[0] : {type:'text',text:''}});
+    if (!tool) event('content_block_delta',{index:0,delta:{type:'text_delta',text:message.content[0].text}});
     event('content_block_stop',{index:0});
-    event('message_delta',{delta:{stop_reason:'end_turn',stop_sequence:null},usage:{output_tokens:5}});
+    event('message_delta',{delta:{stop_reason:message.stop_reason,stop_sequence:null},usage:{output_tokens:5}});
     event('message_stop',{});res.end();return;
   }
   if(req.url.includes('responses')){
     seen.push({agent:'codex',key:req.headers.authorization,body});
     res.setHeader('Content-Type','text/event-stream');
+    const tool = statusTool(body);
+    if (tool) {
+      const item = {id:'fc_status',type:'function_call',call_id:'call_status',name:tool.name,namespace:tool.namespace,arguments:'{}',status:'completed'};
+      const response = {id:'resp_status',object:'response',status:'in_progress',output:[]};
+      for (const data of [{type:'response.created',response},
+        {type:'response.output_item.added',output_index:0,item:{...item,arguments:'',status:'in_progress'}},
+        {type:'response.function_call_arguments.delta',item_id:item.id,output_index:0,delta:'{}'},
+        {type:'response.output_item.done',output_index:0,item},
+        {type:'response.completed',response:{...response,status:'completed',output:[item]}}]) {
+        res.write('data: '+JSON.stringify(data)+'\n\n');
+      }
+      res.end();return;
+    }
     const output=[{id:'msg_fixture',type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:'CX native history fixture',annotations:[]}]}];
     for(const data of [
       {type:'response.created',response:{id:'resp_fixture',object:'response',status:'in_progress',output:[]}},
@@ -49,7 +84,7 @@ const server=http.createServer(async(req,res)=>{
     res.end();return;
   }
   res.setHeader('Content-Type','application/json');res.end('{}');
-});
+}
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const endpoint=`http://127.0.0.1:${server.address().port}`;
 const clean=Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('CX_')&&!/^(CODEX|CLAUDE|ANTHROPIC|OPENAI|AWS|GOOGLE)/.test(k)));
@@ -57,7 +92,7 @@ function run(command,args,env){return new Promise((resolve,reject)=>{
   const p=spawn(command,args,{cwd,env:{...clean,...env},stdio:['pipe','pipe','pipe']});let stdout='',stderr='';
   const timer=setTimeout(()=>{p.kill('SIGKILL');reject(new Error('Native CLI timed out'));},45000);
   p.stdout.on('data',d=>stdout+=d);p.stderr.on('data',d=>stderr+=d);p.stdin.end();p.on('error',reject);
-  p.on('exit',code=>{clearTimeout(timer);if(code!==0)reject(new Error(`Native CLI exit ${code}: ${stderr.slice(-3000)} ${stdout.slice(-1000)}`));else resolve(stdout);});
+  p.on('exit',code=>{clearTimeout(timer);if(fixtureError)reject(fixtureError);else if(code!==0)reject(new Error(`Native CLI exit ${code}: ${stderr.slice(-3000)} ${stdout.slice(-1000)}`));else resolve(stdout);});
 });}
 function homes(agent,links){
   const history=path.join(shared,agent);fs.mkdirSync(history,{recursive:true});
@@ -88,7 +123,52 @@ async function discoverCodex(binary,env,threadId){
     assert.ok(listed.result?.data.some(x=>x.id===threadId),'Codex B must discover A in native history');
   }finally{clearTimeout(timer);p.kill();await new Promise(resolve=>p.once('exit',resolve));}
 }
-try{
+async function nativeMcp() {
+  const socket = path.join(temp,'bridge.sock'), calls = [];
+  const bridge = net.createServer(client => {
+    let buffer = '';
+    client.setEncoding('utf8');
+    client.on('data', data => {
+      buffer += data;
+      if (!buffer.includes('\n')) return;
+      calls.push(JSON.parse(buffer.split('\n')[0]));
+      client.end(JSON.stringify({type:'status', ready:true, session_id:statusMarker})+'\n');
+    });
+  });
+  await new Promise((resolve,reject) => bridge.once('error',reject).listen(socket,resolve));
+  try {
+    const adapter = path.join(root,'container/mcp/server.mjs');
+    const codex = process.env.CX_NATIVE_CODEX || 'codex';
+    const claude = process.env.CX_NATIVE_CLAUDE || 'claude';
+    const codexHome = path.join(temp,'codex'), claudeHome = path.join(temp,'claude');
+    fs.mkdirSync(codexHome); fs.mkdirSync(claudeHome);
+    const codexEnv = {HOME:codexHome,CODEX_HOME:codexHome,CX_FIXTURE_KEY:'fixture',CX_SSH_SOCKET:socket};
+    const claudeEnv = {HOME:claudeHome,CLAUDE_CONFIG_DIR:claudeHome,ANTHROPIC_API_KEY:'fixture',
+      ANTHROPIC_BASE_URL:endpoint,DISABLE_AUTOUPDATER:'1',DISABLE_UPDATES:'1',
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:'1'};
+    console.log((await run(codex,['--version'],codexEnv)).trim());
+    await run(codex,['-c','model_provider="fixture"','-c',
+      `model_providers.fixture={name="CX Fixture",base_url="${endpoint}/v1",env_key="CX_FIXTURE_KEY",wire_api="responses",supports_websockets=false}`,
+      '-c','mcp_servers.cx_ssh.command='+JSON.stringify(process.execPath),
+      '-c','mcp_servers.cx_ssh.args='+JSON.stringify([adapter]),
+      '-c','mcp_servers.cx_ssh.env_vars=["CX_SSH_SOCKET"]',
+      '-c','mcp_servers.cx_ssh.required=true','-m','fixture',
+      'exec','--skip-git-repo-check','Check ssh_status.'],codexEnv);
+    assert.deepEqual(calls,[{op:'status'}]);
+    assert.ok(seen.some(request=>request.agent==='codex' && JSON.stringify(request.body).includes(statusMarker)));
+    console.log('PASS Codex discovered and called cx_ssh ssh_status.');
+    console.log((await run(claude,['--version'],claudeEnv)).trim());
+    const mcp = JSON.stringify({mcpServers:{cx_ssh:{command:process.execPath,args:[adapter],env:{CX_SSH_SOCKET:socket}}}});
+    await run(claude,['--print','--model','claude-sonnet-4-6','--tools','','--allowedTools','mcp__cx_ssh__ssh_status',
+      '--strict-mcp-config','--mcp-config',mcp,'--max-turns','3','Check ssh_status.'],claudeEnv);
+    assert.deepEqual(calls,[{op:'status'},{op:'status'}]);
+    assert.ok(seen.some(request=>request.agent==='claude' && JSON.stringify(request.body).includes(statusMarker)));
+    console.log('PASS Claude discovered and called cx_ssh ssh_status.');
+  } finally {
+    await new Promise(resolve=>bridge.close(resolve));
+  }
+}
+async function nativeHistory() {
   const codex=process.env.CX_NATIVE_CODEX||'codex',claude=process.env.CX_NATIVE_CLAUDE||'claude';
   const [a,b]=homes('codex',[['sessions',true],['archived_sessions',true],['thread-writer-locks',true],['history.jsonl',false],['session_index.jsonl',false]]);
   const codexEnv=h=>({HOME:h,CODEX_HOME:h,CODEX_SQLITE_HOME:path.join(shared,'codex/sqlite'),CX_FIXTURE_KEY:h===a?'fixture-a':'fixture-b'});
@@ -158,4 +238,8 @@ try{
   assert.ok(JSON.stringify(requestFor('CX_NATIVE_AGENT_ESCAPE')?.body.system).includes(selectedAgentMarker),'Escaped --agent must select the native Claude agent');
   console.log('PASS Claude native --agent interpretation through the cx escape.');
   console.log('Live provider subscription/API login, Docker mounts and interactive pickers remain separate gates.');
-}finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));fs.rmSync(temp,{recursive:true,force:true});}
+}
+try {
+  if (mcpOnly) await nativeMcp();
+  else await nativeHistory();
+} finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));fs.rmSync(temp,{recursive:true,force:true});}

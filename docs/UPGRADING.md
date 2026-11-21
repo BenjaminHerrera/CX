@@ -7,7 +7,7 @@
 The multi-CLI and session-menu work formerly developed on `v2` is now merged
 into `main`. New installations and upgrades should use `main`. The branch name
 did not itself assign a semantic release number. The current package version
-is **2.1.1**. No published release archive is required to
+is **2.1.2**. No published release archive is required to
 install from source.
 
 1. Exit running CX sessions and stop other writers before moving/backing up data.
@@ -19,7 +19,7 @@ git switch main
 git pull --ff-only
 ./install.sh
 cx --version
-# Expected: cx 2.1.1
+# Expected: cx 2.1.2
 cx --doctor
 ```
 
@@ -31,7 +31,7 @@ Restart CX afterwards. Host files and image contents are separate updates;
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
 
-## CX-13 MCP Startup Fix (Target v2.1.2)
+## CX-13 MCP Startup Fix in v2.1.2
 
 The CX-13 MCP startup fix is merged into `main` in
 [PR #14](https://github.com/BenjaminHerrera/CX/pull/14), targeting v2.1.2.
@@ -41,7 +41,7 @@ This differs from the host-only metadata layout fix in 2.1.1. See
 for installed/portable commands, permission/load diagnostics and the temporary
 `--no-ssh-mcp` fallback. The owner confirmed that the Docker verification script
 passed; [validation details](MAINTAINING.md#cx-13-validation-target-v212)
-record its coverage and the remaining native MCP/provider/SSH checks.
+record the Docker results and native MCP calls against a simulated bridge.
 
 ## Changes in 2.1.1
 

@@ -49,15 +49,15 @@ or make remote commands read-only when a file mount is read-only. See the
 ## Validation and Versions
 
 The multi-CLI and menu integration is merged into `main`; `v2` is no longer
-the implementation base. The current package version is **2.1.1**, including
+the implementation base. The current package version is **2.1.2**, including
 the shortcut Help Menu, immediate switching with saved assistants and the
 updated Sessions layout.
 Use [Upgrade and Back Up](UPGRADING.md) for the current source workflow.
 
-The CX-13 SSH MCP startup fix is also merged into `main`, targeting v2.1.2.
-Both editions need an image rebuild. Docker image and packaged-startup
-verification passed on the owner's host; live MCP tool use through Codex and
-Claude remains a separate release check. See the
+Version 2.1.2 includes the CX-13 SSH MCP startup fix. Both editions need an
+image rebuild. Docker image and packaged-startup verification passed on the
+owner's host. Codex and Claude also called `ssh_status` against a simulated
+bridge in the native-client fixture. See the
 [CX-13 validation record](MAINTAINING.md#cx-13-validation-target-v212).
 
 [CX-2 validation](CX2-VALIDATION.md) and [CX-7 validation](CX7-VALIDATION.md)
