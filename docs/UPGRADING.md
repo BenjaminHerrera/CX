@@ -7,7 +7,7 @@
 The multi-CLI and session-menu work formerly developed on `v2` is now merged
 into `main`. New installations and upgrades should use `main`. The branch name
 did not itself assign a semantic release number. The current package version
-is **2.1.2**. No published release archive is required to
+is **2.1.3**. No published release archive is required to
 install from source.
 
 1. Exit running CX sessions and stop other writers before moving/backing up data.
@@ -19,7 +19,7 @@ git switch main
 git pull --ff-only
 ./install.sh
 cx --version
-# Expected: cx 2.1.2
+# Expected: cx 2.1.3
 cx --doctor
 ```
 
@@ -30,6 +30,15 @@ Restart CX afterwards. Host files and image contents are separate updates;
 `./install.sh --no-build` updates only the host program. Build the image before
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
+
+## CX-15 Codex Sessions History Fix in v2.1.3
+
+After updating, open Sessions to restore entries whose old temporary menu path
+still has a matching transcript in managed history. The helper checks the full
+session ID in the filename and transcript before repairing the cached path.
+Entries with missing or mismatched transcripts are left alone. Upgrading from
+2.1.2 can use `./install.sh --no-build` because the menu helper ships with the
+launcher.
 
 ## CX-13 MCP Startup Fix in v2.1.2
 

@@ -424,8 +424,12 @@ opts into those internal records and labels them explicitly. This uses native
 source filtering plus source metadata checks; a real conversation named
 "Guardian review" remains visible. Filtering changes visibility only.
 Codex uses paginated `thread/list` for active and archived histories, covering
-native plain/compressed histories
-without reading or merging SQLite directly. Claude reads explicit `custom-title`
+native plain and compressed histories. The history-only helper uses the same
+`/codex-home` path as assistant containers, with its own credential-free tmpfs.
+When it finds a stale path from an older Sessions helper, it repairs only the
+cached rollout path in the shared database after matching the full thread ID
+in the managed transcript's filename and metadata. The repair skips missing
+or mismatched transcripts and leaves native deletion to Codex. Claude reads explicit `custom-title`
 metadata or an index's `customTitle`; summaries and message previews are ignored.
 An unnamed row is `Untitled Session [short-id]`. Native project paths may be the
 container's `/workspace` rather than the host project's original path.

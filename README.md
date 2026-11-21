@@ -31,8 +31,8 @@ with that pair or select it in the account picker. The
 [Getting Started guide](docs/GETTING-STARTED.md) walks through both choices.
 
 The `v2` integration is now on `main`. Use `main` for installs and new work;
-the package version is **2.1.2**. This patch fixes SSH MCP startup permissions
-for Codex and Claude. Rebuild the Docker image after updating either edition.
+the package version is **2.1.3**. This patch keeps Codex history visible across
+Sessions launches. Updating from 2.1.2 only requires updating the CX program files.
 See [upgrading](docs/UPGRADING.md) for the steps.
 
 ## Everyday Use

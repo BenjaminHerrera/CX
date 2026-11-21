@@ -88,6 +88,7 @@ check('session removal mounts only shared histories and read-only tools without 
   clear();ok(['sessions','menu-backend']);const menu=last();
   assert.ok(menu.includes('-i'));assert.equal(menu[menu.indexOf('--network')+1],'none');
   assert.equal(menu.at(-1),'/opt/cx-session-tools/cx-session-menu.mjs');
+  assert.ok(menu.includes('CX_SESSION_CODEX_HOME=/codex-home'));
   assert.equal(menu.some(x=>x.includes('/profiles/')||x.includes('dst=/workspace/main')),false);
   clear();assert.notEqual(run(['sessions','select']).status,0);assert.equal(calls().length,0);
   clear();ok(['sessions','remove',id,'--agent','claude']);a=last();
