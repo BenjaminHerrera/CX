@@ -7,6 +7,9 @@
 - Fix [CX-15](https://github.com/BenjaminHerrera/CX/issues/15) by keeping Codex
   history paths stable across Sessions launches. Repair old menu paths when
   the exact managed transcript can be verified by full session ID.
+- Skip corrupt or truncated Zstandard rollouts during repair so other sessions
+  remain visible. Verified that the same conversation appears across two fresh
+  Sessions helper containers on the Docker host.
 
 ## 2.1.2 — 2026-11-21
 
