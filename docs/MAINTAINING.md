@@ -134,12 +134,12 @@ cd dist
 sha256sum -c SHA256SUMS
 ```
 
-For version 2.1.1 the outputs are:
+For version 2.1.2 the outputs are:
 
 ```text
 dist/
-├── cx-2.1.1-install.tar.gz
-├── cx-2.1.1-portable.tar.gz
+├── cx-2.1.2-install.tar.gz
+├── cx-2.1.2-portable.tar.gz
 └── SHA256SUMS
 ```
 
@@ -237,10 +237,10 @@ checks. GitHub's Offline checks passed. The review container could not rerun
 Docker, and its account suite stopped because host Python 3 was unavailable;
 those review limitations are separate from the confirmed Docker-host result.
 
-The test packages still reported CX 2.1.1; the v2.1.2 release version has not yet
-been assigned. These results establish the image/permission and packaged-startup
-checks. Before release, verify native MCP discovery and `ssh_status` use from
-both Codex and Claude in SSH sessions. Native CLI invocation of MCP tools,
-provider authentication and live SSH execution remain unverified for this fix.
-No real remote command or scheduler allocation was requested or performed by
-the Docker verifier.
+The Docker test packages reported CX 2.1.1 with the CX-13 fix applied.
+For v2.1.2, `CX_NATIVE_MCP=1 node tests/native-history.mjs` passed with Codex
+0.171.0 and Claude Code 2.1.323. Both native clients advertised `ssh_status`
+to a loopback model simulator, called the actual source adapter, and returned
+the simulated Unix-socket bridge's response. Each client sent exactly one
+status request. The fixture uses disposable homes and synthetic API keys.
+Provider authentication and live SSH execution remain unverified for CX-13.

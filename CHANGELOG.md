@@ -2,18 +2,17 @@
 
 ## Unreleased
 
-- CX-13 (target v2.1.2): normalize image MCP runtime permissions regardless of
-  restrictive source modes. Validate installed adapter initialization and tool
-  discovery as the session UID/GID, with bounded diagnostics and no credentials,
-  network or remote commands. Both editions require an image rebuild.
-- Add offline MCP startup regressions and a Docker verifier for restrictive
-  source modes, arbitrary non-root UID, simulated status and packaged launchers.
-- Record the owner-confirmed pass of `scripts/verify-mcp-image.sh --build` for
-  CX-13, merged in [PR #14](https://github.com/BenjaminHerrera/CX/pull/14).
-  Docker image permissions and packaged startup passed for both CLIs and both
-  editions. Native MCP tool use through Codex and Claude in live SSH sessions
-  remains a separate release check. See the
-  [validation record](docs/MAINTAINING.md#cx-13-validation-target-v212).
+## 2.1.2 — 2026-11-21
+
+- Fix [CX-13](https://github.com/BenjaminHerrera/CX/issues/13) by making the
+  root-owned SSH MCP adapter readable by the session user, even when source
+  files have mode 0600. Rebuild the Docker image for either edition.
+- Check MCP initialization and tool discovery as the session UID/GID before
+  launching Codex or Claude. Startup errors include bounded diagnostics and
+  rebuild guidance. The check runs without network, credentials or SSH access.
+- Verified the restrictive-source Docker build, both packaged launchers and
+  native `ssh_status` calls through Codex and Claude against a simulated bridge.
+  See the [CX-13 validation record](docs/MAINTAINING.md#cx-13-validation-target-v212).
 
 ## 2.1.1 — 2026-11-16
 
