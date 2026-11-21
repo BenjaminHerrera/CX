@@ -58,7 +58,11 @@ async function rolloutMatches(root, relative, id) {
     return record?.type === 'session_meta' && typeof record.payload?.id === 'string'
       && record.payload.id.toLowerCase() === id.toLowerCase();
   } catch (error) {
-    if (error instanceof SyntaxError || ['ENOENT','ELOOP'].includes(error.code) || error.code?.startsWith('Z_')) return false;
+    // Node reports invalid frames as ZSTD_error_* and incomplete input as
+    // Z_BUF_ERROR. Skip unverifiable headers while surfacing unrelated errors.
+    const invalidFrame = decoded !== source &&
+      (error.code === 'Z_BUF_ERROR' || error.code?.startsWith('ZSTD_error_'));
+    if (error instanceof SyntaxError || ['ENOENT','ELOOP'].includes(error.code) || invalidFrame) return false;
     throw error;
   } finally {
     source.destroy();

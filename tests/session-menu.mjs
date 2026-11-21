@@ -72,7 +72,7 @@ try {
     fs.rmdirSync(lock);await removeSession({id,agent:'claude',claudeRoot});assert.equal(fs.existsSync(transcript),false);
     assert.equal(fs.existsSync(lock),false);
   });
-  await test('repair requires a verified full ID and preserves unrelated rows',async()=>{
+  await test('repair skips corrupt or truncated rollouts and requires a verified full ID',async()=>{
     const store=path.join(root,'repair'),home=path.join(root,'stable'),dir=path.join(store,'archived_sessions');
     fs.mkdirSync(dir,{recursive:true});fs.mkdirSync(path.join(store,'sqlite'));
     const dbFile=path.join(store,'sqlite/state_5.sqlite'),db=new DatabaseSync(dbFile);
@@ -88,9 +88,16 @@ try {
       const unrelated='33333333-3333-4333-8333-333333333333';
       const traversal='44444444-4444-4444-8444-444444444444';
       const symlink='55555555-5555-4555-8555-555555555555';
+      const corrupt='66666666-6666-4666-8666-666666666666';
+      const truncated='77777777-7777-4777-8777-777777777777';
+      fs.writeFileSync(path.join(store,relative(corrupt)),'Not a Zstandard frame');
+      const compressed=zstdCompressSync(JSON.stringify({type:'session_meta',payload:{id:truncated}})+'\n');
+      fs.writeFileSync(path.join(store,relative(truncated)),compressed.subarray(0,5));
       fs.writeFileSync(path.join(root,'outside.zst'),zstdCompressSync(
         JSON.stringify({type:'session_meta',payload:{id:symlink}})+'\n'));
       fs.symlinkSync(path.join(root,'outside.zst'),path.join(store,relative(symlink)));
+      add.run(corrupt,stale(corrupt),'Corrupt frame');
+      add.run(truncated,stale(truncated),'Truncated frame');
       add.run(id,stale(id),'Keep this title');add.run(other,stale(other),'Wrong metadata ID');
       add.run(unrelated,'/some/other/history.jsonl','Other store');
       add.run(traversal,'/tmp/cx-menu-gone01/codex/sessions/../'+relative(traversal),'Traversal');
@@ -104,6 +111,8 @@ try {
       assert.equal(read.get(unrelated).rollout_path,'/some/other/history.jsonl');
       assert.match(read.get(traversal).rollout_path,/sessions\/\.\.\//);
       assert.equal(read.get(symlink).rollout_path,stale(symlink));
+      assert.equal(read.get(corrupt).rollout_path,stale(corrupt));
+      assert.equal(read.get(truncated).rollout_path,stale(truncated));
     } finally {db.close();}
   });
   if(process.env.CX_NATIVE_HISTORY==='1')await test('native Codex listing and naming use supported RPCs without model requests',async()=>{
@@ -111,11 +120,14 @@ try {
     for(const name of ['sessions/2026/11/15','archived_sessions','thread-writer-locks','sqlite'])fs.mkdirSync(path.join(nativeRoot,name),{recursive:true});
     for(const name of ['history.jsonl','session_index.jsonl'])fs.writeFileSync(path.join(nativeRoot,name),'');
     const timestamp='2026-11-15T00:00:00Z';
-    fs.writeFileSync(path.join(nativeRoot,'sessions/2026/11/15',`rollout-2026-11-15T00-00-00-${id}.jsonl`),[
-      {timestamp,type:'session_meta',payload:{id,timestamp,cwd:root,originator:'codex-tui',cli_version:'0.169.0',source:'cli',model_provider:'openai'}},
+    const relative=threadId=>`sessions/2026/11/15/rollout-2026-11-15T00-00-00-${threadId}.jsonl`;
+    const writeTranscript=threadId=>fs.writeFileSync(path.join(nativeRoot,relative(threadId)),[
+      {timestamp,type:'session_meta',payload:{id:threadId,timestamp,cwd:root,originator:'codex-tui',cli_version:'0.169.0',source:'cli',model_provider:'openai'}},
       {timestamp,type:'event_msg',payload:{type:'user_message',message:'Menu fixture',images:[],local_images:[],text_elements:[]}},
       {timestamp,type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text:'Menu fixture'}]}}
     ].map(x=>JSON.stringify(x)).join('\n')+'\n');
+    writeTranscript(other);
+    writeTranscript(id);
     const client=await codexClient(nativeRoot,path.join(root,'native-work'));
     try {
       const rows=await listSessions({codexRoot:nativeRoot,client});assert.ok(rows.some(x=>x.id===id),'Native listing must discover the fixture');
@@ -142,9 +154,16 @@ try {
         assert.equal(read.get(id).rollout_path,original);
       };
       launch();launch();
-      db.prepare('UPDATE threads SET rollout_path=? WHERE id=?')
-        .run('/tmp/cx-menu-gone99/codex/'+path.relative(home,original),id);
+      assert.ok(read.get(other),'Native listing must index the second fixture');
+      const corruptRelative=relative(other)+'.zst';
+      fs.unlinkSync(path.join(nativeRoot,relative(other)));
+      fs.writeFileSync(path.join(nativeRoot,corruptRelative),'Not a Zstandard frame');
+      const corruptPath='/tmp/cx-menu-gone99/codex/'+corruptRelative;
+      const stale=db.prepare('UPDATE threads SET rollout_path=? WHERE id=?');
+      stale.run(corruptPath,other);
+      stale.run('/tmp/cx-menu-gone99/codex/'+path.relative(home,original),id);
       launch();launch();
+      assert.equal(read.get(other).rollout_path,corruptPath);
     } finally {db.close();}
   });
   console.log(`${count} menu backend checks passed; no provider calls.`);
