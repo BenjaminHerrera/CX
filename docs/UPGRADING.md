@@ -31,6 +31,14 @@ Restart CX afterwards. Host files and image contents are separate updates;
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
 
+## SSH Handoff and Provider Checks From Main
+
+Update the host program and start a new CX session to use automatic SSH
+handoff and `cx test_connection`. Both changes work with a compatible existing
+CX image. If you are also adding GitHub CLI support, follow the rebuild steps
+below. See the [SSH startup flow](SSH.md#connect-with-an-existing-alias) and
+the [provider check](USAGE.md#test-both-provider-connections).
+
 ## GitHub CLI Access From Main
 
 To use `gh` from Codex or Claude, update the host program and rebuild the

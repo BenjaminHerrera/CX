@@ -2,11 +2,15 @@
 
 ## Unreleased
 
-- Add `cx test_connection` for bounded Codex and Claude provider checks with
-  isolated diagnostic homes and no shared conversation history mounts.
-- Open Sessions automatically after Bash confirms readiness in normal managed
-  interactive SSH launches. Start a new assistant when history discovery
-  succeeds with no eligible sessions.
+- Open Sessions automatically after the first Bash prompt and successful setup
+  in managed interactive SSH launches. Start the selected assistant if history
+  discovery succeeds with no eligible sessions. `Ctrl-] c` remains available for
+  manual handoff. See the [SSH guide](docs/SSH.md#connect-with-an-existing-alias)
+  and [PR #20](https://github.com/BenjaminHerrera/CX/pull/20).
+- Add `cx test_connection` to check startup, authentication, and provider
+  reachability for Codex and Claude. It uses temporary homes and leaves no saved
+  conversations. It returns status 1 if either check fails. See the
+  [connection check guide](docs/USAGE.md#test-both-provider-connections).
 
 - Add GitHub CLI to the CX image for Codex and Claude in local and SSH sessions.
   Rebuild the image in either edition, then set `CX_GH_TOKEN_FILE` when launching

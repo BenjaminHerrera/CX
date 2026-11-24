@@ -54,6 +54,11 @@ the shortcut Help Menu, immediate switching with saved assistants and the
 updated Sessions layout.
 Use [Upgrade and Back Up](UPGRADING.md) for the current source workflow.
 
+The unreleased changes on `main` include [automatic SSH session selection](SSH.md#connect-with-an-existing-alias)
+and [`cx test_connection`](USAGE.md#test-both-provider-connections). See the
+[CX-18 validation record](MAINTAINING.md#cx-18-ssh-handoff-and-connection-check-validation)
+for the tests that passed and the remaining host checks.
+
 Version 2.1.2 includes the CX-13 SSH MCP startup fix. Both editions need an
 image rebuild. Docker image and packaged-startup verification passed on the
 owner's host. Codex and Claude also called `ssh_status` against a simulated

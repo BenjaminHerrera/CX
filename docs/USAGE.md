@@ -716,10 +716,16 @@ See [installation and upgrades](INSTALL.md#upgrading-to-121).
 
 ### Test Both Provider Connections
 
-Run `cx test_connection` on the host. For each CLI, CX uses its automation
-default if configured, or its sole managed profile. If a CLI has several
-profiles, set its default with `cx accounts default --agent CLI --account NAME`
-and rerun. The command reports each profile independently.
+Run `cx test_connection` on the host. CX has one saved automation default,
+which identifies a CLI and account. The check uses that account for its CLI
+and selects the other CLI's profile if it has exactly one. With no saved
+default, CX checks each CLI that has exactly one managed profile. The command
+reports missing or ambiguous profiles and continues with the other CLI.
+
+If both CLIs have several profiles, choose one with
+`cx accounts default --agent CLI --account NAME` and run the check. To check a
+profile for the other CLI, switch the default and run it again. This setting
+also affects other noninteractive CX launches.
 
 Each diagnostic checks CLI startup and native authentication, then sends a
 short provider request that may consume usage. A request is limited to 30

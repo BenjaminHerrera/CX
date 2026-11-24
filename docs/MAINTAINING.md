@@ -89,9 +89,12 @@ access. Check each architecture and Docker mode you intend to support.
 On a host with Python 3.11+, OpenSSH, SSHFS/FUSE, and an accessible SSH/SFTP
 server, use a disposable remote directory:
 
-1. Start an SSH session with a configured alias and `--remote-dir`. Complete
-   login/MFA directly, then press Ctrl-] c. Check `cx-remote status` and run
-   commands that change directory and export a variable; confirm state persists.
+1. Start a managed interactive SSH session with a configured alias and
+   `--remote-dir`. Complete login/MFA and any Bash startup prompts. Confirm
+   Sessions opens without a shortcut. With a disposable empty history, confirm
+   CX starts the selected assistant instead. Dismiss the initial menu and press
+   Ctrl-] c to check the manual launch path. Check `cx-remote status` and
+   confirm that a directory change persists when you start a nested `bash -i`.
 2. Switch with Ctrl-] r and Ctrl-] c. Confirm each saved screen restores
    without the other session's text, the full-width bar changes green/blue,
    and the bar survives clear-screen commands, alternate buffers, and resizing. Repeat Ctrl-] r at a password/MFA
@@ -213,6 +216,22 @@ in both packaged editions. The live authentication check confirms the token
 works against GitHub. For setup and the authentication command, see
 [GitHub CLI access](ACCOUNTS.md#github-cli-access) and
 [PR #19](https://github.com/BenjaminHerrera/CX/pull/19).
+
+## CX-18 SSH Handoff and Connection Check Validation
+
+[PR #20](https://github.com/BenjaminHerrera/CX/pull/20) merged into `main` as
+`94a3970`. Its final review passed 69 SSH bridge tests, 41 Sessions menu tests,
+documentation checks, and [GitHub CI](https://github.com/BenjaminHerrera/CX/actions/runs/45327103195/job/138219219653).
+The simulated SSH tests cover login and startup prompts, automatic menu and
+assistant launch, manual fallback, and keeping the current directory in nested
+Bash. The native connection fixture used Codex 0.172.0 and Claude Code 2.1.323
+against loopback providers. Repeated probes preserved fixture history, and a
+provider rejection produced a redacted error.
+
+Real SSH, Docker, and live provider validation for these changes remains
+pending. Follow the [live SSH checklist](#live-ssh-and-mount-verification) and
+run [the provider check](USAGE.md#test-both-provider-connections) on the host.
+Verify that Sessions has the same entries before and after the provider check.
 
 ## CX-13 Validation (Target v2.1.2)
 
