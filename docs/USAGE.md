@@ -367,13 +367,14 @@ any `--` argument separator. Supply each of `--ssh`, `--remote-dir`, and
 `--ssh-mount` at most once; `--add-dir` and `--add-file` are repeatable.
 
 Complete password, passphrase, host-key confirmation, MFA and shell startup
-prompts in the SSH pane. Press Ctrl-] c at the Bash prompt to confirm shell
-readiness. Once setup succeeds, a normal managed interactive launch opens
-Sessions. If discovery finds no eligible conversations, CX starts a new
-session. A discovery error stays in the menu. Dismiss the initial menu and
-press Ctrl-] c again to start a fresh assistant.
+prompts in the SSH pane. A normal managed interactive launch opens Sessions
+automatically when Bash confirms readiness and setup succeeds. If discovery
+finds no eligible conversations, CX starts a new session. A discovery error
+stays in the menu. Dismiss the initial menu and press Ctrl-] c to start a fresh
+assistant.
 
-Reconnects and launches with explicit CLI arguments use manual handoff.
+If the SSH pane stays visible at a Bash prompt, press Ctrl-] c to hand off
+manually. Reconnects and launches with explicit CLI arguments use this path.
 Switching between established terminals changes input routing. The bridge
 isolates common keyboard/focus/paste modes
 and answers display queries from the requesting session's virtual terminal.
@@ -637,10 +638,10 @@ file. The temporary parent directory is private to your user. See the
 FUSE permissions and setup. Rootless or UID-remapped Docker may require
 additional host permission configuration.
 
-Complete the normal SSH login/MFA and press Ctrl-] c. cx starts SSHFS over
-the authenticated SSH control connection, then starts Codex with `/workspace/remote`
-added to its available directories. Mount failure stops session startup with
-a diagnostic; it does not silently switch to an empty local directory.
+Complete the normal SSH login/MFA and choose a conversation if Sessions opens.
+When the assistant starts, cx mounts SSHFS over the authenticated SSH control
+connection and adds `/workspace/remote` to the assistant's available
+directories. Mount failure stops session startup with a diagnostic.
 
 Codex receives the host alias, initial remote directory, container mount path,
 and read/write mode in its session instructions. `cx-remote status` reports
@@ -693,7 +694,7 @@ those facilities; offline tests mock mount lifecycle operations.
 | A new build still has an old Codex version | Use `cx --rebuild` to bypass cached npm layers. |
 | File save fails with a busy mountpoint | For `--add-file`, write in place or share its parent using `--add-dir`. |
 | Password input contains unexpected text or Codex receives stray terminal sequences after handoff | Install the updated wrapper and exit all old SSH sessions. Restart cx; if the host display remains garbled, run `reset` outside cx first. |
-| SSH login needs MFA or interaction | Press Ctrl-] r, complete it directly at the terminal, then Ctrl-] c. |
+| SSH login needs MFA or interaction | Complete the prompts in the SSH pane. If Sessions or the assistant does not open, press Ctrl-] c at a Bash prompt. |
 | Dragging does not select text in an SSH-mode session | Hold Shift while dragging, then copy with Ctrl+Shift+C in Windows Terminal. Ctrl-] m disables wheel capture for plain drag selection. |
 | Wheel does not scroll chat history in SSH mode | Press Ctrl-] m to enable wheel capture. Mouse-aware applications handle their own scrolling; otherwise the renderer browses its saved terminal history. |
 | SSHFS mount fails at startup | Check host SSHFS/FUSE, server SFTP, and `user_allow_other` in `/etc/fuse.conf`. |

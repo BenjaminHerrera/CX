@@ -358,6 +358,9 @@ class Bridge:
         self.terminal = TerminalIO(self.deliver_terminal)
         self.menu = SessionMenu(self) if os.environ.get('CX_SESSION_MENU') == '1' else None
         self.offer_sessions = bool(self.menu and host and os.environ.get('CX_SSH_START_SESSIONS') == '1')
+        self.startup_token = None
+        self.startup_status = None
+        self.manual_startup = False
         self.open_requested_menu = bool(self.menu and os.environ.get('CX_SESSION_OPEN') == '1')
         self.help = HelpMenu(self)
 
@@ -455,11 +458,74 @@ class Bridge:
             args += ['-o', 'ControlMaster=auto', '-o', 'ControlPath=' + self.control_path,
                      '-o', 'ControlPersist=no', '-o', 'ServerAliveInterval=15',
                      '-o', 'ServerAliveCountMax=3']
-        self.remote = self.spawn(args + [self.host])
+        command = self.startup_command(args) if self.offer_sessions else []
+        self.remote = self.spawn(args + [self.host] + command)
         self.ready = False
         self.switch_focus('remote')
         self.connection_help()
         self.resize()
+
+    def startup_command(self, args):
+        try:
+            config = subprocess.run(args + ['-G', self.host], stdin=subprocess.DEVNULL,
+                                    capture_output=True, text=True, timeout=3, check=True).stdout
+        except (OSError, UnicodeError, subprocess.SubprocessError):
+            return []
+        settings = dict(line.split(' ', 1) for line in config.lower().splitlines() if ' ' in line)
+        if (settings.get('remotecommand', 'none') != 'none' or
+                settings.get('sessiontype', 'default') != 'default'):
+            return []
+        token = uuid.uuid4().hex
+        self.startup_token = token.encode()
+        # OpenSSH sends the command after authentication. Bash runs the hook
+        # at its first prompt, after the login files have finished. Setup runs
+        # inside Bash, so no automatic command is written to the terminal.
+        once = '__cx_prompt_' + token
+        setup = self.shell_setup()
+        hook = (f'if [[ ! ${{{once}+x}} ]]; then {once}=1; '
+                f'if {setup}; then printf "\\036%s:0\\037" {token}; '
+                f'else printf "\\036%s:1\\037" {token}; fi; fi')
+        return ['exec env ' + shlex.quote('PROMPT_COMMAND=' + hook) + ' bash --login -i']
+
+    def cancel_startup(self):
+        if self.startup_token:
+            self.terminal.render(self.remote, self.buffer)
+            self.buffer = b''
+            self.startup_token = None
+        self.startup_status = None
+
+    def read_startup(self, data):
+        self.buffer += data
+        prefix = b'\x1e' + self.startup_token + b':'
+        match = re.search(prefix + rb'([01])\x1f', self.buffer)
+        if match:
+            self.terminal.render(self.remote, self.buffer[:match.start()] + self.buffer[match.end():])
+            if not self.manual_startup:
+                self.startup_status = int(match[1])
+            self.startup_token, self.buffer = None, b''
+            return
+        # Stream SSH prompts immediately and keep only a partial frame.
+        end = len(self.buffer)
+        for size in range(min(end, len(prefix) + 1), 0, -1):
+            suffix = self.buffer[-size:]
+            if prefix.startswith(suffix) or suffix in (prefix + b'0', prefix + b'1'):
+                end -= size
+                break
+        self.terminal.render(self.remote, self.buffer[:end])
+        self.buffer = self.buffer[end:]
+
+    def complete_shell_setup(self, status):
+        if status:
+            self.notice('Shell setup failed. Use a Bash shell and check --remote-dir, then Ctrl-] c.')
+            return
+        self.ready = True
+        self.switch_focus('local')
+        offer_sessions, self.offer_sessions = self.offer_sessions, False
+        if offer_sessions and not self.local and not self.menu.opened and not self.help.opened:
+            self.menu.open(start_if_empty=True)
+        else:
+            self.notice('Remote shell ready. Starting/resuming assistant.')
+            self.start_local()
 
     def send(self, client, **event):
         try:
@@ -503,6 +569,12 @@ class Bridge:
                    'unset ' + status_var + ' ' + tty_var + '\n')
         os.write(self.remote[0], payload.encode())
 
+    def shell_setup(self):
+        command = 'test -n "${BASH_VERSION:-}"'
+        if self.directory:
+            command += ' && cd -- ' + shlex.quote(self.directory)
+        return command
+
     def activate(self):
         if not self.remote:
             self.notice('Connection closed. Press Ctrl-] r to reconnect; shell state was lost.')
@@ -510,10 +582,8 @@ class Bridge:
         if not self.ready:
             if self.pending:
                 return
-            command = 'test -n "${BASH_VERSION:-}"'
-            if self.directory:
-                command += ' && cd -- ' + shlex.quote(self.directory)
-            self.begin(command)
+            self.cancel_startup()
+            self.begin(self.shell_setup())
         else:
             self.switch_focus('local')
             self.resize()
@@ -624,6 +694,9 @@ class Bridge:
         self.resize()
 
     def output(self, data):
+        if self.startup_token:
+            self.read_startup(data)
+            return
         if not self.pending:
             self.terminal.render(self.remote, data)
             return
@@ -708,17 +781,7 @@ class Bridge:
             bootstrap = client is None and 'job_id' not in self.pending
             self.finish(status)
             if bootstrap:
-                if status:
-                    self.notice('Shell setup failed. Use a Bash shell and check --remote-dir, then Ctrl-] c.')
-                else:
-                    self.ready = True
-                    self.switch_focus('local')
-                    offer_sessions, self.offer_sessions = self.offer_sessions, False
-                    if offer_sessions and self.menu and not self.local and not self.menu.opened and not self.help.opened:
-                        self.menu.open(start_if_empty=True)
-                    else:
-                        self.notice('Remote shell ready. Starting/resuming assistant.')
-                        self.start_local()
+                self.complete_shell_setup(status)
 
     def interactive_observe(self, data):
         session = self.interactive
@@ -1070,6 +1133,8 @@ class Bridge:
                 if byte == ord('?'):
                     self.help.open()
                 elif byte == ord('r'):
+                    self.manual_startup = True
+                    self.startup_status = None
                     self.switch_focus('remote')
                     if not self.remote:
                         self.connect()
@@ -1109,6 +1174,9 @@ class Bridge:
             if self.menu:
                 self.menu.poll()
             self.help.retain()
+            if self.startup_status is not None and not self.help.opened and not self.menu.opened:
+                status, self.startup_status = self.startup_status, None
+                self.complete_shell_setup(status)
             if self.resize_pending:
                 self.resize()
             self.terminal.display.paint()
@@ -1166,6 +1234,7 @@ class Bridge:
                     else:
                         os.close(source)
                         if item is self.remote:
+                            self.cancel_startup()
                             self.finish(255, 'SSH disconnected; command outcome may be unknown. Do not replay automatically.')
                             item[1].wait()
                             self.remote = None

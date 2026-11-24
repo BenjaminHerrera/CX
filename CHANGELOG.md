@@ -4,7 +4,7 @@
 
 - Add `cx test_connection` for bounded Codex and Claude provider checks with
   isolated diagnostic homes and no shared conversation history mounts.
-- Open Sessions after the first successful Ctrl-] c handoff in normal managed
+- Open Sessions automatically after Bash confirms readiness in normal managed
   interactive SSH launches. Start a new assistant when history discovery
   succeeds with no eligible sessions.
 

@@ -21,17 +21,19 @@ checks stay with host OpenSSH. CX does not copy SSH credentials into Docker.
 `--remote-dir` is optional; use an absolute remote path instead of `~`.
 The project argument still selects a **local** directory.
 
-Complete password, key passphrase, host-key confirmation and MFA in the SSH
-pane, including any prompts from remote shell startup. At a Bash prompt, press
-**Ctrl-] c** to confirm that the shell is ready. After setup succeeds, a normal
-managed interactive launch opens Sessions. If discovery succeeds with no
-eligible conversations, CX starts the selected assistant. A history error stays
-visible in Sessions. To start a fresh assistant from the initial menu, dismiss
-it and press **Ctrl-] c** again.
+Complete password, key passphrase, host-key confirmation, MFA and remote shell
+startup prompts in the SSH pane. A normal managed interactive launch opens
+Sessions automatically when the remote Bash login shell reaches its first
+prompt and setup succeeds. If discovery succeeds with no eligible
+conversations, CX starts the selected assistant. A history error stays visible
+in Sessions. To start a fresh assistant from the initial menu, dismiss it and
+press **Ctrl-] c**.
 
-Use the same manual handoff for explicit task or resume arguments, legacy
-accounts and reconnects. Reconnects keep the existing session and command
-ownership. **Ctrl-] r** returns to manual SSH focus.
+If the SSH pane stays visible at a Bash prompt, press **Ctrl-] c** for manual
+handoff. Use this path for explicit task or resume arguments, legacy accounts,
+reconnects, and hosts that use a custom SSH `RemoteCommand` or replace Bash's
+`PROMPT_COMMAND` during startup. Reconnects keep the existing session and
+command ownership. **Ctrl-] r** selects manual SSH focus.
 
 ## Shortcut Help
 

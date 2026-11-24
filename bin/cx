@@ -77,8 +77,9 @@ Environment:
   SSH mode supports Codex and Claude through the same bridge and MCP adapter.
   Managed interactive local and SSH sessions require host Python 3.11+.
   SSH also uses host OpenSSH configuration, an interactive terminal, and a
-  remote Bash shell. Ctrl-] r opens SSH;
-  Ctrl-] c hands control to the assistant. Ctrl-] q exits CX.
+  remote Bash shell. Sessions opens automatically on a normal managed SSH
+  launch when Bash confirms readiness. Ctrl-] r opens SSH, Ctrl-] c hands
+  control to the assistant, and Ctrl-] q exits CX.
   Every CX header offers Ctrl-] ?: Help Menu. Press Ctrl-], release, then ?.
   Esc closes help and restores the previous view, draft and menu state.
   Ctrl-] s opens Sessions in managed interactive local and SSH sessions.
