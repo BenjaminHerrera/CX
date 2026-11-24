@@ -155,6 +155,14 @@ die() {
 
 source "$CX_ROOT/bin/cx-accounts.sh"
 
+run_with_watch() {
+    if command -v python3 >/dev/null && command -v ssh >/dev/null; then
+        python3 -B "$CX_ROOT/bin/cx-watch-launch.py" docker "$@"
+    else
+        docker "$@"
+    fi
+}
+
 require_docker() {
     command -v docker >/dev/null 2>&1 ||
         die "Docker is not installed or is not in PATH."
@@ -269,6 +277,7 @@ prepare_environment_mount() {
     ENVIRONMENT_DOCKER_ARGS=(
         --mount "type=bind,src=${HOST_WORKSPACE_ENV},dst=/cx-env"
         --env MAMBA_ROOT_PREFIX=/cx-env
+        --env CX_WATCH_STATE_HOME=/cx-env/.cx-state
     )
     if [[ -n "$REQUESTED_ENV_NAME" ]]; then
         ENVIRONMENT_DOCKER_ARGS+=(--env "CX_ENV_NAME=${REQUESTED_ENV_NAME}")
@@ -619,7 +628,7 @@ run_container() {
             die "Claude history deletion is in progress; retry launch after it completes."
         fi
     fi
-    if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
+    if run_with_watch run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
         "${ssh_args[@]}" \
         "${github_mount[@]}" \
         --name "cx-$(date +%s)-$$" \
@@ -789,7 +798,7 @@ run_shell() {
     done
 
     local docker_status
-    if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
+    if run_with_watch run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
         --user "${uid}:${gid}" \
         --workdir /workspace \
         --mount "type=bind,src=${workspace},dst=/workspace/main" \
@@ -873,6 +882,64 @@ doctor() {
     return "$failed"
 }
 
+recover_claude_leases() (
+    # Only the host can check launcher PIDs and containers. The network-disabled
+    # history helper must continue to refuse every lease it can still see.
+    local history="$DATA_HOME/history/claude" live="$DATA_HOME/history/claude/cx-live"
+    local gate="$DATA_HOME/history/claude/cx-delete-lock" file contents pid ids container inspection state source
+    local pattern='^[{][[:space:]]*"pid"[[:space:]]*:[[:space:]]*([1-9][0-9]*)[[:space:]]*,[[:space:]]*"account"[[:space:]]*:[[:space:]]*"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"[[:space:]]*[}][[:space:]]*$'
+    local -a candidates=() records=() details=()
+    [[ -z "$AGENT" || "$AGENT" == claude ]] || return 0
+    [[ -d /proc/self && -d "$history" && ! -L "$history" && -d "$live" && ! -L "$live" ]] || return 0
+    shopt -s nullglob dotglob
+    for file in "$live"/*; do
+        [[ -f "$file" && ! -L "$file" ]] || return 0
+        contents="$(cat -- "$file" 2>/dev/null)" || return 0
+        [[ "$contents" =~ $pattern ]] || return 0
+        pid="${BASH_REMATCH[1]}"
+        [[ ${#pid} -le 9 && ! -d "/proc/$pid" ]] || continue
+        candidates+=("$file"); records+=("$contents")
+    done
+    ((${#candidates[@]})) || return 0
+    # Pair with the writers' publish-then-check protocol, so no new Claude
+    # container can start while stale markers are being verified and removed.
+    mkdir -- "$gate" 2>/dev/null || return 0
+    trap 'rmdir -- "$gate" 2>/dev/null || true' EXIT
+    ids="$(docker ps --all --quiet --no-trunc 2>/dev/null)" || return 0
+    if [[ -n "$ids" ]]; then
+        while IFS= read -r container; do
+            [[ "$container" =~ ^[0-9a-f]{12,64}$ ]] || return 0
+            inspection="$(docker inspect --format '{{.State.Status}}{{range .Mounts}}{{if .RW}}{{printf "\n%s" .Source}}{{end}}{{end}}' "$container" 2>/dev/null)" || return 0
+            mapfile -t details <<< "$inspection"
+            state="${details[0]}"
+            case "$state" in
+                exited|dead) continue ;;
+                running|paused|restarting|created|removing) ;;
+                *) return 0 ;;
+            esac
+            for source in "${details[@]:1}"; do
+                [[ "$source" == /* ]] || return 0
+                source="$(realpath -m -- "$source" 2>/dev/null)" || return 0
+                if [[ "$source" == / || "$history" == "$source" || "$history" == "$source/"* || "$source" == "$history/"* ]]; then
+                    return 0
+                fi
+            done
+        done <<< "$ids"
+    fi
+    local index removed=0
+    for index in "${!candidates[@]}"; do
+        file="${candidates[index]}"
+        [[ -f "$file" && ! -L "$file" ]] || continue
+        contents="$(cat -- "$file" 2>/dev/null)" || continue
+        [[ "$contents" == "${records[index]}" && "$contents" =~ $pattern ]] || continue
+        pid="${BASH_REMATCH[1]}"
+        [[ ! -d "/proc/$pid" ]] || continue
+        if rm -- "$file"; then removed=$((removed+1)); fi
+    done
+    if ((removed)); then printf 'cx: Cleared %s stale Claude writer lease(s) after host/Docker checks.\n' "$removed" >&2; fi
+    return 0
+)
+
 sessions_command() {
     if [[ "${1:-}" == select ]]; then
         shift
@@ -911,6 +978,7 @@ sessions_command() {
     [[ "$found" == true ]] || die "No managed session history found."
     require_docker
     ensure_image
+    recover_claude_leases
     local -a selection=()
     [[ -z "$AGENT" ]] || selection=(--agent "$AGENT")
     local -a utility_args=() utility_terminal=()

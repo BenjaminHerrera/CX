@@ -14,6 +14,7 @@ Repository Markdown is the source of truth and is included in both distribution 
 | [Sessions](SESSIONS.md) | Open the menu, search, rename, delete and switch between saved assistants |
 | [Workspaces and Environments](WORKSPACES.md) | Host/container paths, extra files, filtering and persistent development tools |
 | [SSH and Remote Files](SSH.md) | Connect through an alias, hand off authentication, use commands and mount server files |
+| [Watch for Changes](WATCH.md) | Follow GitHub, commands and files from a background monitor |
 | [Slurm Setup](SLURM.md) | Choose shared paths per alias and use existing CPU/GPU allocation functions |
 | [Import Native Sessions](IMPORTING.md) | Copy ordinary CLI histories, preview changes and handle conflicts or missing rollouts |
 | [Upgrade and Back Up](UPGRADING.md) | Adopt the merged main branch, rebuild images and preserve private data |

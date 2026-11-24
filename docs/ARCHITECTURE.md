@@ -273,6 +273,16 @@ Release packaging uses an explicit source list. It excludes credentials,
 runtime data, environments, and caches. Never distribute a used portable
 bundle wholesale; its private `data/` can contain tokens and project data.
 
+## Background Watch Transport
+
+Assistant launches with host Python and OpenSSH run through
+`bin/cx-watch-launch.py`, which mounts a private `/cx-watch-host` socket.
+The socket accepts bounded watch requests for aliases resolved by host
+OpenSSH. Each request uses a separate batch SSH channel and keeps host
+credentials on the host. Local CX sessions can use this transport too.
+The launcher closes active watch connections when the container exits.
+The SSH bridge's existing watch endpoint remains available for older clients.
+
 ## SSH MCP adapter (1.2.0)
 
 Codex starts a container-local Node stdio MCP adapter, which forwards requests

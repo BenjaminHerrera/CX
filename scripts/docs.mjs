@@ -14,6 +14,7 @@ const pages=[
   ['Sessions','docs/SESSIONS.md','User Guides'],
   ['Workspaces and Environments','docs/WORKSPACES.md','User Guides'],
   ['SSH and Remote Files','docs/SSH.md','User Guides'],
+  ['Watch for Changes','docs/WATCH.md','User Guides'],
   ['Slurm Setup','docs/SLURM.md','User Guides'],
   ['Import Native Sessions','docs/IMPORTING.md','User Guides'],
   ['Upgrade and Back Up','docs/UPGRADING.md','User Guides'],

@@ -22,6 +22,7 @@ files=(
     docs/README.md docs/DEVELOPMENT.md docs/GITHUB.md docs/V2.md
     docs/GETTING-STARTED.md docs/SESSIONS.md docs/WORKSPACES.md docs/SSH.md
     docs/SLURM.md docs/IMPORTING.md docs/UPGRADING.md docs/TROUBLESHOOTING.md
+    docs/WATCH.md
     scripts/docs.mjs
     .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/feature_request.yml
     .github/ISSUE_TEMPLATE/question.yml .github/ISSUE_TEMPLATE/config.yml
@@ -30,6 +31,7 @@ files=(
     container/cx-mcp-check.mjs container/cx-connection container/cx-agent container/cx-gh container/cx-claude-config.mjs container/cx-codex-resume.mjs container/cx-guidance.txt container/Dockerfile container/cx-entrypoint container/cx-env container/cx-remote container/.dockerignore
     container/mcp/package.json container/mcp/package-lock.json container/mcp/server.mjs
     container/cx-sessions.mjs container/cx-session-menu.mjs tests/sessions.mjs tests/session-menu.mjs tests/session_menu.py
+    bin/cx-ssh-watch.py bin/cx-watch-launch.py container/cx-watch container/cx-watch-github.cjs tests/watch.cjs
     scripts/import-sessions.mjs tests/import-sessions.mjs
     tests/accounts.mjs tests/codex-resume.mjs tests/native-history.mjs tests/codex-account-history.mjs tests/mcp.mjs tests/mcp-preflight.mjs tests/slurm_setup.py
     docs/CX2-VALIDATION.md docs/CX7-VALIDATION.md docs/ACCOUNTS.md docs/INSTALL.md docs/USAGE.md docs/ARCHITECTURE.md docs/MAINTAINING.md

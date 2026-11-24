@@ -344,6 +344,7 @@ class Bridge:
             self.job_id_patterns.append(custom_pattern)
         self.buffer = b''
         self.clients = {}
+        self.watchers = []
         self.escape = False
         self.resize_pending = False
         self.running = True
@@ -453,11 +454,10 @@ class Bridge:
         return master, process
 
     def connect(self):
-        args = ['ssh', '-tt']
+        args = ['ssh', '-tt', '-o', 'ControlMaster=auto', '-o', 'ControlPath=' + self.control_path,
+                '-o', 'ControlPersist=no']
         if self.mount_mode:
-            args += ['-o', 'ControlMaster=auto', '-o', 'ControlPath=' + self.control_path,
-                     '-o', 'ControlPersist=no', '-o', 'ServerAliveInterval=15',
-                     '-o', 'ServerAliveCountMax=3']
+            args += ['-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3']
         command = self.startup_command(args) if self.offer_sessions else []
         self.remote = self.spawn(args + [self.host] + command)
         self.ready = False
@@ -957,7 +957,32 @@ class Bridge:
                   slurm_job_id=self.interactive.get('slurm_id') if self.interactive and self.interactive['id'] == key else None,
                   interactive_active_command_id=self.interactive.get('child') if self.interactive and self.interactive['id'] == key else None)
 
+    def watch_request(self, client, request):
+        command, timeout = request.get('command'), request.get('timeout')
+        if (request.get('host') != self.host or not isinstance(command, str) or '\x00' in command
+                or not 0 < len(command.encode()) <= 16384 or type(timeout) not in (int, float)
+                or not 1000 <= timeout <= 3600000):
+            self.send(client, type='watch', error='Invalid SSH watch request for this session.')
+        else:
+            self.watchers = [proc for proc in self.watchers if proc.poll() is None]
+            if len(self.watchers) >= 8:
+                self.send(client, type='watch', error='SSH watch capacity reached. Retrying.', retry=True)
+            else:
+                try:
+                    helper = str(Path(__file__).with_name('cx-ssh-watch.py'))
+                    proc = subprocess.Popen([sys.executable, '-B', helper, self.host, self.control_path,
+                                             str(timeout / 1000), command], stdin=client,
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self.watchers.append(proc)
+                except (OSError, ValueError):
+                    self.send(client, type='watch', error='Cannot start the independent SSH watch worker.')
+        self.clients.pop(client, None)
+        client.close()
+
     def request(self, client, request):
+        if request.get('op') == 'watch':
+            self.watch_request(client, request)
+            return
         if request.get('op') in ('submit', 'poll', 'cancel', 'interactive_start', 'interactive_exec', 'interactive_close'):
             self.job_request(client, request)
             return
@@ -1172,6 +1197,7 @@ class Bridge:
 
     def loop(self):
         while self.running:
+            self.watchers = [proc for proc in self.watchers if proc.poll() is None]
             if self.menu:
                 self.menu.poll()
             self.help.retain()
@@ -1311,6 +1337,14 @@ class Bridge:
             signal.signal(signal.SIGINT, old_int)
             for client in list(self.clients):
                 client.close()
+            for proc in self.watchers:
+                proc.terminate()
+            for proc in self.watchers:
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
             for item in [self.remote, self.local]+(self.menu.background_items() if self.menu else []):
                 if item:
                     try:

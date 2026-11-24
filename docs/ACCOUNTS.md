@@ -152,6 +152,12 @@ Other conversations, account profiles, project files and shared project memory
 are preserved. Private profile logs/caches and provider-side data are outside
 this command's scope.
 
+Sessions menu deletion uses the same stable Codex home as history listing.
+Each fresh maintenance container recreates its shared history links before
+resolving the stored transcript path. This avoids missing-path errors such as
+`ENOENT: no such file or directory, lstat '/codex-home/sessions'` when deleting
+a conversation that was listed by an earlier helper container.
+
 The command needs Docker and an existing CX image, but no login, network access,
 host Node/Python, or account selection. It mounts only managed shared history
 and read-only maintenance code. Installed, portable and `CX_DATA_HOME` paths
@@ -461,11 +467,18 @@ An atomic `cx-delete-lock` directory also prevents new managed Claude writers
 from starting during deletion. Unmanaged/legacy clients are outside this guard;
 stop them before deletion too.
 
-A crashed/killed supervisor or interrupted deletion may leave a lease or gate.
-Inspect that the corresponding CX/Docker instances and maintenance processes
-have stopped before manually removing stale `cx-live` entries or `cx-delete-lock`.
-CX never clears them automatically or retries an uncertain mutation. Menu backend
-containers have networking disabled and mount histories plus read-only tools,
+A crashed/killed supervisor can leave a writer lease. On Linux/WSL hosts, session
+maintenance clears a well-formed lease only when its host PID is gone and Docker
+inspection confirms no active container has a writable mount overlapping that
+Claude history. The deletion gate prevents new managed Claude writers during
+this check. Active PIDs, malformed/symlinked leases, container inspection errors,
+and unknown container states retain the markers and keep deletion blocked.
+
+An interrupted deletion can also leave a `cx-delete-lock` gate. CX never clears
+that gate automatically or retries an uncertain mutation. If recovery remains
+blocked, inspect the corresponding host processes, CX/Docker instances and
+maintenance processes before manually removing stale markers or a stale gate.
+Menu backend containers have networking disabled and mount histories plus read-only tools,
 without account homes, project files or provider credentials. Install/portable
 and custom `CX_DATA_HOME` use the same paths relative to their selected data root.
 Legacy `CX_CODEX_HOME` keeps native sessions and does not offer this menu.

@@ -13,6 +13,13 @@ MCP_GUIDANCE = (' Use cx_ssh MCP ssh_status first; submit remote commands with s
 
 def ssh_overrides(*, agent, launcher, host, directory, interactive_root, mount_path, mount_mode, config_root, profile, mcp_enabled):
     instructions = tomllib.loads((config_root / 'config.toml').read_text()).get('developer_instructions', '')
+    # Installed configurations are preserved on upgrade; current monitoring
+    # guidance still needs to reach both agents without editing those files.
+    guidance = Path(__file__).resolve().parents[1] / 'container' / 'cx-guidance.txt'
+    watch = next((part.strip() for part in guidance.read_text().split('\n\n')
+                  if part.startswith('Use cx-watch ')), '')
+    if watch and watch not in instructions:
+        instructions += ' ' + watch
     instructions += (' SSH mode is active. Run cx-remote status first. Use cx-remote exec with one quoted '
                      'command string for remote command execution. Without a filesystem mount use it for file reads and edits too. Local file tools see '
                      'the local workspace. The remote Bash shell preserves directory and environment state. '

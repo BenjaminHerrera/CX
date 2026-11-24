@@ -47,6 +47,8 @@ jobs:
           node tests/import-sessions.mjs
       - name: Remote CLI checks
         run: node tests/remote-client.mjs
+      - name: Watch checks
+        run: node --test tests/watch.cjs
       - name: MCP checks
         run: |
           node tests/mcp.mjs

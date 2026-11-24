@@ -228,10 +228,38 @@ Bash. The native connection fixture used Codex 0.172.0 and Claude Code 2.1.323
 against loopback providers. Repeated probes preserved fixture history, and a
 provider rejection produced a redacted error.
 
-Real SSH, Docker, and live provider validation for these changes remains
-pending. Follow the [live SSH checklist](#live-ssh-and-mount-verification) and
-run [the provider check](USAGE.md#test-both-provider-connections) on the host.
+The automated checks above used simulated SSH and loopback providers. For
+repeatable host checks, follow the [live SSH checklist](#live-ssh-and-mount-verification)
+and run [the provider check](USAGE.md#test-both-provider-connections).
 Verify that Sessions has the same entries before and after the provider check.
+The owner's subsequent integration-test confirmation is recorded below.
+
+## CX-18 Watcher and Session Maintenance Validation
+
+[PR #21](https://github.com/BenjaminHerrera/CX/pull/21) completes the `cx-watch`
+workstream from [CX-18](https://github.com/BenjaminHerrera/CX/issues/18), following
+the GitHub CLI work in PR #19 and SSH/connection checks in PR #20. It also fixes
+Codex menu deletion using an inconsistent history home, recovers confirmed
+stale Claude writer leases on the host, and adds watcher guidance to both CLIs.
+
+The owner reported that the requested test passed and explicitly authorized
+merging PR #21 and closing CX-18. This is owner-confirmed validation; raw host
+output was not supplied, and Docker/live SSH were not rerun in the development
+container.
+
+Automated coverage includes watcher sources, state/restarts, CI reruns on an
+unchanged head, and independent batch SSH for configured aliases. Native Codex
+0.172.0 fixtures verify active and archived chat deletion after a fresh helper
+launch, SQLite cleanup, and preservation of unrelated conversations. Host-side
+lease tests retain markers for active PIDs, overlapping writable containers,
+unknown states, malformed/symlinked records, and failed Docker inspection.
+Launcher/package tests cover both extracted editions; prompt tests cover
+Claude startup and Codex/Claude SSH launches with preserved older settings.
+
+For upgrades, rebuild the image and start a new CX session. Local Codex users
+retaining an older configuration should merge the watcher paragraph into
+`developer_instructions`; SSH launches append it automatically. See
+[Watch for Changes](WATCH.md) and [session maintenance](ACCOUNTS.md#remove-a-session).
 
 ## CX-13 Validation (Target v2.1.2)
 

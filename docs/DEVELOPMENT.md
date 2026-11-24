@@ -187,7 +187,10 @@ Run `session-menu.mjs` for native pagination/naming and history safety fixtures;
 `CX_NATIVE_HISTORY=1` adds real Codex naming/discovery with a disposable rollout
 and no provider requests. The native test also checks repeated helper launches
 and repair of an old temporary path in a disposable Codex database. Keep the
-menu's Codex home at the same container path as managed assistant homes. Only
+menu's Codex home at the same container path as managed assistant homes for
+listing and deletion. The native regression also lists active/archived chats,
+recreates an empty helper home, and verifies native deletion and SQLite cleanup
+without removing an unrelated conversation. Only
 repair paths from the old menu layout with a verified full ID and guard updates
 against concurrent changes. `session_menu.py` covers keyboard/modal routing,
 cursor preservation, Unicode, resize, clean/failed/busy handoff, helper startup failure, retained

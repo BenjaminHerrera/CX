@@ -293,6 +293,10 @@ check('clean releases exclude runtime data and run after extraction',()=>{
     run(process.execPath,[path.join(bundle,'scripts/docs.mjs'),'--wiki-dir',path.join(temp,`wiki-${edition}`)]);
     assert.match(run('bash',[path.join(bundle,'cx'),'--version']).stdout,new RegExp(version.replaceAll('.', '\\.')));
     run(process.execPath,[path.join(bundle,'scripts/import-sessions.mjs'),'--help']);
+    for (const required of ['bin/cx-ssh-watch.py','bin/cx-watch-launch.py','container/cx-watch','container/cx-watch-github.cjs','docs/WATCH.md','tests/watch.cjs']) {
+      assert.ok(listing.includes('/'+required), `missing watcher file: ${required}`);
+    }
+    assert.match(run(process.execPath,[path.join(bundle,'container/cx-watch'),'--help']).stdout,/cx-watch github/);
     if (edition === 'install') {
       run('bash',[path.join(bundle,'install.sh'),'--no-build','--prefix',path.join(temp,'archive install')]);
       run(process.execPath,[path.join(temp,'archive install/share/cx/program/bin/cx-import-sessions.mjs'),'--help']);
