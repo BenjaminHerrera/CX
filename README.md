@@ -31,9 +31,10 @@ with that pair or select it in the account picker. The
 [Getting Started guide](docs/GETTING-STARTED.md) walks through both choices.
 
 The `v2` integration is now on `main`. Use `main` for installs and new work;
-the package version is **2.1.3**. This patch keeps Codex history visible across
-Sessions launches. Updating from 2.1.2 only requires updating the CX program files.
-See [upgrading](docs/UPGRADING.md) for the steps.
+the package version is **2.2.0**. This release adds `cx-watch`, GitHub CLI access,
+automatic SSH session selection, provider connection checks, and session
+deletion fixes. Update the program and rebuild the image; see
+[upgrading](docs/UPGRADING.md) for the steps.
 
 ## Everyday Use
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.2.0 — 2026-11-23
+
 - Teach Codex and Claude startup prompts when and how to use `cx-watch`,
   including independent remote polling, background monitors and restart state.
 

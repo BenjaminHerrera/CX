@@ -50,15 +50,16 @@ or make remote commands read-only when a file mount is read-only. See the
 ## Validation and Versions
 
 The multi-CLI and menu integration is merged into `main`; `v2` is no longer
-the implementation base. The current package version is **2.1.3**, including
-the shortcut Help Menu, immediate switching with saved assistants and the
-updated Sessions layout.
+the implementation base. The current package version is **2.2.0**, including
+change-driven monitoring, GitHub CLI access, automatic SSH session selection,
+provider connection checks, and session deletion fixes.
 Use [Upgrade and Back Up](UPGRADING.md) for the current source workflow.
 
-The unreleased changes on `main` include [automatic SSH session selection](SSH.md#connect-with-an-existing-alias)
+Version 2.2.0 includes [`cx-watch`](WATCH.md),
+[automatic SSH session selection](SSH.md#connect-with-an-existing-alias)
 and [`cx test_connection`](USAGE.md#test-both-provider-connections). See the
-[CX-18 validation record](MAINTAINING.md#cx-18-ssh-handoff-and-connection-check-validation)
-for the tests that passed and the remaining host checks.
+[CX-18 validation record](MAINTAINING.md#cx-18-watcher-and-session-maintenance-validation)
+for the automated checks and owner-confirmed test result.
 
 Version 2.1.2 includes the CX-13 SSH MCP startup fix. Both editions need an
 image rebuild. Docker image and packaged-startup verification passed on the

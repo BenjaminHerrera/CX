@@ -7,7 +7,7 @@
 The multi-CLI and session-menu work formerly developed on `v2` is now merged
 into `main`. New installations and upgrades should use `main`. The branch name
 did not itself assign a semantic release number. The current package version
-is **2.1.3**. No published release archive is required to
+is **2.2.0**. No published release archive is required to
 install from source.
 
 1. Exit running CX sessions and stop other writers before moving/backing up data.
@@ -19,7 +19,7 @@ git switch main
 git pull --ff-only
 ./install.sh
 cx --version
-# Expected: cx 2.1.3
+# Expected: cx 2.2.0
 cx --doctor
 ```
 
@@ -30,6 +30,14 @@ Restart CX afterwards. Host files and image contents are separate updates;
 `./install.sh --no-build` updates only the host program. Build the image before
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
+
+Version 2.2.0 needs both the updated host program and rebuilt image for
+`cx-watch`, its SSH transport, GitHub CLI access, and the refreshed CLI prompts.
+Start a new session after upgrading. The installer preserves your configuration;
+for local Codex, merge the watcher paragraph from the current default
+`config/config.toml` into an older `developer_instructions` value. SSH launches
+append the current watcher guidance automatically. See
+[Watch for Changes](WATCH.md) and the [2.2.0 changelog](../CHANGELOG.md#220--2026-11-23).
 
 ## SSH Handoff and Provider Checks From Main
 
