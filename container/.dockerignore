@@ -6,6 +6,8 @@
 !cx-remote
 !cx-agent
 !cx-gh
+!cx-watch
+!cx-watch-github.cjs
 !cx-claude-config.mjs
 !cx-codex-resume.mjs
 !cx-guidance.txt

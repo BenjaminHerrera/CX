@@ -45,6 +45,8 @@ RUN apt-get update \
 
 COPY cx-entrypoint cx-env cx-remote cx-agent cx-codex-resume.mjs cx-claude-config.mjs /usr/local/bin/
 COPY --chown=0:0 --chmod=0755 cx-gh /usr/local/bin/gh
+COPY --chown=0:0 --chmod=0755 cx-watch /usr/local/bin/cx-watch
+COPY --chown=0:0 --chmod=0644 cx-watch-github.cjs /usr/local/bin/cx-watch-github.cjs
 LABEL io.cx.accounts="1"
 LABEL io.cx.ssh-agents="2"
 LABEL io.cx.github-token-file="1"

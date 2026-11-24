@@ -131,6 +131,26 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(result.stdout.replace(prefix + b'0\x1f', b'').splitlines(),
                          [os.fsencode(self.home), os.fsencode(other)])
 
+    def test_watch_uses_separate_batch_ssh_while_interactive_command_is_pending(self):
+        (self.home / 'ssh').write_text("""#!/bin/bash
+[[ " $* " == *' -T '* && " $* " == *' BatchMode=yes '* ]] || exit 4
+exec /bin/sh -c "${@: -1}"
+""")
+        self.bridge.control_path = str(self.home / 'control')
+        self.bridge.begin('sleep 2; printf interactive', self.send)
+        read, write = socket.socketpair()
+        with read:
+            read.settimeout(3)
+            self.bridge.request(write, {'op': 'watch', 'host': 'delta-alias',
+                                        'command': 'printf independent; exit 255', 'timeout': 1000})
+            with read.makefile() as response:
+                result = json.loads(response.readline())
+        self.assertEqual(result['status'], 255)
+        self.assertEqual(module.base64.b64decode(result['out']), b'independent')
+        self.assertIsNotNone(self.bridge.pending)
+        self.pump(lambda: self.bridge.pending is None)
+        self.assertEqual(self.bridge.watchers[0].wait(timeout=3), 0)
+
     def command(self, command):
         self.events = b''
         self.bridge.request(self.send, {'op': 'exec', 'command': command})
@@ -351,8 +371,8 @@ if [[ " $* " == *' -G '* ]]; then echo 'sessiontype default'; exit; fi
 printf 'LOGIN-CODE: '
 read -rs answer
 [[ "$answer" == login ]] || exit 1
-[[ "$2" == delta-alias && "$#" == 3 ]] || exit 3
-exec /bin/sh -c "$3"
+[[ "${@: -2:1}" == delta-alias ]] || exit 3
+exec /bin/sh -c "${@: -1}"
 """)
         bash = self.home / 'bash'
         bash.write_text("""#!/bin/sh

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `cx-watch` for change-driven GitHub, command, and file monitoring
+  with persistent state and independent SSH polling. Rebuild the image to use it.
+
 - Open Sessions automatically after the first Bash prompt and successful setup
   in managed interactive SSH launches. Start the selected assistant if history
   discovery succeeds with no eligible sessions. `Ctrl-] c` remains available for

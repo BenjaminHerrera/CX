@@ -1,0 +1,495 @@
+#!/usr/bin/env node
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const net = require('node:net');
+const {spawn} = require('node:child_process');
+const {createHash, randomUUID} = require('node:crypto');
+const {parseArgs} = require('node:util');
+const {setTimeout: wait} = require('node:timers/promises');
+const {GitHubAPI, WatchError, credential, githubPoll} = require('./cx-watch-github.cjs');
+
+const LIMIT = 128 * 1024;
+const MARK_MAX = 40;
+const hash = value => createHash('sha256').update(value).digest('hex');
+const time = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+const enabled = name => [name, {type: 'boolean'}];
+const value = name => [name, {type: 'string'}];
+const repeated = name => [name, {type: 'string', multiple: true, default: []}];
+const COMMON = ['state', 'interval', 'debounce', 'heartbeat', 'max-runtime'].map(value)
+    .concat(['once', 'json', 'verbose'].map(enabled), [['help', {type: 'boolean', short: 'h'}]]);
+const SOURCE = {
+    github: ['repo', 'since', 'token-file', 'until', 'until-ci'].map(value).concat(['pr', 'branch', 'closes', 'issue'].map(repeated)),
+    local: ['cmd', 'cmd-timeout', 'until-match'].map(value),
+    remote: ['host', 'cmd', 'cmd-timeout', 'until-match'].map(value),
+    file: ['path', 'host', 'grep', 'cmd-timeout', 'until-match'].map(value),
+};
+
+function usage() {
+    return `Usage:
+  cx-watch github --repo OWNER/NAME [--pr N | --branch NAME | --closes N]... [--issue N]...
+  cx-watch local --cmd 'COMMAND'
+  cx-watch remote --host ALIAS --cmd 'COMMAND'
+  cx-watch file --path PATH [--host ALIAS] [--grep REGEX]
+  cx-watch state show|clear SOURCE [same watch arguments] | --state PATH
+
+Common options:
+  --json                   Emit one JSON object per line
+  --state PATH             Override the default state file
+  --interval SECONDS       Poll every 60s for GitHub or 30s otherwise (minimum 10s)
+  --debounce SECONDS       Merge changes per target/kind over 20s by default
+  --heartbeat SECONDS      Emit a periodic heartbeat (off by default)
+  --max-runtime SECONDS    End when this time elapses
+  --once                   Poll once and flush immediately
+  --verbose                Write diagnostics to stderr
+  -h, --help               Show this reference
+
+GitHub options:
+  --token-file PATH        Read a GitHub token from this file
+  --since TIME             Emit activity newer than this ISO timestamp on first poll
+  --until merged|closed|any
+                           End on matching PR state (default any)
+  --until-ci done          End when CI reaches a conclusion
+
+Command and file options:
+  --cmd-timeout SECONDS    Bound each command or remote file read (default 30s)
+  --until-match REGEX      End when output, new file lines, or file event matches
+
+Use read-only remote commands. Remote watches use the CX session's SSH alias
+and a separate batch SSH channel. See docs/WATCH.md in the CX handbook.`;
+}
+
+function number(options, name, defaultValue, minimum, maximum = 2147483) {
+    if (!(name in options)) return defaultValue;
+    const raw = options[name];
+    const parsed = Number(raw);
+    if (!raw || !Number.isFinite(parsed) || parsed < minimum || parsed > maximum) {
+        throw new WatchError('--' + name + ' must be between ' + minimum + ' and ' + maximum + ' seconds.');
+    }
+    return parsed;
+}
+
+function regex(value, name) {
+    if (value === undefined) return;
+    try { return new RegExp(value); }
+    catch { throw new WatchError('Invalid pattern for --' + name + '.'); }
+}
+
+function parse(args) {
+    const [source, ...argv] = args;
+    if (!Object.hasOwn(SOURCE, source)) throw new WatchError('Select github, local, remote, file, or state. See --help.');
+    let options;
+    try { options = parseArgs({args: argv, options: Object.fromEntries([...COMMON, ...SOURCE[source]])}).values; }
+    catch { throw new WatchError('Invalid watch arguments. See --help.'); }
+    if (options.help) return {help: true, source};
+    options.interval = number(options, 'interval', source === 'github' ? 60 : 30, 10) * 1000;
+    options.debounce = number(options, 'debounce', 20, 0) * 1000;
+    options.heartbeat = number(options, 'heartbeat', 0, 1) * 1000;
+    options.runtime = number(options, 'max-runtime', 0, .001) * 1000;
+    let identity, target;
+    if (source === 'github') {
+        if (!/^[\w.-]+\/[\w.-]+$/.test(options.repo || '') ||
+            options.repo.split('/').some(part => part === '.' || part === '..')) {
+            throw new WatchError('--repo requires OWNER/NAME.');
+        }
+        options.repo = options.repo.toLowerCase();
+        for (const key of ['pr', 'issue', 'closes']) {
+            if (options[key].some(item => !/^\d+$/.test(item) || Number(item) <= 0 || !Number.isSafeInteger(Number(item)))) {
+                throw new WatchError('--' + key + ' requires a positive number.');
+            }
+            options[key] = [...new Set(options[key].map(Number))].sort((a,b) => a-b);
+        }
+        options.branch = [...new Set(options.branch)].filter(Boolean).sort();
+        if (![options.pr, options.issue, options.branch, options.closes].some(items => items.length)) {
+            throw new WatchError('Choose at least one --pr, --branch, --closes, or --issue.');
+        }
+        options.until ??= 'any';
+        if (!['any', 'merged', 'closed'].includes(options.until) ||
+            (options['until-ci'] !== undefined && options['until-ci'] !== 'done')) {
+            throw new WatchError('Use --until merged|closed|any or --until-ci done.');
+        }
+        if (options.since !== undefined) {
+            options.since = Date.parse(options.since);
+            if (!Number.isFinite(options.since)) throw new WatchError('--since requires an ISO timestamp.');
+        }
+        target = options.repo;
+        identity = [source, target, options.pr, options.issue, options.branch, options.closes];
+    } else {
+        if (source === 'remote' && !options.host) throw new WatchError('--host is required for remote watches.');
+        if (options.host !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$/.test(options.host)) {
+            throw new WatchError('--host requires a CX SSH alias.');
+        }
+        options.timeout = number(options, 'cmd-timeout', 30, 1, 3600) * 1000;
+        options.match = regex(options['until-match'], 'until-match');
+        if (source === 'file') {
+            if (!options.path) throw new WatchError('--path is required for file watches.');
+            options.grep = regex(options.grep, 'grep');
+            if (!options.host) options.path = path.resolve(options.path);
+            target = (options.host ? options.host + ':' : '') + options.path;
+            identity = [source, target, options.grep?.source];
+        } else {
+            if (!options.cmd || Buffer.byteLength(options.cmd) > 16384) {
+                throw new WatchError('--cmd requires a command of at most 16 KiB.');
+            }
+            target = options.host || 'command';
+            identity = [source, target, options.cmd, options.host ? null : process.cwd()];
+        }
+    }
+    const key = hash(JSON.stringify(identity));
+    const root = process.env.XDG_STATE_HOME || process.env.CX_WATCH_STATE_HOME || path.join(os.homedir(), '.local/state');
+    const statePath = options.state || path.join(root, 'cx-watch', key.slice(0, 32) + '.json');
+    return {source, options, target, key, statePath};
+}
+
+function load(file, key) {
+    try {
+        const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (state.version !== 1 || (key && state.key !== key) ||
+            !state.snapshot || !Array.isArray(state.queue)) throw new Error();
+        return state;
+    } catch (error) {
+        if (error.code === 'ENOENT') return {version: 1, key, snapshot: {}, queue: []};
+        throw new WatchError('Cannot read this watch state. Use another --state path or clear it.');
+    }
+}
+
+function save(file, state) {
+    const temporary = file + '.' + randomUUID() + '.tmp';
+    try {
+        fs.mkdirSync(path.dirname(file), {recursive: true, mode: 0o700});
+        fs.writeFileSync(temporary, JSON.stringify(state) + '\n', {mode: 0o600, flag: 'wx'});
+        fs.renameSync(temporary, file);
+    } catch {
+        throw new WatchError('Cannot write watch state.');
+    } finally {
+        try { fs.unlinkSync(temporary); } catch {}
+    }
+}
+
+function lineText(text) {
+    return String(text).replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, ' ');
+}
+
+function redactor(secrets) {
+    return function redact(value) {
+        if (typeof value === 'string') {
+            for (const token of secrets) if (token) value = value.replaceAll(token, '[redacted]');
+            return value.replace(/\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b/g, '[redacted]');
+        }
+        if (Array.isArray(value)) return value.map(redact);
+        if (value && typeof value === 'object') {
+            return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redact(item)]));
+        }
+        return value;
+    };
+}
+
+function output(options, source, target, event, data) {
+    const record = {time: time(), source, target, event, data};
+    if (options.json) {
+        process.stdout.write(JSON.stringify(record) + '\n');
+        return;
+    }
+    const text = Object.entries(data).filter(([,item]) => item !== undefined).map(([name, item]) =>
+        name + '=' + (typeof item === 'string' && /^[\w./#:@+-]+$/.test(item) ? item : JSON.stringify(item))).join(' ');
+    process.stdout.write([record.time, source, lineText(target), event, lineText(text)].filter(Boolean).join(' ') + '\n');
+}
+
+function enqueue(queue, target, event, data, debounce) {
+    const phase = event === 'ci' ? [data.sha, data.status === 'pending' ? 'pending' : 'done'] : [];
+    const key = JSON.stringify([target, event, ...phase]);
+    const previous = queue.find(item => item.key === key);
+    if (!previous) {
+        queue.push({key, target, event, data, due: Date.now() + debounce});
+    } else if (['comment', 'review', 'review_comment', 'line'].includes(event)) {
+        const items = previous.data.items || [previous.data];
+        if (items.length < MARK_MAX) items.push(data);
+        previous.data = {items, count: (previous.data.count || 1) + 1};
+    } else {
+        if (event === 'head') {
+            data.prev = previous.data.prev;
+            data.commits = [...new Set([...previous.data.commits, ...data.commits])];
+        }
+        previous.data = data;
+    }
+}
+
+function localCommand(command, timeout, signal) {
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) return reject(signal.reason);
+        const child = spawn('/bin/sh', ['-c', command], {detached: true, stdio: ['ignore', 'pipe', 'pipe']});
+        const digests = [createHash('sha256'), createHash('sha256')];
+        const samples = [Buffer.alloc(0), Buffer.alloc(0)];
+        const cancel = () => {
+            if (child.pid) {
+                try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+            }
+        };
+        let timedOut = false;
+        const timer = setTimeout(() => {
+            timedOut = true;
+            cancel();
+        }, timeout);
+        signal.addEventListener('abort', cancel, {once: true});
+        [child.stdout, child.stderr].forEach((stream, index) => stream.on('data', chunk => {
+            digests[index].update(chunk);
+            if (samples[index].length < LIMIT) {
+                samples[index] = Buffer.concat([samples[index], chunk.subarray(0, LIMIT - samples[index].length)]);
+            }
+        }));
+        child.on('error', () => reject(new WatchError('Cannot start the local command.')));
+        child.on('close', (status, killed) => {
+            clearTimeout(timer);
+            signal.removeEventListener('abort', cancel);
+            if (signal.aborted) return reject(signal.reason);
+            if (timedOut) return reject(new WatchError('Local command timed out.', {retry: true}));
+            resolve({status: status ?? 128 + os.constants.signals[killed], out: samples[0], err: samples[1],
+                digest: digests.map(item => item.digest('hex')).join(':')});
+        });
+    });
+}
+
+function remoteCommand(host, command, timeout, signal) {
+    const socketPath = process.env.CX_SSH_SOCKET;
+    if (!socketPath || process.env.CX_SSH_HOST !== host) {
+        throw new WatchError('Unknown SSH alias for this session. Start cx --ssh ' + host + ' and complete login.');
+    }
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) return reject(signal.reason);
+        const socket = net.createConnection(socketPath);
+        let body = '';
+        const cancel = () => socket.destroy(Error('aborted'));
+        signal.addEventListener('abort', cancel, {once: true});
+        socket.setTimeout(timeout + 5000, cancel);
+        socket.setEncoding('utf8');
+        socket.on('connect', () => socket.write(JSON.stringify({op: 'watch', host, command, timeout}) + '\n'));
+        socket.on('data', chunk => {
+            body += chunk;
+            if (body.length > LIMIT * 4) cancel();
+        });
+        socket.on('error', () => reject(new WatchError('SSH watch connection timed out or was dropped.', {retry: true})));
+        socket.on('close', hadError => {
+            signal.removeEventListener('abort', cancel);
+            if (hadError) return;
+            let result;
+            try { result = JSON.parse(body); }
+            catch { return reject(new WatchError('Invalid SSH watch response. Update the CX host launcher.')); }
+            if (result.error) return reject(new WatchError(result.error, {retry: result.retry}));
+            if (result.type !== 'watch' || !Number.isInteger(result.status)) {
+                return reject(new WatchError('SSH watch is unavailable. Update the CX host launcher.'));
+            }
+            resolve({...result, out: Buffer.from(result.out, 'base64'), err: Buffer.from(result.err, 'base64')});
+        });
+    });
+}
+
+const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+
+async function filePoll(options, snapshot, signal) {
+    const command = options.host && (cmd => remoteCommand(options.host, cmd, options.timeout, signal));
+    const file = options.path;
+    let info, get;
+    if (command) {
+        const result = await command('if [ -e ' + quote(file) + ' ]; then stat -L --printf="%d %i %s %y" -- ' + quote(file) + '; fi');
+        if (result.status) throw new WatchError('Cannot stat the remote file.', {retry: true});
+        const output = result.out.toString();
+        if (output) {
+            const parts = output.match(/^(\d+) (\d+) (\d+) (.+)$/);
+            if (!parts) throw new WatchError('Unexpected remote stat output.', {retry: true});
+            info = {id: parts[1] + ':' + parts[2], size: Number(parts[3]), mtime: parts[4]};
+        }
+        get = async offset => {
+            const result = await command('test -f ' + quote(file) + ' && tail -c +' + (offset + 1) +
+                ' -- ' + quote(file) + ' | head -c ' + LIMIT);
+            if (result.status || result.err.length) throw new WatchError('Cannot read the remote file.', {retry: true});
+            return result.out;
+        };
+    } else {
+        try {
+            const metadata = await fsp.stat(file);
+            info = {id: metadata.dev + ':' + metadata.ino, size: metadata.size, mtime: metadata.mtimeMs};
+            if ((options.grep || options.match) && !metadata.isFile()) {
+                throw new WatchError('File content matching requires a regular file.');
+            }
+        } catch (error) {
+            if (error.code !== 'ENOENT') throw error;
+        }
+        get = async offset => {
+            const handle = await fsp.open(file, 'r');
+            try {
+                const result = await handle.read(Buffer.alloc(LIMIT), 0, LIMIT, offset);
+                return result.buffer.subarray(0, result.bytesRead);
+            } finally { await handle.close(); }
+        };
+    }
+    const previous = snapshot.file;
+    const replaced = info && previous && (previous.id !== info.id || previous.size > info.size ||
+        (previous.size === info.size && previous.mtime !== info.mtime));
+    const change = !previous && info ? 'appeared' : previous && !info ? 'disappeared'
+        : info && (replaced || previous.size !== info.size) ? 'changed' : null;
+    const data = {exists: Boolean(info), size: info?.size, mtime: info?.mtime};
+    const matchesMetadata = options.match && (options.match.test((info ? 'exists ' : 'missing ') + file) ||
+        change && options.match.test(change));
+    let lines = [], contents = '';
+    if (info && (options.grep || options.match && !matchesMetadata)) {
+        const offset = !snapshot.initialized && !options.match ? info.size
+            : replaced || !previous ? 0 : previous.offset ?? 0;
+        info.offset = offset;
+        if (info.size > offset) {
+            let bytes;
+            try { bytes = await get(offset); }
+            catch (error) {
+                if (error.code === 'ENOENT') throw new WatchError('File changed while being read.', {retry: true});
+                throw error;
+            }
+            contents = bytes.toString();
+            const lastBreak = bytes.lastIndexOf(10);
+            const consumed = lastBreak >= 0 ? lastBreak + 1 : bytes.length === LIMIT ? bytes.length : 0;
+            lines = bytes.subarray(0, lastBreak + 1).toString().split('\n').slice(0, -1)
+                .map(line => line.replace(/\r$/, ''));
+            info.offset += consumed;
+        }
+    }
+    snapshot.file = info || null;
+    const matches = matchesMetadata || options.match?.test(contents);
+    return {data, lines, change, matches};
+}
+
+async function poll(config, snapshot, report, signal, github, redact) {
+    const {source, target, options} = config;
+    if (source === 'github') return githubPoll(github, options, snapshot, report, redact);
+    if (source === 'file') {
+        const {data, lines, change, matches} = await filePoll(options, snapshot, signal);
+        if (snapshot.initialized && change) report(target, change, data);
+        if (options.grep && snapshot.initialized) {
+            for (const line of lines) if (options.grep.test(line)) report(target, 'line', {text: redact(line).slice(0, 400)});
+        }
+        return {summary: data, end: matches ? {reason: 'match'} : null};
+    }
+    const result = options.host ? await remoteCommand(options.host, options.cmd, options.timeout, signal)
+        : await localCommand(options.cmd, options.timeout, signal);
+    const data = {exit: result.status, output: lineText(redact(result.out.toString())).trim().slice(0, 400),
+        stderr: lineText(redact(result.err.toString())).trim().slice(0, 400)};
+    const fingerprint = result.status + ':' + result.digest;
+    if (snapshot.initialized && snapshot.fingerprint !== fingerprint) report(target, 'changed', data);
+    snapshot.fingerprint = fingerprint;
+    const matches = options.match && (options.match.test(result.out.toString()) || options.match.test(result.err.toString()));
+    return {summary: data, end: matches ? {reason: 'match'} : null};
+}
+
+async function monitor(config, apiBase) {
+    const {options, source, target, key, statePath} = config;
+    const secrets = [process.env.GH_TOKEN, process.env.GITHUB_TOKEN];
+    const redact = redactor(secrets);
+    const emit = (itemTarget, kind, data) => output(options, source, redact(itemTarget), kind, redact(data));
+    const verbose = message => { if (options.verbose) console.error('cx-watch: ' + message); };
+    const controller = new AbortController();
+    const interrupt = () => controller.abort();
+    const signals = options.runtime ? [controller.signal, AbortSignal.timeout(Math.ceil(options.runtime))] : [controller.signal];
+    const signal = AbortSignal.any(signals);
+    process.on('SIGINT', interrupt);
+    process.on('SIGTERM', interrupt);
+    let state, github, auth, failures = 0;
+    let nextPoll = Date.now(), nextBeat = nextPoll + (options.heartbeat || Infinity);
+    const flush = (all = false) => {
+        let index;
+        while ((index = state.queue.findIndex(item => all || item.due <= Date.now())) >= 0) {
+            const [item] = state.queue.splice(index, 1);
+            save(statePath, state);
+            emit(item.target, item.event, item.data);
+        }
+    };
+    try {
+        state = load(statePath, key);
+        if (source === 'github') {
+            auth = credential(options);
+            secrets.push(auth.token);
+            verbose('GitHub credential source ' + auth.source);
+            github = new GitHubAPI(auth.token, apiBase, verbose, signal);
+        }
+        while (!signal.aborted) {
+            if (Date.now() >= nextPoll) {
+                const snapshot = structuredClone(state.snapshot);
+                const events = [];
+                let result;
+                try {
+                    result = await poll(config, snapshot, (...event) => events.push(event), signal, github, redact);
+                } catch (error) {
+                    if (signal.aborted) break;
+                    if (!error.retry) throw error;
+                    failures++;
+                    if (failures === 1) emit(target, 'warn', {message: error.message});
+                    nextPoll = Date.now() + Math.max(error.delay || 0, Math.min(300000, options.interval * 2 ** (failures - 1)));
+                }
+                if (result) {
+                    if (failures) emit(target, 'recovered', {});
+                    failures = 0;
+                    const first = !snapshot.initialized;
+                    snapshot.initialized = true;
+                    for (const [eventTarget, event, data] of events) {
+                        enqueue(state.queue, redact(eventTarget), event, redact(data), options.debounce);
+                    }
+                    state.snapshot = snapshot;
+                    save(statePath, state);
+                    if (first && !options.since) emit(target, 'baseline', {summary: result.summary, credential: auth?.source});
+                    flush(Boolean(options.once || result.end));
+                    if (result.end) {
+                        emit(result.end.target || target, 'end', {reason: result.end.reason});
+                        return 0;
+                    }
+                    nextPoll = Date.now() + options.interval;
+                }
+                if (options.once) return 0;
+            }
+            flush();
+            if (Date.now() >= nextBeat) {
+                emit(target, 'heartbeat', {});
+                nextBeat = Date.now() + options.heartbeat;
+            }
+            const next = Math.min(nextPoll, nextBeat, ...state.queue.map(item => item.due));
+            await wait(Math.max(0, next - Date.now()), undefined, {signal}).catch(() => {});
+        }
+        flush(true);
+        emit(target, 'end', {reason: controller.signal.aborted ? 'interrupted' : 'max-runtime'});
+        return controller.signal.aborted ? 130 : 0;
+    } catch (error) {
+        emit(target, 'error', {message: error instanceof WatchError ? error.message : 'Watch failed (' + (error.code || error.name) + ').'});
+        return 1;
+    } finally {
+        process.removeListener('SIGINT', interrupt);
+        process.removeListener('SIGTERM', interrupt);
+    }
+}
+
+async function main(args, {apiBase = 'https://api.github.com'} = {}) {
+    if (!args.length || ['--help', '-h'].includes(args[0])) {
+        console.log(usage());
+        return 0;
+    }
+    try {
+        if (args[0] === 'state') {
+            const [, action, ...watch] = args;
+            if (!['show','clear'].includes(action)) throw new WatchError('Use state show or state clear with watch arguments or --state PATH.');
+            const {statePath, key} = watch[0] === '--state' && watch.length === 2 ? {statePath: watch[1]} : parse(watch);
+            if (!statePath) throw new WatchError('Specify the watch arguments or --state PATH.');
+            if (action === 'show') console.log(JSON.stringify(load(statePath, key), null, 2));
+            else fs.rmSync(statePath, {force: true});
+            return 0;
+        }
+        const config = parse(args);
+        if (config.help) {
+            console.log(usage());
+            return 0;
+        }
+        return await monitor(config, apiBase);
+    } catch (error) {
+        output({json: args.includes('--json')}, 'cx-watch', '-', 'error', {
+            message: error instanceof WatchError ? error.message : 'Watch failed (' + (error.code || error.name) + ').',
+        });
+        return 2;
+    }
+}
+
+module.exports = {main};
+if (require.main === module) main(process.argv.slice(2)).then(code => { process.exitCode = code; });
