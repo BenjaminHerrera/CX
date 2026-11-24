@@ -480,9 +480,10 @@ class Bridge:
         # OpenSSH sends the command after authentication. Bash runs the hook
         # at its first prompt, after the login files have finished. Setup runs
         # inside Bash, so no automatic command is written to the terminal.
+        # Export the guard because nested shells inherit PROMPT_COMMAND too.
         once = '__cx_prompt_' + token
         setup = self.shell_setup()
-        hook = (f'if [[ ! ${{{once}+x}} ]]; then {once}=1; '
+        hook = (f'if [[ ! ${{{once}+x}} ]]; then export {once}=1; '
                 f'if {setup}; then printf "\\036%s:0\\037" {token}; '
                 f'else printf "\\036%s:1\\037" {token}; fi; fi')
         return ['exec env ' + shlex.quote('PROMPT_COMMAND=' + hook) + ' bash --login -i']

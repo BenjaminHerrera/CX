@@ -109,6 +109,28 @@ class SessionTests(unittest.TestCase):
         self.assertIsNone(bridge.startup_token)
         self.assertEqual(bridge.startup_status, 1)
 
+    def test_nested_bash_keeps_current_directory_after_startup(self):
+        # Exercise the generated remote command without reading local profiles.
+        bash = self.home / 'bash'
+        bash.write_text('#!/bin/sh\nexec /bin/bash --noprofile --norc -i\n')
+        bash.chmod(0o755)
+        other = self.home / 'other directory'
+        other.mkdir()
+        with patch.object(module.subprocess, 'run', return_value=Mock(stdout='sessiontype default\n')):
+            command, = self.bridge.startup_command(['ssh', '-tt'])
+
+        change_directory = 'cd -- ' + module.shlex.quote(str(other))
+        commands = (f"pwd\n{change_directory}\n"
+                    "printf 'pwd\\nexit\\n' | /bin/bash --noprofile --norc -i\n"
+                    "exit\n")
+        result = subprocess.run(['/bin/sh', '-c', command], input=commands.encode(), cwd=ROOT,
+                                capture_output=True, timeout=5, check=True)
+        prefix = b'\x1e' + self.bridge.startup_token + b':'
+        self.assertIn(prefix + b'0\x1f', result.stdout)
+        self.assertEqual(result.stdout.count(prefix), 1)
+        self.assertEqual(result.stdout.replace(prefix + b'0\x1f', b'').splitlines(),
+                         [os.fsencode(self.home), os.fsencode(other)])
+
     def command(self, command):
         self.events = b''
         self.bridge.request(self.send, {'op': 'exec', 'command': command})
