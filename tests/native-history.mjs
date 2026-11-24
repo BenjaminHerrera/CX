@@ -10,7 +10,8 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
 const mcpOnly = process.env.CX_NATIVE_MCP === '1';
-if(process.env.CX_NATIVE_HISTORY!=='1' && !mcpOnly){
+const connectionOnly = process.env.CX_NATIVE_CONNECTION === '1';
+if(process.env.CX_NATIVE_HISTORY!=='1' && !mcpOnly && !connectionOnly){
   console.log('SKIP native history: set CX_NATIVE_HISTORY=1 for history or CX_NATIVE_MCP=1 for SSH MCP tool use.');
   process.exit(0);
 }
@@ -37,6 +38,11 @@ let fixtureError;
 async function handleRequest(req,res){
   const chunks=[];for await(const c of req)chunks.push(c);
   const body=JSON.parse(Buffer.concat(chunks).toString()||'{}');
+  if (connectionOnly && req.url.includes('responses') && req.headers.authorization==='Bearer rejected-fixture') {
+    res.writeHead(401,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({error:{type:'invalid_request_error',code:'invalid_api_key',message:'invalid API key rejected-fixture'}}));
+    return;
+  }
   if(req.url.includes('count_tokens')){res.setHeader('Content-Type','application/json');res.end('{"input_tokens":10}');return;}
   if(req.url.includes('messages')){
     seen.push({agent:'claude',key:req.headers['x-api-key'],body});
@@ -239,7 +245,50 @@ async function nativeHistory() {
   console.log('PASS Claude native --agent interpretation through the cx escape.');
   console.log('Live provider subscription/API login, Docker mounts and interactive pickers remain separate gates.');
 }
+async function nativeConnection() {
+  const profile = path.join(temp,'connection-profile');
+  const sharedHistory = path.join(temp,'unmounted-history');
+  fs.mkdirSync(profile);
+  fs.mkdirSync(sharedHistory);
+  fs.writeFileSync(path.join(sharedHistory,'existing.jsonl'),'existing conversation\n');
+  fs.symlinkSync(sharedHistory,path.join(profile,'sessions'));
+  const config = `model = "fixture"
+model_provider = "fixture"
+[model_providers.fixture]
+name = "CX Fixture"
+base_url = "${endpoint}/v1"
+env_key = "CX_FIXTURE_KEY"
+wire_api = "responses"
+supports_websockets = false
+`;
+  fs.writeFileSync(path.join(profile,'config.toml'),config);
+  const codexAuth = JSON.stringify({OPENAI_API_KEY:'codex-fixture'});
+  fs.writeFileSync(path.join(profile,'auth.json'),codexAuth);
+  fs.writeFileSync(path.join(profile,'api-key'),'claude-fixture');
+  for(const [agent,key] of [['codex','Bearer codex-fixture'],['claude','claude-fixture']]) {
+    for(let i=0;i<2;i++) {
+      const start=seen.length;
+      const output=await run('bash',[path.join(root,'container/cx-connection'),profile],{
+        CX_AGENT:agent,CX_AUTH_MODE:'api-key',CX_FIXTURE_KEY:'codex-fixture',ANTHROPIC_BASE_URL:endpoint
+      });
+      assert.match(output,/provider request succeeded/);
+      assert.equal(seen.slice(start).filter(request=>request.agent===agent&&request.key===key).length,1);
+      assert.ok(!output.includes(key));
+    }
+  }
+  await assert.rejects(run('bash',[path.join(root,'container/cx-connection'),profile],{
+    CX_AGENT:'codex',CX_AUTH_MODE:'api-key',CX_FIXTURE_KEY:'rejected-fixture'
+  }),error=>/credentials rejected or expired/.test(error.message)&&!error.message.includes('rejected-fixture'));
+  assert.equal(fs.readFileSync(path.join(profile,'api-key'),'utf8'),'claude-fixture');
+  assert.equal(fs.readFileSync(path.join(profile,'config.toml'),'utf8'),config);
+  assert.equal(fs.readFileSync(path.join(profile,'auth.json'),'utf8'),codexAuth);
+  assert.deepEqual(fs.readdirSync(profile).sort(),['api-key','auth.json','config.toml','sessions']);
+  assert.deepEqual(fs.readdirSync(sharedHistory),['existing.jsonl']);
+  assert.equal(fs.readFileSync(path.join(sharedHistory,'existing.jsonl'),'utf8'),'existing conversation\n');
+  console.log('PASS repeated native provider diagnostics preserved profiles and history, including a redacted provider rejection.');
+}
 try {
-  if (mcpOnly) await nativeMcp();
+  if (connectionOnly) await nativeConnection();
+  else if (mcpOnly) await nativeMcp();
   else await nativeHistory();
 } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));fs.rmSync(temp,{recursive:true,force:true});}

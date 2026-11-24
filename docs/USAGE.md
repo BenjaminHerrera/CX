@@ -366,15 +366,15 @@ remote path (use an absolute path rather than `~`). Wrapper options precede
 any `--` argument separator. Supply each of `--ssh`, `--remote-dir`, and
 `--ssh-mount` at most once; `--add-dir` and `--add-file` are repeatable.
 
-First, complete the SSH login directly in the terminal, including password,
-key passphrase, MFA, or host-key confirmation. Once you see a Bash prompt,
-press **Ctrl-]**, release it, then **c** to start the selected assistant. If your login shell is
-not Bash, enter `bash` first. Configurations with RemoteCommand must reach a
-Bash shell before handoff.
+Complete password, passphrase, host-key confirmation or MFA directly in the
+SSH pane. A normal managed interactive launch opens Sessions after OpenSSH
+authentication and successful Bash setup. If discovery finds no eligible
+conversations, CX starts a new session. A discovery error stays in the menu.
 
-Switching between established terminals changes input routing without typing
-shell commands into the remote session. The first Ctrl-] c performs shell
-setup, so use it only after reaching the Bash prompt. The bridge isolates common keyboard/focus/paste modes
+Use Ctrl-] c at a Bash prompt for manual handoff, including after a reconnect,
+with explicit CLI arguments, or when custom SSH startup commands take over.
+Switching between established terminals changes input routing. The bridge
+isolates common keyboard/focus/paste modes
 and answers display queries from the requesting session's virtual terminal.
 Physical terminal reports left over from previous activity are discarded
 instead of becoming password or prompt text. On normal completion, commands restore the
@@ -710,3 +710,18 @@ Run `./install.sh` from the release on the host, including its default image
 build, then restart sessions. A host-only `--no-build` update needs `cx --build`
 before automatic MCP works. Use `--no-ssh-mcp` temporarily with older images.
 See [installation and upgrades](INSTALL.md#upgrading-to-121).
+
+
+### Test Both Provider Connections
+
+Run `cx test_connection` on the host. For each CLI, CX uses its automation
+default if configured, or its sole managed profile. If a CLI has several
+profiles, set its default with `cx accounts default --agent CLI --account NAME`
+and rerun. The command reports each profile independently.
+
+Each diagnostic checks CLI startup and native authentication, then sends a
+short provider request that may consume usage. A request is limited to 30
+seconds, plus bounded startup and auth checks. The exit status is 0 when both
+checks succeed and 1 when either fails or cannot run. CX prints summaries
+instead of raw native output. The profile mounts read-only, and the check uses
+a temporary home without mounting shared session history or SQLite.

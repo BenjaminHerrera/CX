@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `cx test_connection` for bounded Codex and Claude provider checks with
+  isolated diagnostic homes and no shared conversation history mounts.
+- Open Sessions after successful SSH authentication and Bash setup in normal
+  managed interactive launches. Start a new assistant when history discovery
+  succeeds with no eligible sessions.
+
 - Add GitHub CLI to the CX image for Codex and Claude in local and SSH sessions.
   Rebuild the image in either edition, then set `CX_GH_TOKEN_FILE` when launching
   an assistant. The maintainer confirmed Docker verification and live GitHub

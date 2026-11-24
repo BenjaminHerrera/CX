@@ -21,13 +21,16 @@ checks stay with host OpenSSH. CX does not copy SSH credentials into Docker.
 `--remote-dir` is optional; use an absolute remote path instead of `~`.
 The project argument still selects a **local** directory.
 
-1. Complete SSH password, key passphrase, host-key confirmation and MFA directly.
-2. Wait for the remote Bash prompt.
-3. Press **Ctrl-]**, release it, then **c** to initialize the bridge and start
-   the selected assistant.
+Complete password, key passphrase, host-key confirmation and MFA in the SSH
+pane. A managed interactive launch with no forwarded CLI arguments opens
+Sessions after OpenSSH authentication and CX's Bash setup succeed. If discovery
+succeeds with no eligible conversations, CX starts the selected assistant.
+A history error stays visible in Sessions.
 
-Do the first handoff only at a Bash prompt. Afterwards, switching saved screens
-does not type setup text into a password prompt or shell.
+Use **Ctrl-] c** at a Bash prompt for manual handoff. This remains the path for
+explicit task or resume arguments, legacy accounts, hosts with a custom
+`LocalCommand` or `RemoteCommand`, and reconnects. **Ctrl-] r** keeps manual SSH
+focus. A reconnect does not reopen Sessions automatically.
 
 ## Shortcut Help
 

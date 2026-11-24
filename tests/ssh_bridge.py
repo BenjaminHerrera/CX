@@ -63,6 +63,39 @@ class SessionTests(unittest.TestCase):
             if ready:
                 self.bridge.output(os.read(self.bridge.remote[0], 65536))
 
+    def test_automatic_menu_waits_for_auth_marker_and_successful_shell_setup(self):
+        bridge = self.bridge
+        bridge.menu = Mock(opened=False)
+        bridge.start_local = Mock()
+        bridge.auth_marker = str(self.home / 'authenticated')
+        bridge.ready, bridge.focus = False, 'remote'
+        bridge.poll_auth()
+        self.assertIsNone(bridge.pending)
+        bridge.menu.open.assert_not_called()
+        Path(bridge.auth_marker).touch()
+        bridge.poll_auth()
+        self.assertIsNotNone(bridge.pending)
+        bridge.poll_auth()
+        bridge.menu.open.assert_not_called()
+        self.pump(lambda: bridge.ready)
+        bridge.menu.open.assert_called_once_with(start_if_empty=True)
+        bridge.start_local.assert_not_called()
+        bridge.poll_auth()
+        bridge.menu.open.assert_called_once()
+
+    def test_failed_automatic_setup_stays_on_remote_screen(self):
+        bridge = self.bridge
+        bridge.menu = Mock(opened=False)
+        bridge.start_local = Mock()
+        bridge.directory = str(self.home / 'missing')
+        bridge.ready, bridge.focus = False, 'remote'
+        bridge.activate(auto_menu=True)
+        self.pump(lambda: bridge.pending is None)
+        self.assertFalse(bridge.ready)
+        self.assertEqual(bridge.focus, 'remote')
+        bridge.menu.open.assert_not_called()
+        bridge.start_local.assert_not_called()
+
     def command(self, command):
         self.events = b''
         self.bridge.request(self.send, {'op': 'exec', 'command': command})
@@ -310,6 +343,25 @@ class MountTests(unittest.TestCase):
         self.assertIn('ControlMaster=auto', args)
         self.assertIn('ControlPath=' + self.bridge.control_path, args)
         self.assertEqual(args[-1], 'delta-alias')
+
+    def test_automatic_auth_hook_is_initial_only_and_respects_custom_commands(self):
+        bridge = self.bridge
+        bridge.connection_help = Mock()
+        bridge.spawn = Mock()
+        bridge.switch_focus = Mock()
+        bridge.auto_sessions = True
+        with patch.object(module.subprocess, 'run', return_value=Mock(stdout='remotecommand none\n')) as config:
+            bridge.connect()
+            self.assertIn('PermitLocalCommand=yes', bridge.spawn.call_args.args[0])
+            self.assertTrue(any(arg.startswith('LocalCommand=touch -- ') for arg in bridge.spawn.call_args.args[0]))
+            bridge.auth_marker = None  # A disconnected bridge discards the old marker.
+            bridge.connect()
+            self.assertNotIn('PermitLocalCommand=yes', bridge.spawn.call_args.args[0])
+            config.assert_called_once()
+        for custom in ('remotecommand bash -il', 'localcommand echo custom'):
+            with patch.object(module.subprocess, 'run', return_value=Mock(stdout=custom)):
+                self.assertEqual(bridge.auto_auth_args(), [])
+                self.assertIsNone(bridge.auth_marker)
 
     def test_mount_failure_does_not_launch_codex(self):
         self.bridge.spawn = Mock()

@@ -98,6 +98,7 @@ remote safety gates, deletion and the complete key map.
 | Copy conversations from normal Codex or Claude | [Import Native Sessions](IMPORTING.md) |
 | Share extra files or install persistent tools | [Workspaces and Environments](WORKSPACES.md) |
 | Use GitHub CLI inside an assistant | [GitHub CLI access](ACCOUNTS.md#github-cli-access) |
+| Check whether both providers are reachable | [Test both connections](USAGE.md#test-both-provider-connections) |
 | Work through an existing SSH alias | [SSH and Remote Files](SSH.md) |
 | Use a server's `cpu` and `gpu` allocation functions | [Slurm Setup](SLURM.md) |
 | Update an existing CX installation | [Upgrade and Back Up](UPGRADING.md) |

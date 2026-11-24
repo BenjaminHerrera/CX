@@ -46,6 +46,9 @@ Examples:
   cx --logout
   cx --setup-slurm SSH_ALIAS --shared-dir /shared/path/cx [--job-id-pattern REGEX]
   cx --shell [--add-dir DIR ...] [--add-file FILE ...]
+  cx test_connection
+    Check both managed CLI profiles with a short provider probe each.
+    This can consume usage. Returns 1 if either check fails.
   cx --build                 Build the image (cached layers allowed)
   cx --rebuild               Rebuild with fresh layers
   cx --doctor                Check local prerequisites and paths
@@ -678,6 +681,64 @@ run_codex_utility() {
         "$@"
 }
 
+test_connection() {
+    (($# == 0)) || die "Usage: cx test_connection"
+    check_data_home
+    local cli entry uid gid result=0 account
+    local -a default=() candidates=()
+    uid="$(id -u)"
+    gid="$(id -g)"
+    if [[ -f "$DATA_HOME/automation-default" && ! -L "$DATA_HOME/automation-default" ]]; then
+        mapfile -t default <"$DATA_HOME/automation-default"
+    fi
+    for cli in codex claude; do
+        candidates=()
+        if [[ ! -L "$DATA_HOME/profiles" && ! -L "$DATA_HOME/profiles/$cli" ]]; then
+            for entry in "$DATA_HOME/profiles/$cli/"*; do
+                [[ -f "$entry/auth-mode" && ! -L "$entry/auth-mode" && ! -L "$entry" ]] || continue
+                valid_account "${entry##*/}" && candidates+=("${entry##*/}")
+            done
+        fi
+        account=""
+        if [[ "${#default[@]}" == 2 && "${default[0]}" == "$cli" ]]; then
+            account="${default[1]}"
+        elif [[ "${#candidates[@]}" == 1 ]]; then
+            account="${candidates[0]}"
+        fi
+        if [[ -z "$account" ]]; then
+            if [[ "${#candidates[@]}" == 0 ]]; then
+                printf '%s: no managed profile; use cx accounts add.\n' "$cli"
+            else
+                printf '%s: multiple profiles; select one with cx accounts default.\n' "$cli"
+            fi
+            result=1
+            continue
+        fi
+        printf 'Checking %s/%s...\n' "$cli" "$account"
+        # Selection must not prompt, create directories or modify profile data.
+        if ! (
+            unset CX_CODEX_HOME
+            AGENT="$cli" ACCOUNT="$account"
+            [[ ! -L "$DATA_HOME/profiles" && ! -L "$DATA_HOME/profiles/$cli" ]] ||
+                die "Refusing symlinked account storage."
+            select_account </dev/null
+            [[ -d "$HOST_CODEX_HOME" && ! -L "$HOST_CODEX_HOME" && "$HOST_CODEX_HOME" != *,* && "$HOST_CODEX_HOME" != *\"* ]] ||
+                die "Profile home is missing or invalid. Sign in with cx --login first."
+            docker run --rm --init --user "$uid:$gid" --read-only --cap-drop ALL \
+                --security-opt no-new-privileges=true --network bridge \
+                --mount "type=bind,src=$HOST_CODEX_HOME,dst=/cx-probe-profile,readonly" \
+                --mount "type=bind,src=$CX_ROOT/container/cx-connection,dst=/cx-connection,readonly" \
+                --tmpfs /tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777 \
+                --workdir /tmp --env "CX_AGENT=$cli" --env "CX_AUTH_MODE=$ACCOUNT_AUTH" \
+                --entrypoint /bin/bash "$IMAGE" /cx-connection
+        ); then
+            printf '%s/%s: connection check failed.\n' "$cli" "$account"
+            result=1
+        fi
+    done
+    return "$result"
+}
+
 run_shell() {
     local workspace="$1"
     shift
@@ -920,6 +981,12 @@ main() {
         --rebuild) build_image fresh; return ;;
     esac
     ensure_image
+    if [[ "${1:-}" == test_connection ]]; then
+        [[ -z "$AGENT" && -z "$ACCOUNT" ]] || die "cx test_connection checks both CLIs using managed defaults."
+        shift
+        test_connection "$@"
+        return
+    fi
     if [[ "${1:-}" != --shell ]]; then
         select_account
         [[ "$LEGACY_ACCOUNT" == true ]] || private_directory "$HOST_CODEX_HOME"
@@ -1012,7 +1079,11 @@ main() {
         slurm_job_pattern="$(python3 "$CX_ROOT/bin/cx-slurm-setup.py" --lookup-pattern "$ssh_host")" || die "Cannot read Slurm job-ID pattern for $ssh_host."
         local -a ssh_selection=()
         [[ "$LEGACY_ACCOUNT" == true ]] || ssh_selection=(--agent "$AGENT" --account "$ACCOUNT")
-        exec env "CX_AGENT=$AGENT" "CX_ACCOUNT=$ACCOUNT" "CX_SELECTED_PROFILE=$HOST_CODEX_HOME" "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
+        local auto_sessions=0
+        if [[ "${CX_SESSION_MENU:-}" == 1 ]] && ((${#forwarded[@]} == 0)); then
+            auto_sessions=1
+        fi
+        exec env "CX_SSH_AUTO_SESSIONS=$auto_sessions" "CX_AGENT=$AGENT" "CX_ACCOUNT=$ACCOUNT" "CX_SELECTED_PROFILE=$HOST_CODEX_HOME" "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
             "$CX_ROOT/bin/cx" "$workspace" "${ssh_selection[@]}" "${forwarded[@]}"
     fi
     if [[ "${CX_SESSION_MENU:-}" == 1 && -z "${CX_SSH_BRIDGE_DIR:-}" && "${CX_SESSION_CHILD:-}" != 1 ]]; then
