@@ -63,33 +63,28 @@ class SessionTests(unittest.TestCase):
             if ready:
                 self.bridge.output(os.read(self.bridge.remote[0], 65536))
 
-    def test_automatic_menu_waits_for_auth_marker_and_successful_shell_setup(self):
+    def test_initial_handoff_opens_menu_after_successful_shell_setup(self):
         bridge = self.bridge
         bridge.menu = Mock(opened=False)
         bridge.start_local = Mock()
-        bridge.auth_marker = str(self.home / 'authenticated')
+        bridge.offer_sessions = True
         bridge.ready, bridge.focus = False, 'remote'
-        bridge.poll_auth()
-        self.assertIsNone(bridge.pending)
-        bridge.menu.open.assert_not_called()
-        Path(bridge.auth_marker).touch()
-        bridge.poll_auth()
+        bridge.keyboard(b'\x1dc')
         self.assertIsNotNone(bridge.pending)
-        bridge.poll_auth()
         bridge.menu.open.assert_not_called()
         self.pump(lambda: bridge.ready)
         bridge.menu.open.assert_called_once_with(start_if_empty=True)
         bridge.start_local.assert_not_called()
-        bridge.poll_auth()
-        bridge.menu.open.assert_called_once()
+        self.assertFalse(bridge.offer_sessions)
 
-    def test_failed_automatic_setup_stays_on_remote_screen(self):
+    def test_failed_initial_setup_stays_on_remote_screen(self):
         bridge = self.bridge
         bridge.menu = Mock(opened=False)
         bridge.start_local = Mock()
+        bridge.offer_sessions = True
         bridge.directory = str(self.home / 'missing')
         bridge.ready, bridge.focus = False, 'remote'
-        bridge.activate(auto_menu=True)
+        bridge.activate()
         self.pump(lambda: bridge.pending is None)
         self.assertFalse(bridge.ready)
         self.assertEqual(bridge.focus, 'remote')
@@ -297,6 +292,70 @@ input()
                 process.wait()
             os.close(master)
 
+    def test_startup_prompt_and_dismissed_sessions_allow_manual_handoff(self):
+        fake = self.home / 'ssh'
+        fake.write_text("""#!/bin/bash
+if [[ "$1" == -G ]]; then echo 'remotecommand none'; exit; fi
+printf 'LOGIN-CODE: '
+read -rs answer
+[[ "$answer" == login ]] || exit 1
+for arg in "$@"; do
+    if [[ "$arg" == LocalCommand=* ]]; then bash -c "${arg#LocalCommand=}"; fi
+done
+exec bash --noprofile --rcfile "$CX_TEST_STARTUP" -i
+""")
+        rc = self.home / 'startup.bash'
+        rc.write_text("""printf '\\nSTARTUP-CODE: '
+read -rs answer
+[[ $answer == startup ]] || exit 2
+unset answer
+PS1='FIXTURE-BASH> '
+""")
+        launcher = self.home / 'assistant'
+        launcher.write_text(f'#!{sys.executable}\n' + """import json, sys
+if sys.argv[1:] == ['sessions', 'menu-backend']:
+    sys.stdin.read()
+    print(json.dumps({'rows': [{'agent': 'codex', 'id': '11111111-1111-4111-8111-111111111111',
+                              'name': 'Fixture conversation', 'updated': 1}]}))
+else:
+    print('FRESH-ASSISTANT', flush=True)
+    input()
+""")
+        launcher.chmod(0o755)
+        (self.home / 'profiles' / 'codex' / 'work').mkdir(parents=True)
+        with patch.dict(os.environ, CX_TEST_STARTUP=str(rc), CX_DATA_HOME=str(self.home),
+                        CX_AGENT='codex', CX_ACCOUNT='work',
+                        CX_SESSION_MENU='1', CX_SSH_START_SESSIONS='1', CX_SSH_AUTO_SESSIONS='1'):
+            master, process = self.bridge.spawn([sys.executable, str(ROOT / 'bin/cx-ssh-bridge.py'),
+                                                 'delta-alias', '', str(launcher), str(self.home)])
+        def until(text):
+            output = b''
+            deadline = time.monotonic() + 5
+            while text not in output:
+                self.assertLess(time.monotonic(), deadline, output[-2000:].decode(errors='replace'))
+                readable, _, _ = select.select([master], [], [], .1)
+                if readable:
+                    output += os.read(master, 65536)
+        try:
+            until(b'LOGIN-CODE:')
+            os.write(master, b'login\r')
+            until(b'STARTUP-CODE:')
+            # Give the supervisor several polling cycles. Only the user's
+            # answer should reach the post-authentication startup prompt.
+            time.sleep(.2)
+            os.write(master, b'startup\r')
+            until(b'FIXTURE-BASH>')
+            os.write(master, b'\x1dc')
+            until(b'Fixture conversation')
+            os.write(master, b'q\x1dc')
+            until(b'FRESH-ASSISTANT')
+            os.write(master, b'\r')
+            self.assertEqual(process.wait(timeout=5), 0)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=10)
+            os.close(master)
 
 
 class MountTests(unittest.TestCase):
@@ -343,25 +402,6 @@ class MountTests(unittest.TestCase):
         self.assertIn('ControlMaster=auto', args)
         self.assertIn('ControlPath=' + self.bridge.control_path, args)
         self.assertEqual(args[-1], 'delta-alias')
-
-    def test_automatic_auth_hook_is_initial_only_and_respects_custom_commands(self):
-        bridge = self.bridge
-        bridge.connection_help = Mock()
-        bridge.spawn = Mock()
-        bridge.switch_focus = Mock()
-        bridge.auto_sessions = True
-        with patch.object(module.subprocess, 'run', return_value=Mock(stdout='remotecommand none\n')) as config:
-            bridge.connect()
-            self.assertIn('PermitLocalCommand=yes', bridge.spawn.call_args.args[0])
-            self.assertTrue(any(arg.startswith('LocalCommand=touch -- ') for arg in bridge.spawn.call_args.args[0]))
-            bridge.auth_marker = None  # A disconnected bridge discards the old marker.
-            bridge.connect()
-            self.assertNotIn('PermitLocalCommand=yes', bridge.spawn.call_args.args[0])
-            config.assert_called_once()
-        for custom in ('remotecommand bash -il', 'localcommand echo custom'):
-            with patch.object(module.subprocess, 'run', return_value=Mock(stdout=custom)):
-                self.assertEqual(bridge.auto_auth_args(), [])
-                self.assertIsNone(bridge.auth_marker)
 
     def test_mount_failure_does_not_launch_codex(self):
         self.bridge.spawn = Mock()

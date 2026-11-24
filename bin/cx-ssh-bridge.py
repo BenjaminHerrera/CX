@@ -357,8 +357,8 @@ class Bridge:
             self.assistant_label += ' / ' + os.environ['CX_ACCOUNT']
         self.terminal = TerminalIO(self.deliver_terminal)
         self.menu = SessionMenu(self) if os.environ.get('CX_SESSION_MENU') == '1' else None
-        self.auto_sessions = bool(self.menu and host and os.environ.get('CX_SSH_AUTO_SESSIONS') == '1')
-        self.auth_marker = None
+        self.offer_sessions = bool(self.menu and host and os.environ.get('CX_SSH_START_SESSIONS') == '1')
+        self.open_requested_menu = bool(self.menu and os.environ.get('CX_SESSION_OPEN') == '1')
         self.help = HelpMenu(self)
 
     def deliver_terminal(self, owner, data):
@@ -451,9 +451,6 @@ class Bridge:
 
     def connect(self):
         args = ['ssh', '-tt']
-        if self.auto_sessions:
-            self.auto_sessions = False  # Only the initial connection can launch Sessions automatically.
-            args += self.auto_auth_args()
         if self.mount_mode:
             args += ['-o', 'ControlMaster=auto', '-o', 'ControlPath=' + self.control_path,
                      '-o', 'ControlPersist=no', '-o', 'ServerAliveInterval=15',
@@ -463,31 +460,6 @@ class Bridge:
         self.switch_focus('remote')
         self.connection_help()
         self.resize()
-
-    def auto_auth_args(self):
-        # Respect custom SSH startup commands. They can require their own
-        # interaction and do not follow the normal Bash login flow.
-        try:
-            config = subprocess.run(['ssh', '-G', self.host], stdin=subprocess.DEVNULL,
-                                    capture_output=True, text=True, timeout=3, check=True).stdout
-        except (OSError, UnicodeError, subprocess.SubprocessError):
-            return []
-        if any(line.partition(' ')[2].strip() not in ('', 'none')
-               for line in config.splitlines()
-               if line.startswith(('localcommand ', 'remotecommand '))):
-            return []
-        self.auth_marker = os.path.join(self.root, 'authenticated')
-        # OpenSSH expands percent tokens in LocalCommand before invoking a
-        # shell. Escape them, then quote the entire filename for that shell.
-        marker = shlex.quote(self.auth_marker.replace('%', '%%'))
-        return ['-o', 'PermitLocalCommand=yes', '-o', 'LocalCommand=touch -- ' + marker]
-
-    def poll_auth(self):
-        if (self.auth_marker and self.remote and self.remote[1].poll() is None
-                and not self.pending and not self.help.opened
-                and not self.menu.opened and os.path.isfile(self.auth_marker)):
-            self.auth_marker = None
-            self.activate(auto_menu=True)
 
     def send(self, client, **event):
         try:
@@ -531,7 +503,7 @@ class Bridge:
                    'unset ' + status_var + ' ' + tty_var + '\n')
         os.write(self.remote[0], payload.encode())
 
-    def activate(self, auto_menu=False):
+    def activate(self):
         if not self.remote:
             self.notice('Connection closed. Press Ctrl-] r to reconnect; shell state was lost.')
             return
@@ -541,12 +513,12 @@ class Bridge:
             command = 'test -n "${BASH_VERSION:-}"'
             if self.directory:
                 command += ' && cd -- ' + shlex.quote(self.directory)
-            self.auth_marker = None
             self.begin(command)
-            self.pending['auto_menu'] = auto_menu
         else:
             self.switch_focus('local')
             self.resize()
+            if not self.local:
+                self.start_local()
             self.notice('Assistant terminal.')
 
     def is_mounted(self, mountpoint):
@@ -626,9 +598,11 @@ class Bridge:
     def start_local(self):
         if self.local:
             return
-        if self.menu and os.environ.get('CX_SESSION_OPEN') == '1' and not self.menu.active:
-            self.menu.open()
-            return
+        if self.open_requested_menu:
+            self.open_requested_menu = False
+            if not self.menu.active:
+                self.menu.open()
+                return
         self.mount_files()
         env = dict(os.environ, CX_SSH_BRIDGE_DIR=self.runtime, CX_SSH_HOST=self.host)
         if self.mount_path:
@@ -732,7 +706,6 @@ class Bridge:
             self.terminal.render(self.remote, rest)
             status = int(match.group(2))
             bootstrap = client is None and 'job_id' not in self.pending
-            auto_menu = self.pending.get('auto_menu', False)
             self.finish(status)
             if bootstrap:
                 if status:
@@ -740,7 +713,8 @@ class Bridge:
                 else:
                     self.ready = True
                     self.switch_focus('local')
-                    if auto_menu and self.menu and not self.local and not self.menu.opened and not self.help.opened:
+                    offer_sessions, self.offer_sessions = self.offer_sessions, False
+                    if offer_sessions and self.menu and not self.local and not self.menu.opened and not self.help.opened:
                         self.menu.open(start_if_empty=True)
                     else:
                         self.notice('Remote shell ready. Starting/resuming assistant.')
@@ -1096,7 +1070,6 @@ class Bridge:
                 if byte == ord('?'):
                     self.help.open()
                 elif byte == ord('r'):
-                    self.auth_marker = None  # Explicit SSH focus wins over automatic handoff.
                     self.switch_focus('remote')
                     if not self.remote:
                         self.connect()
@@ -1133,7 +1106,6 @@ class Bridge:
 
     def loop(self):
         while self.running:
-            self.poll_auth()
             if self.menu:
                 self.menu.poll()
             self.help.retain()
@@ -1198,7 +1170,7 @@ class Bridge:
                             item[1].wait()
                             self.remote = None
                             self.ready = False
-                            self.auth_marker = None
+                            self.offer_sessions = False
                             self.notice('SSH closed. Ctrl-] r reconnects with a new shell.')
                             if self.mount_path:
                                 self.notice('The /workspace/remote mount may be disconnected. Restart cx to recreate it.')

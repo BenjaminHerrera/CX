@@ -1079,11 +1079,11 @@ main() {
         slurm_job_pattern="$(python3 "$CX_ROOT/bin/cx-slurm-setup.py" --lookup-pattern "$ssh_host")" || die "Cannot read Slurm job-ID pattern for $ssh_host."
         local -a ssh_selection=()
         [[ "$LEGACY_ACCOUNT" == true ]] || ssh_selection=(--agent "$AGENT" --account "$ACCOUNT")
-        local auto_sessions=0
+        local start_sessions=0
         if [[ "${CX_SESSION_MENU:-}" == 1 ]] && ((${#forwarded[@]} == 0)); then
-            auto_sessions=1
+            start_sessions=1
         fi
-        exec env "CX_SSH_AUTO_SESSIONS=$auto_sessions" "CX_AGENT=$AGENT" "CX_ACCOUNT=$ACCOUNT" "CX_SELECTED_PROFILE=$HOST_CODEX_HOME" "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
+        exec env "CX_SSH_START_SESSIONS=$start_sessions" "CX_AGENT=$AGENT" "CX_ACCOUNT=$ACCOUNT" "CX_SELECTED_PROFILE=$HOST_CODEX_HOME" "CX_SSH_MOUNT_REQUEST=${mount_mode}" "CX_SSH_MCP=${ssh_mcp}" "CX_SLURM_INTERACTIVE_DIR=${slurm_interactive_dir}" "CX_SLURM_JOB_ID_PATTERN=${slurm_job_pattern}" python3 "$CX_ROOT/bin/cx-ssh-bridge.py" "$ssh_host" "$remote_dir" \
             "$CX_ROOT/bin/cx" "$workspace" "${ssh_selection[@]}" "${forwarded[@]}"
     fi
     if [[ "${CX_SESSION_MENU:-}" == 1 && -z "${CX_SSH_BRIDGE_DIR:-}" && "${CX_SESSION_CHILD:-}" != 1 ]]; then

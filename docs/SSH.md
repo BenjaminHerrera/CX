@@ -22,15 +22,16 @@ checks stay with host OpenSSH. CX does not copy SSH credentials into Docker.
 The project argument still selects a **local** directory.
 
 Complete password, key passphrase, host-key confirmation and MFA in the SSH
-pane. A managed interactive launch with no forwarded CLI arguments opens
-Sessions after OpenSSH authentication and CX's Bash setup succeed. If discovery
-succeeds with no eligible conversations, CX starts the selected assistant.
-A history error stays visible in Sessions.
+pane, including any prompts from remote shell startup. At a Bash prompt, press
+**Ctrl-] c** to confirm that the shell is ready. After setup succeeds, a normal
+managed interactive launch opens Sessions. If discovery succeeds with no
+eligible conversations, CX starts the selected assistant. A history error stays
+visible in Sessions. To start a fresh assistant from the initial menu, dismiss
+it and press **Ctrl-] c** again.
 
-Use **Ctrl-] c** at a Bash prompt for manual handoff. This remains the path for
-explicit task or resume arguments, legacy accounts, hosts with a custom
-`LocalCommand` or `RemoteCommand`, and reconnects. **Ctrl-] r** keeps manual SSH
-focus. A reconnect does not reopen Sessions automatically.
+Use the same manual handoff for explicit task or resume arguments, legacy
+accounts and reconnects. Reconnects keep the existing session and command
+ownership. **Ctrl-] r** returns to manual SSH focus.
 
 ## Shortcut Help
 

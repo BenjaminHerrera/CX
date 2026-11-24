@@ -366,13 +366,14 @@ remote path (use an absolute path rather than `~`). Wrapper options precede
 any `--` argument separator. Supply each of `--ssh`, `--remote-dir`, and
 `--ssh-mount` at most once; `--add-dir` and `--add-file` are repeatable.
 
-Complete password, passphrase, host-key confirmation or MFA directly in the
-SSH pane. A normal managed interactive launch opens Sessions after OpenSSH
-authentication and successful Bash setup. If discovery finds no eligible
-conversations, CX starts a new session. A discovery error stays in the menu.
+Complete password, passphrase, host-key confirmation, MFA and shell startup
+prompts in the SSH pane. Press Ctrl-] c at the Bash prompt to confirm shell
+readiness. Once setup succeeds, a normal managed interactive launch opens
+Sessions. If discovery finds no eligible conversations, CX starts a new
+session. A discovery error stays in the menu. Dismiss the initial menu and
+press Ctrl-] c again to start a fresh assistant.
 
-Use Ctrl-] c at a Bash prompt for manual handoff, including after a reconnect,
-with explicit CLI arguments, or when custom SSH startup commands take over.
+Reconnects and launches with explicit CLI arguments use manual handoff.
 Switching between established terminals changes input routing. The bridge
 isolates common keyboard/focus/paste modes
 and answers display queries from the requesting session's virtual terminal.
