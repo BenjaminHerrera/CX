@@ -25,7 +25,7 @@ trap cleanup EXIT
 if [[ "$build" == true ]]; then
     image="local/cx-mcp-permissions:$(id -u)-$$"
     mkdir -p "$fixture/context/mcp"
-    for file in Dockerfile .dockerignore cx-entrypoint cx-env cx-remote cx-agent cx-codex-resume.mjs cx-claude-config.mjs cx-guidance.txt mcp/package.json mcp/package-lock.json mcp/server.mjs; do
+    for file in Dockerfile .dockerignore cx-entrypoint cx-env cx-remote cx-agent cx-gh cx-codex-resume.mjs cx-claude-config.mjs cx-guidance.txt mcp/package.json mcp/package-lock.json mcp/server.mjs; do
         cp -- "$root/container/$file" "$fixture/context/$file"
     done
     chmod 0600 "$fixture/context/mcp/"*

@@ -163,6 +163,67 @@ check('auth routes only to the chosen profile; shell and old images have clear b
   assert.ok(last().includes(`type=bind,src=${legacy},dst=/codex-home`));
   assert.notEqual(run(pair('claude','work'),{CX_CODEX_HOME:legacy}).status,0);
 });
+check('GitHub token files mount read-only for local and SSH assistant launches only',()=>{
+  const file=path.join(temp,'github token file'), value='github_pat_fixture_value';
+  fs.writeFileSync(file,value+'\n',{mode:0o600});
+  const extra={CX_GH_TOKEN_FILE:file,GH_TOKEN:'ambient_host_token'};
+  const mount=`type=bind,src=${file},dst=/cx-github-token,readonly`;
+  for (const [agent,account] of [['codex','alpha'],['claude','work']]) {
+    for (const ssh of [false,true]) {
+      clear();
+      const result=ok(pair(agent,account,'--version'),{
+        ...extra,...(ssh?{CX_SSH_BRIDGE_DIR:temp,CX_SSH_HOST:'fixture'}:{})
+      });
+      assert.ok(last().includes(mount));
+      assert.equal(calls().filter(args=>args.includes(mount)).length,1);
+      assert.doesNotMatch(JSON.stringify(calls())+result.stdout+result.stderr,/github_pat_fixture_value|ambient_host_token/);
+    }
+  }
+  clear();ok(['--agent','codex','--account','alpha','--auth-status'],extra);
+  assert.ok(!last().includes(mount));
+  clear();ok(pair('codex','alpha','--version'),{GH_TOKEN:'ambient_host_token'});
+  assert.doesNotMatch(JSON.stringify(calls()),/cx-github-token|ambient_host_token/);
+  clear();
+  const missing=run(pair('codex','alpha','--version'),{CX_GH_TOKEN_FILE:file+'.missing'});
+  assert.notEqual(missing.status,0);
+  assert.match(missing.stderr,/CX_GH_TOKEN_FILE.*readable file/);
+  assert.equal(last(),undefined);
+});
+
+check('gh reads only the mounted token and preserves native permission failures without printing secrets',()=>{
+  const file=path.join(temp,'gh-token'), wrapper=path.join(bin,'cx-gh-fixture'), native=path.join(bin,'gh-fixture');
+  fs.writeFileSync(native,`#!/usr/bin/env bash
+if [[ $1 == --version ]]; then echo gh fixture; exit; fi
+case "$GH_TOKEN" in
+  github_pat_valid)
+    [[ "$GH_PROMPT_DISABLED" == 1 && -z "$GH_DEBUG" && -z "$GITHUB_TOKEN" ]] || exit 70
+    if [[ "$2" == repos/private ]]; then echo 'HTTP 403: insufficient scope' >&2; exit 1; fi
+    echo fixture-user ;;
+  github_pat_invalid) echo 'HTTP 401: Bad credentials' >&2; exit 1 ;;
+  *) echo 'GitHub authentication required' >&2; exit 1 ;;
+esac
+`,{mode:0o755});
+  const shim=fs.readFileSync(path.join(root,'container/cx-gh'),'utf8')
+    .replace('token_file=/cx-github-token',`token_file="${file}"`)
+    .replace('exec /usr/bin/gh',`exec "${native}"`);
+  fs.writeFileSync(wrapper,shim);
+  const gh=(args,extra={})=>spawnSync('bash',[wrapper,...args],{env:{...env,...extra},encoding:'utf8'});
+  assert.equal(gh(['--version']).status,0);
+  assert.match(gh(['api','user']).stderr,/authentication required/);
+  for (const [token,args,status,pattern] of [
+    ['github_pat_valid',['api','user'],0,/fixture-user/],
+    ['github_pat_invalid',['api','user'],1,/401/],
+    ['github_pat_valid',['api','repos/private'],1,/403/],
+    ['github_pat_valid',['auth','token'],1,/CX_GH_TOKEN_FILE/],
+    ['bad token',['api','user'],1,/one nonempty token/],
+  ]) {
+    fs.writeFileSync(file,token+'\n',{mode:0o600});
+    const result=gh(args,{GH_TOKEN:'ambient_host_token',GITHUB_TOKEN:'alternate_host_token',GH_DEBUG:'api'});
+    assert.equal(result.status,status);
+    assert.match(result.stdout+result.stderr,pattern);
+    assert.ok(!(result.stdout+result.stderr).includes(token));
+  }
+});
 check('managed data cannot be exposed through an environment store or unexpected history paths',()=>{
   clear();assert.notEqual(run(pair('codex','alpha'),{CX_ENV_HOME:data}).status,0);assert.equal(last(),undefined);
   const sessions=`${data}/profiles/codex/beta/home/sessions`;

@@ -110,3 +110,8 @@ The mount stays attached to the initial login host/path. It does not follow a
 `cd`, a compute allocation or a shell reconnection. Restart CX if the filesystem
 view disconnects. Use [Slurm Setup](SLURM.md) for CPU/GPU sessions and
 [Troubleshooting](TROUBLESHOOTING.md) for handoff, mount and input problems.
+
+
+For GitHub operations from the local assistant container in SSH mode, set
+`CX_GH_TOKEN_FILE` on the host when launching CX. The remote login shell
+receives none of this credential. See [GitHub CLI access](ACCOUNTS.md#github-cli-access).

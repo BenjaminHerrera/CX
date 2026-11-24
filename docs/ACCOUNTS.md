@@ -469,3 +469,33 @@ containers have networking disabled and mount histories plus read-only tools,
 without account homes, project files or provider credentials. Install/portable
 and custom `CX_DATA_HOME` use the same paths relative to their selected data root.
 Legacy `CX_CODEX_HOME` keeps native sessions and does not offer this menu.
+
+
+## GitHub CLI Access
+
+Rebuild the CX image after updating either the installed or portable edition
+to add `gh`. Store a GitHub token in a private host file outside repositories
+and other mounted workspace directories. Give the file mode 0600 and grant the
+token only the GitHub permissions needed for your task.
+
+```bash
+CX_GH_TOKEN_FILE="$HOME/.config/cx/github-token" cx /path/to/project --agent codex --account personal
+CX_GH_TOKEN_FILE="$HOME/.config/cx/github-token" cx /path/to/project --agent claude --account work
+```
+
+From either assistant container, `gh api user --jq .login` checks GitHub
+authentication and prints the account name. Repository, issue and PR operations
+use the token's permissions. A 401 indicates rejected credentials. A 403 or
+404 can indicate that the token lacks permission or repository access.
+
+The file is mounted read-only in assistant containers launched by that CX
+invocation, including sessions opened through its Sessions menu and SSH-mode
+assistants. The token is supplied to the `gh` process. CX keeps it out of
+launcher arguments and profile storage. A token supplied this way disables
+interactive GitHub CLI authentication commands. Treat the token file as
+accessible to code running inside the assistant container and only supply it
+to sessions you trust. Keep its contents out of prompts and tool output.
+
+CX still starts without a token. If a GitHub command needs authentication,
+restart CX with `CX_GH_TOKEN_FILE`. Host `GH_TOKEN` and `GITHUB_TOKEN` alone
+are not forwarded by the launcher.

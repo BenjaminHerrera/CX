@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add GitHub CLI to the CX image for Codex and Claude in local and SSH sessions.
+  Rebuild the image in either edition, then set `CX_GH_TOKEN_FILE` when launching
+  an assistant. The maintainer confirmed Docker verification and live GitHub
+  authentication. See [GitHub CLI setup](docs/ACCOUNTS.md#github-cli-access)
+  and [PR #19](https://github.com/BenjaminHerrera/CX/pull/19).
+
 ## 2.1.3 — 2026-11-21
 
 - Fix [CX-15](https://github.com/BenjaminHerrera/CX/issues/15) by keeping Codex

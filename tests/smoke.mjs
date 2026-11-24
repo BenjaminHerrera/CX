@@ -48,7 +48,7 @@ function lastRun() { return calls().filter(x=>x[0]==='run').at(-1); }
 function contains(args, fragment) { assert.ok(args.some(x=>x.includes(fragment)), `missing ${fragment} in ${JSON.stringify(args)}`); }
 try {
 check('all distributed shell scripts parse',()=>{
-  for (const file of ['cx','bin/cx','install.sh','uninstall.sh','scripts/package.sh','scripts/verify-docker.sh','scripts/verify-mcp-image.sh','container/cx-entrypoint','container/cx-env']) run('bash',['-n',path.join(fixture,file)]);
+  for (const file of ['cx','bin/cx','install.sh','uninstall.sh','scripts/package.sh','scripts/verify-docker.sh','scripts/verify-mcp-image.sh','container/cx-entrypoint','container/cx-env','container/cx-gh']) run('bash',['-n',path.join(fixture,file)]);
 });
 check('help and version do not invoke Docker or create portable data',()=>{
   assert.match(bash('cx',['--help']).stdout,/Usage:/);
@@ -280,7 +280,7 @@ check('clean releases exclude runtime data and run after extraction',()=>{
     const archive=path.join(output,`cx-${version}-${edition}.tar.gz`);
     const listing=run('tar',['-tzf',archive]).stdout;
     assert.equal(listing.includes('/data/'),false); assert.equal(listing.includes('/environments/'),false);
-    for (const required of ['container/cx-mcp-check.mjs','scripts/verify-mcp-image.sh','tests/mcp-preflight.mjs','bin/cx_help.py','bin/cx_sessions.py','bin/cx-session-supervisor.py','container/cx-session-menu.mjs','tests/session-menu.mjs','tests/session_menu.py','scripts/import-sessions.mjs','tests/import-sessions.mjs','container/cx-sessions.mjs','tests/sessions.mjs','bin/cx-accounts.sh','container/cx-agent','container/cx-claude-config.mjs','container/cx-codex-resume.mjs','container/cx-guidance.txt','docs/ACCOUNTS.md','tests/accounts.mjs','tests/native-history.mjs','bin/cx_screen.py','bin/vendor/pyte/screens.py','bin/vendor/pyte/LICENSE','bin/vendor/pyte/COPYING','bin/vendor/wcwidth/LICENSE','tests/screens.py']) {
+    for (const required of ['container/cx-gh','container/cx-mcp-check.mjs','scripts/verify-mcp-image.sh','tests/mcp-preflight.mjs','bin/cx_help.py','bin/cx_sessions.py','bin/cx-session-supervisor.py','container/cx-session-menu.mjs','tests/session-menu.mjs','tests/session_menu.py','scripts/import-sessions.mjs','tests/import-sessions.mjs','container/cx-sessions.mjs','tests/sessions.mjs','bin/cx-accounts.sh','container/cx-agent','container/cx-claude-config.mjs','container/cx-codex-resume.mjs','container/cx-guidance.txt','docs/ACCOUNTS.md','tests/accounts.mjs','tests/native-history.mjs','bin/cx_screen.py','bin/vendor/pyte/screens.py','bin/vendor/pyte/LICENSE','bin/vendor/pyte/COPYING','bin/vendor/wcwidth/LICENSE','tests/screens.py']) {
       assert.ok(listing.includes('/'+required), `missing renderer/source notice: ${required}`);
     }
     assert.equal(listing.includes('/__pycache__/'),false);

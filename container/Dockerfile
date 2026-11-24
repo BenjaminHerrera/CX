@@ -15,6 +15,7 @@ RUN apt-get update \
         ca-certificates \
         curl \
         git \
+        gh \
         jq \
         less \
         openssh-client \
@@ -43,8 +44,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY cx-entrypoint cx-env cx-remote cx-agent cx-codex-resume.mjs cx-claude-config.mjs /usr/local/bin/
+COPY --chown=0:0 --chmod=0755 cx-gh /usr/local/bin/gh
 LABEL io.cx.accounts="1"
 LABEL io.cx.ssh-agents="2"
+LABEL io.cx.github-token-file="1"
 COPY cx-guidance.txt /opt/cx/guidance.txt
 COPY --chown=0:0 mcp/ /opt/cx-mcp/
 RUN cd /opt/cx-mcp && npm ci --omit=dev --ignore-scripts && npm cache clean --force \

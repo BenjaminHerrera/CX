@@ -5,6 +5,7 @@
 !cx-env
 !cx-remote
 !cx-agent
+!cx-gh
 !cx-claude-config.mjs
 !cx-codex-resume.mjs
 !cx-guidance.txt
