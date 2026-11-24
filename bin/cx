@@ -96,8 +96,8 @@ Environment:
   CX_CODEX_VERSION Codex npm version used by --build/--rebuild, default: latest
   CX_CLAUDE_VERSION Claude npm version used by builds, default: 2.1.323
   CX_DATA_HOME     Managed profiles/history, default: ~/.local/share/cx/data
-  CX_GH_TOKEN_FILE Readable host token file for gh in this assistant session.
                    Portable default: bundle/data
+  CX_GH_TOKEN_FILE Readable host token file for gh in this assistant session.
   CX_IMAGE         Container image name
   CX_CODEX_HOME    Explicit legacy Codex home; bypasses managed accounts/history
   CX_ENV_HOME      Persistent environment storage, default: ~/.local/share/cx/environments
