@@ -96,6 +96,7 @@ Environment:
   CX_CODEX_VERSION Codex npm version used by --build/--rebuild, default: latest
   CX_CLAUDE_VERSION Claude npm version used by builds, default: 2.1.323
   CX_DATA_HOME     Managed profiles/history, default: ~/.local/share/cx/data
+  CX_GH_TOKEN_FILE Readable host token file for gh in this assistant session.
                    Portable default: bundle/data
   CX_IMAGE         Container image name
   CX_CODEX_HOME    Explicit legacy Codex home; bypasses managed accounts/history
@@ -554,6 +555,18 @@ run_container() {
     [[ "$config_directory" != *,* ]] ||
         die "The cx path contains a comma, which Docker cannot mount safely: $config_directory"
 
+    local -a github_mount=()
+    if [[ -n "${CX_GH_TOKEN_FILE:-}" ]]; then
+        local token_file
+        token_file="$(realpath -e -- "$CX_GH_TOKEN_FILE" 2>/dev/null)" ||
+            die "CX_GH_TOKEN_FILE must point to an existing readable file."
+        [[ -f "$token_file" && -r "$token_file" && "$token_file" != *,* && "$token_file" != *\"* ]] ||
+            die "CX_GH_TOKEN_FILE must point to a readable regular file with no commas or quotes in its path."
+        [[ "$(docker image inspect --format '{{index .Config.Labels "io.cx.github-token-file"}}' "$IMAGE")" == 1 ]] ||
+            die "Image lacks GitHub CLI token-file support. Run cx --rebuild."
+        github_mount=(--mount "type=bind,src=${token_file},dst=/cx-github-token,readonly")
+    fi
+
     prepare_environment_mount "$workspace"
     prepare_workspace_mounts "$workspace" "$@"
     if [[ "$AGENT" == codex ]]; then prepare_browser_exec; fi
@@ -604,6 +617,7 @@ run_container() {
     fi
     if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
         "${ssh_args[@]}" \
+        "${github_mount[@]}" \
         --name "cx-$(date +%s)-$$" \
         --hostname codex-sandbox \
         --user "${uid}:${gid}" \

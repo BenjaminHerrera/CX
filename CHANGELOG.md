@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add GitHub CLI to the CX image for Codex and Claude. Set
+  `CX_GH_TOKEN_FILE` to give `gh` a token for an assistant launch. Rebuild the
+  image for either edition.
+
 ## 2.1.3 — 2026-11-21
 
 - Fix [CX-15](https://github.com/BenjaminHerrera/CX/issues/15) by keeping Codex

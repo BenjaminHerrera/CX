@@ -81,6 +81,7 @@ printf '%s\n' written-in-container > "${external[0]}/verified"
 printf '%s\n' persisted > /cx-env/verification-marker
 cx-env active
 micromamba --version
+gh --version
 CHECK
         "${command[@]}" --shell <<'CHECK'
 set -Eeuo pipefail

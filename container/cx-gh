@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Supply the explicitly mounted credential to GitHub CLI only.
+set +x
+set -Eeuo pipefail
+
+token_file=/cx-github-token
+if [[ -e "$token_file" ]]; then
+    [[ -f "$token_file" && -r "$token_file" ]] || {
+        printf 'cx: Cannot read the GitHub token file as the session user.\n' >&2
+        exit 1
+    }
+    token="$(<"$token_file")"
+    if [[ ! "$token" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        printf 'cx: CX_GH_TOKEN_FILE must contain one nonempty token.\n' >&2
+        exit 1
+    fi
+    if [[ "${1:-}" == auth ]]; then
+        printf 'cx: This session uses CX_GH_TOKEN_FILE. Check access with gh api user --jq .login.\n' >&2
+        exit 1
+    fi
+    export GH_TOKEN="$token" GH_PROMPT_DISABLED=1
+    unset token GITHUB_TOKEN GH_DEBUG
+fi
+exec /usr/bin/gh "$@"
