@@ -17,6 +17,7 @@ const fs=require('node:fs');const args=process.argv.slice(2);
 fs.appendFileSync(process.env.CX_TEST_LOG,JSON.stringify(args)+'\\n');
 if(args[0]==='image'&&args.includes('--format'))console.log(args.some(a=>a.includes('io.cx.ssh-agents'))?(process.env.CX_TEST_OLD_SSH_IMAGE?'1':'2'):(process.env.CX_TEST_OLD_IMAGE?'0':'1'));
 if(args.includes('/opt/cx-mcp-check.mjs')&&process.env.CX_TEST_PREFLIGHT_FAIL){console.error('adapter_permission: EACCES fixture');process.exit(31);}
+if(args.includes('/cx-connection')&&args.includes('CX_AGENT='+process.env.CX_TEST_CONNECTION_FAIL))process.exit(31);
 if(args[0]==='run'&&process.env.CX_TEST_EXIT)process.exit(Number(process.env.CX_TEST_EXIT));
 if(args[0]==='run'&&process.env.CX_TEST_LIVE_DIR&&!fs.readdirSync(process.env.CX_TEST_LIVE_DIR).length)process.exit(77);
 `,{mode:0o755});
@@ -188,6 +189,48 @@ check('GitHub token files mount read-only for local and SSH assistant launches o
   assert.notEqual(missing.status,0);
   assert.match(missing.stderr,/CX_GH_TOKEN_FILE.*readable file/);
   assert.equal(last(),undefined);
+});
+
+check('connection diagnostic resolves profiles independently and never mounts shared history',()=>{
+  const diagnosticData=path.join(temp,'connection profiles');
+  const profiles=path.join(diagnosticData,'profiles');
+  const extra={CX_DATA_HOME:diagnosticData};
+  clear();
+  const missing=run(['test_connection'],extra);
+  assert.equal(missing.status,1);
+  assert.match(missing.stdout,/codex: no managed profile/);
+  assert.match(missing.stdout,/claude: no managed profile/);
+  assert.equal(last(),undefined);
+  for(const profile of ['codex/one','codex/two','claude/only']){
+    const entry=path.join(profiles,profile);
+    fs.mkdirSync(path.join(entry,'home'),{recursive:true});
+    fs.writeFileSync(path.join(entry,'auth-mode'),'subscription\n');
+  }
+  const shared=path.join(diagnosticData,'history');
+  fs.mkdirSync(shared);
+  fs.writeFileSync(path.join(shared,'existing'),'keep');
+  clear();
+  const ambiguous=run(['test_connection'],extra);
+  assert.equal(ambiguous.status,1);
+  assert.match(ambiguous.stdout,/codex: multiple profiles/);
+  assert.match(ambiguous.stdout,/Checking claude\/only/);
+  fs.writeFileSync(path.join(diagnosticData,'automation-default'),'codex\ntwo\n');
+  for(const fail of ['codex','claude','']){
+    clear();
+    const result=run(['test_connection'],{...extra,CX_TEST_CONNECTION_FAIL:fail});
+    assert.equal(result.status,fail?1:0,result.stdout+result.stderr);
+    assert.match(result.stdout,/Checking codex\/two/);
+    assert.match(result.stdout,/Checking claude\/only/);
+    const probes=calls().filter(args=>args[0]==='run');
+    assert.equal(probes.length,2);
+    for(const args of probes){
+      assert.ok(args.includes('/cx-connection'));
+      assert.ok(args.some(arg=>arg.endsWith('dst=/cx-probe-profile,readonly')));
+      assert.ok(!args.some(arg=>arg.includes('/cx-history')||arg.includes('CODEX_SQLITE_HOME')));
+    }
+    assert.deepEqual(fs.readdirSync(shared),['existing']);
+    assert.equal(fs.readFileSync(path.join(shared,'existing'),'utf8'),'keep');
+  }
 });
 
 check('gh reads only the mounted token and preserves native permission failures without printing secrets',()=>{

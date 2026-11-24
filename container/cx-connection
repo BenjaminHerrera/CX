@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# The launcher supplies a read-only profile and a disposable tmpfs.
+set +x
+set -Eeuo pipefail
+umask 077
+agent="${CX_AGENT:?Missing diagnostic CLI}"
+source_profile="${1:-/cx-probe-profile}"
+scratch="$(mktemp -d /tmp/cx-connection.XXXXXX)"
+trap 'rm -rf -- "$scratch"' EXIT
+export HOME="$scratch" CODEX_HOME="$scratch" CLAUDE_CONFIG_DIR="$scratch"
+export DISABLE_AUTOUPDATER=1 DISABLE_UPDATES=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+unset CODEX_SQLITE_HOME CODEX_API_KEY CODEX_ACCESS_TOKEN OPENAI_API_KEY
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN
+unset CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
+cd -- "$scratch"
+
+case "$agent" in
+    codex) files=(auth.json config.toml); auth_args=(login status)
+        request=(exec --ephemeral --skip-git-repo-check --sandbox read-only
+            -c 'approval_policy="never"' -c 'mcp_servers={}' -c 'features.hooks=false') ;;
+    claude) files=(.credentials.json .claude.json settings.json api-key); auth_args=(auth status)
+        request=(--print --no-session-persistence --tools '' --strict-mcp-config --max-turns 1
+            --settings '{"disableAllHooks":true}') ;;
+    *) exit 1 ;;
+esac
+if ! command -v "$agent" >/dev/null ||
+   ! timeout -k 2s 8s "$agent" --version >/dev/null 2>&1; then
+    printf '%s: CLI missing or unable to start. Rebuild the image.\n' "$agent"
+    exit 1
+fi
+printf '%s: CLI starts.\n' "$agent"
+for file in "${files[@]}"; do
+    if [[ -L "$source_profile/$file" ]]; then
+        printf '%s: diagnostic refuses symlinked profile configuration or credentials.\n' "$agent"
+        exit 1
+    fi
+    if [[ -f "$source_profile/$file" ]] && ! cp -- "$source_profile/$file" "$scratch/$file" 2>/dev/null; then
+        printf '%s: could not read profile configuration or credentials.\n' "$agent"
+        exit 1
+    fi
+done
+if [[ "$agent" == claude && "${CX_AUTH_MODE:-subscription}" == api-key && -f "$scratch/api-key" ]]; then
+    export ANTHROPIC_API_KEY="$(<"$scratch/api-key")"
+fi
+if timeout -k 2s 8s "$agent" "${auth_args[@]}" >"$scratch/auth.log" 2>&1 &&
+   { [[ "$agent" != claude ]] || jq -e '.loggedIn == true' "$scratch/auth.log" >/dev/null 2>&1; }; then
+    printf '%s: native authentication detected.\n' "$agent"
+else
+    printf '%s: authentication unavailable. Sign in with cx --login and check again.\n' "$agent"
+    exit 1
+fi
+if timeout -k 2s 30s "$agent" "${request[@]}" 'Reply only with OK. Do not use tools.' \
+    </dev/null >"$scratch/request.log" 2>&1; then
+    printf '%s: provider request succeeded.\n' "$agent"
+    exit 0
+else
+    status=$?
+fi
+# Print fixed categories only. Native diagnostics may include credentials.
+if [[ "$status" == 124 || "$status" == 137 ]]; then
+    reason='request timed out'
+elif grep -Eqi '401|unauthorized|invalid.api.key|expired.token' "$scratch/request.log"; then
+    reason='credentials rejected or expired'
+elif grep -Eqi 'TLS|DNS|certificate|resolve host|network|connection refused' "$scratch/request.log"; then
+    reason='network, DNS or TLS failure'
+elif grep -Eqi '403|429|rate.limit|permission|quota' "$scratch/request.log"; then
+    reason='provider rejected the request or rate-limited it'
+else
+    reason='request failed'
+fi
+printf '%s: provider %s.\n' "$agent" "$reason"
+exit 1

@@ -57,6 +57,7 @@ class SessionMenu:
         self.owner = object()
         self.opened = False
         self.rows, self.cursor, self.top = [], 0, 0
+        self.start_if_empty = False
         self.all_rows = None
         self.query, self.cli_filter, self.status_filter, self.sort = '', 'All', 'Active', 'Name'
         self.control = None
@@ -177,18 +178,29 @@ class SessionMenu:
                 raise ValueError(response.get('error', 'History operation failed.'))
             self.message = ''
             if self.operation == 'list':
-                self.replace(response['rows'])
+                rows = response['rows']
+                if not isinstance(rows, list):
+                    raise ValueError('Invalid history list.')
+                self.replace(rows)
+                if self.start_if_empty:
+                    self.start_if_empty = False
+                    eligible = any(self.accounts(agent) for agent in {row['agent'] for row in self.rows})
+                    if self.opened and not eligible and self.bridge.ready and not self.bridge.local:
+                        self.close()
+                        self.bridge.start_local()
+                        return
             else:
                 self.request('list')  # Discovery only; mutations are never replayed.
         except (ValueError, KeyError, TypeError):
             self.message = clean(response.get('error', 'History operation failed; refresh before another action.') if 'response' in locals() else 'Invalid history response; outcome unknown. No automatic retry.')
         self.draw()
 
-    def open(self):
+    def open(self, start_if_empty=False):
         if self.opened:
             return
         self.previous = (self.bridge.terminal.display.active, self.bridge.terminal.display.label)
         self.opened, self.mode, self.pasting, self.control = True, 'list', False, None
+        self.start_if_empty = start_if_empty
         self.cx_escape = False
         self.bridge.escape = False
         self.bridge.terminal.state(self.owner)['modes'].add(2004)
@@ -197,6 +209,7 @@ class SessionMenu:
         self.draw()
 
     def close(self):
+        self.start_if_empty = False
         if not self.bridge.local and self.saved and not self.queued:
             # A failed new resume must not turn Esc into termination of the
             # preserved assistant. Return to its existing PTY instead.

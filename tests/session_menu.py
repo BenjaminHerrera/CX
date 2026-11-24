@@ -51,6 +51,32 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(self.menu.cursor, 0)
         self.assertEqual(self.menu.selected()['agent'], 'claude')
 
+    def test_automatic_start_only_on_successful_empty_history(self):
+        (Path(self.temp.name) / 'profiles' / 'codex' / 'work').mkdir(parents=True)
+        self.bridge.local = None
+        self.bridge.start_local = Mock()
+        for response, status, starts in [
+            ({'error': 'History unavailable'}, 1, False),
+            ({'rows': 'invalid'}, 0, False),
+            ({'rows': self.menu.rows.copy()}, 0, False),
+            ({'rows': []}, 0, True),
+        ]:
+            with self.subTest(response=response):
+                self.menu.close()
+                self.menu.open(start_if_empty=True)
+                self.menu.worker = Mock(returncode=status)
+                self.menu.worker.poll.return_value = status
+                self.menu.buffer = json.dumps(response).encode()
+                self.menu.started = time.monotonic()
+                self.menu.operation = 'list'
+                self.bridge.start_local.reset_mock()
+                with patch('cx_sessions.os.read', return_value=b''):
+                    self.menu.poll()
+                self.assertEqual(self.bridge.start_local.called, starts)
+                self.assertEqual(self.menu.opened, not starts)
+                if status:
+                    self.assertIn('History unavailable', self.menu.message)
+
     def test_pagination_deletion_refresh_and_empty_state(self):
         self.menu.rows = [dict(self.menu.rows[0], id=f'{i:08x}-1111-4111-8111-111111111111') for i in range(50)]
         self.menu.handle(b'\x1b[6~')

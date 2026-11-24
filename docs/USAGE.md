@@ -366,15 +366,17 @@ remote path (use an absolute path rather than `~`). Wrapper options precede
 any `--` argument separator. Supply each of `--ssh`, `--remote-dir`, and
 `--ssh-mount` at most once; `--add-dir` and `--add-file` are repeatable.
 
-First, complete the SSH login directly in the terminal, including password,
-key passphrase, MFA, or host-key confirmation. Once you see a Bash prompt,
-press **Ctrl-]**, release it, then **c** to start the selected assistant. If your login shell is
-not Bash, enter `bash` first. Configurations with RemoteCommand must reach a
-Bash shell before handoff.
+Complete password, passphrase, host-key confirmation, MFA and shell startup
+prompts in the SSH pane. A normal managed interactive launch opens Sessions
+automatically when Bash confirms readiness and setup succeeds. If discovery
+finds no eligible conversations, CX starts a new session. A discovery error
+stays in the menu. Dismiss the initial menu and press Ctrl-] c to start a fresh
+assistant.
 
-Switching between established terminals changes input routing without typing
-shell commands into the remote session. The first Ctrl-] c performs shell
-setup, so use it only after reaching the Bash prompt. The bridge isolates common keyboard/focus/paste modes
+If the SSH pane stays visible at a Bash prompt, press Ctrl-] c to hand off
+manually. Reconnects and launches with explicit CLI arguments use this path.
+Switching between established terminals changes input routing. The bridge
+isolates common keyboard/focus/paste modes
 and answers display queries from the requesting session's virtual terminal.
 Physical terminal reports left over from previous activity are discarded
 instead of becoming password or prompt text. On normal completion, commands restore the
@@ -636,10 +638,10 @@ file. The temporary parent directory is private to your user. See the
 FUSE permissions and setup. Rootless or UID-remapped Docker may require
 additional host permission configuration.
 
-Complete the normal SSH login/MFA and press Ctrl-] c. cx starts SSHFS over
-the authenticated SSH control connection, then starts Codex with `/workspace/remote`
-added to its available directories. Mount failure stops session startup with
-a diagnostic; it does not silently switch to an empty local directory.
+Complete the normal SSH login/MFA and choose a conversation if Sessions opens.
+When the assistant starts, cx mounts SSHFS over the authenticated SSH control
+connection and adds `/workspace/remote` to the assistant's available
+directories. Mount failure stops session startup with a diagnostic.
 
 Codex receives the host alias, initial remote directory, container mount path,
 and read/write mode in its session instructions. `cx-remote status` reports
@@ -692,7 +694,7 @@ those facilities; offline tests mock mount lifecycle operations.
 | A new build still has an old Codex version | Use `cx --rebuild` to bypass cached npm layers. |
 | File save fails with a busy mountpoint | For `--add-file`, write in place or share its parent using `--add-dir`. |
 | Password input contains unexpected text or Codex receives stray terminal sequences after handoff | Install the updated wrapper and exit all old SSH sessions. Restart cx; if the host display remains garbled, run `reset` outside cx first. |
-| SSH login needs MFA or interaction | Press Ctrl-] r, complete it directly at the terminal, then Ctrl-] c. |
+| SSH login needs MFA or interaction | Complete the prompts in the SSH pane. If Sessions or the assistant does not open, press Ctrl-] c at a Bash prompt. |
 | Dragging does not select text in an SSH-mode session | Hold Shift while dragging, then copy with Ctrl+Shift+C in Windows Terminal. Ctrl-] m disables wheel capture for plain drag selection. |
 | Wheel does not scroll chat history in SSH mode | Press Ctrl-] m to enable wheel capture. Mouse-aware applications handle their own scrolling; otherwise the renderer browses its saved terminal history. |
 | SSHFS mount fails at startup | Check host SSHFS/FUSE, server SFTP, and `user_allow_other` in `/etc/fuse.conf`. |
@@ -710,3 +712,18 @@ Run `./install.sh` from the release on the host, including its default image
 build, then restart sessions. A host-only `--no-build` update needs `cx --build`
 before automatic MCP works. Use `--no-ssh-mcp` temporarily with older images.
 See [installation and upgrades](INSTALL.md#upgrading-to-121).
+
+
+### Test Both Provider Connections
+
+Run `cx test_connection` on the host. For each CLI, CX uses its automation
+default if configured, or its sole managed profile. If a CLI has several
+profiles, set its default with `cx accounts default --agent CLI --account NAME`
+and rerun. The command reports each profile independently.
+
+Each diagnostic checks CLI startup and native authentication, then sends a
+short provider request that may consume usage. A request is limited to 30
+seconds, plus bounded startup and auth checks. The exit status is 0 when both
+checks succeed and 1 when either fails or cannot run. CX prints summaries
+instead of raw native output. The profile mounts read-only, and the check uses
+a temporary home without mounting shared session history or SQLite.

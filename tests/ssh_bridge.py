@@ -63,6 +63,74 @@ class SessionTests(unittest.TestCase):
             if ready:
                 self.bridge.output(os.read(self.bridge.remote[0], 65536))
 
+    def test_initial_handoff_opens_menu_after_successful_shell_setup(self):
+        bridge = self.bridge
+        bridge.menu = Mock(opened=False)
+        bridge.start_local = Mock()
+        bridge.offer_sessions = True
+        bridge.ready, bridge.focus = False, 'remote'
+        bridge.keyboard(b'\x1dc')
+        self.assertIsNotNone(bridge.pending)
+        bridge.menu.open.assert_not_called()
+        self.pump(lambda: bridge.ready)
+        bridge.menu.open.assert_called_once_with(start_if_empty=True)
+        bridge.start_local.assert_not_called()
+        self.assertFalse(bridge.offer_sessions)
+
+    def test_failed_initial_setup_stays_on_remote_screen(self):
+        bridge = self.bridge
+        bridge.menu = Mock(opened=False)
+        bridge.start_local = Mock()
+        bridge.offer_sessions = True
+        bridge.directory = str(self.home / 'missing')
+        bridge.ready, bridge.focus = False, 'remote'
+        bridge.activate()
+        self.pump(lambda: bridge.pending is None)
+        self.assertFalse(bridge.ready)
+        self.assertEqual(bridge.focus, 'remote')
+        bridge.menu.open.assert_not_called()
+        bridge.start_local.assert_not_called()
+
+    def test_custom_ssh_command_or_session_type_keeps_manual_startup(self):
+        for config in ('remotecommand tmux attach\n', 'sessiontype none\n'):
+            with self.subTest(config=config), patch.object(module.subprocess, 'run', return_value=Mock(stdout=config)):
+                self.assertEqual(self.bridge.startup_command(['ssh', '-tt']), [])
+                self.assertIsNone(self.bridge.startup_token)
+
+    def test_startup_signal_is_consumed_across_fragments(self):
+        bridge = self.bridge
+        bridge.startup_token = b'startup-token'
+        bridge.terminal.render = Mock()
+        bridge.output(b'output\x1estart')
+        bridge.terminal.render.assert_called_once_with(bridge.remote, b'output')
+        self.assertIsNone(bridge.startup_status)
+        bridge.output(b'up-token:1\x1fBash> ')
+        bridge.terminal.render.assert_called_with(bridge.remote, b'Bash> ')
+        self.assertIsNone(bridge.startup_token)
+        self.assertEqual(bridge.startup_status, 1)
+
+    def test_nested_bash_keeps_current_directory_after_startup(self):
+        # Exercise the generated remote command without reading local profiles.
+        bash = self.home / 'bash'
+        bash.write_text('#!/bin/sh\nexec /bin/bash --noprofile --norc -i\n')
+        bash.chmod(0o755)
+        other = self.home / 'other directory'
+        other.mkdir()
+        with patch.object(module.subprocess, 'run', return_value=Mock(stdout='sessiontype default\n')):
+            command, = self.bridge.startup_command(['ssh', '-tt'])
+
+        change_directory = 'cd -- ' + module.shlex.quote(str(other))
+        commands = (f"pwd\n{change_directory}\n"
+                    "printf 'pwd\\nexit\\n' | /bin/bash --noprofile --norc -i\n"
+                    "exit\n")
+        result = subprocess.run(['/bin/sh', '-c', command], input=commands.encode(), cwd=ROOT,
+                                capture_output=True, timeout=5, check=True)
+        prefix = b'\x1e' + self.bridge.startup_token + b':'
+        self.assertIn(prefix + b'0\x1f', result.stdout)
+        self.assertEqual(result.stdout.count(prefix), 1)
+        self.assertEqual(result.stdout.replace(prefix + b'0\x1f', b'').splitlines(),
+                         [os.fsencode(self.home), os.fsencode(other)])
+
     def command(self, command):
         self.events = b''
         self.bridge.request(self.send, {'op': 'exec', 'command': command})
@@ -264,6 +332,95 @@ input()
                 process.wait()
             os.close(master)
 
+    def test_startup_prompt_then_automatic_sessions_and_manual_fresh_assistant(self):
+        self.startup_handoff('sessions')
+
+    def test_startup_prompt_then_automatic_fresh_assistant_for_empty_history(self):
+        self.startup_handoff('empty')
+
+    def test_startup_hook_replaced_by_profile_allows_manual_handoff(self):
+        self.startup_handoff('manual')
+
+    def test_explicit_ssh_focus_defers_startup_handoff(self):
+        self.startup_handoff('focus')
+
+    def startup_handoff(self, history):
+        fake = self.home / 'ssh'
+        fake.write_text("""#!/bin/bash
+if [[ " $* " == *' -G '* ]]; then echo 'sessiontype default'; exit; fi
+printf 'LOGIN-CODE: '
+read -rs answer
+[[ "$answer" == login ]] || exit 1
+[[ "$2" == delta-alias && "$#" == 3 ]] || exit 3
+exec /bin/sh -c "$3"
+""")
+        bash = self.home / 'bash'
+        bash.write_text("""#!/bin/sh
+[ "$*" = '--login -i' ] || exit 4
+exec /bin/bash --noprofile --rcfile "$CX_TEST_STARTUP" -i
+""")
+        bash.chmod(0o755)
+        rc = self.home / 'startup.bash'
+        rc.write_text("""printf '\\nSTARTUP-CODE: '
+read -rs answer
+[[ $answer == startup ]] || exit 2
+unset answer
+if [[ $CX_TEST_HISTORY == manual ]]; then PROMPT_COMMAND=':'; fi
+PS1='FIXTURE-BASH> '
+""")
+        launcher = self.home / 'assistant'
+        launcher.write_text(f'#!{sys.executable}\n' + """import json, os, sys
+if sys.argv[1:] == ['sessions', 'menu-backend']:
+    sys.stdin.read()
+    rows = [{'agent': 'codex', 'id': '11111111-1111-4111-8111-111111111111',
+             'name': 'Fixture conversation', 'updated': 1}]
+    print(json.dumps({'rows': [] if os.environ['CX_TEST_HISTORY'] == 'empty' else rows}))
+else:
+    print('FRESH-ASSISTANT', flush=True)
+    input()
+""")
+        launcher.chmod(0o755)
+        (self.home / 'profiles' / 'codex' / 'work').mkdir(parents=True)
+        with patch.dict(os.environ, CX_TEST_STARTUP=str(rc), CX_TEST_HISTORY=history, CX_DATA_HOME=str(self.home),
+                        CX_AGENT='codex', CX_ACCOUNT='work',
+                        CX_SESSION_MENU='1', CX_SSH_START_SESSIONS='1'):
+            master, process = self.bridge.spawn([sys.executable, str(ROOT / 'bin/cx-ssh-bridge.py'),
+                                                 'delta-alias', str(self.home), str(launcher), str(self.home)])
+        def until(text):
+            output = b''
+            deadline = time.monotonic() + 5
+            while text not in output:
+                self.assertLess(time.monotonic(), deadline, output[-2000:].decode(errors='replace'))
+                readable, _, _ = select.select([master], [], [], .1)
+                if readable:
+                    output += os.read(master, 65536)
+        try:
+            until(b'LOGIN-CODE:')
+            os.write(master, b'login\r')
+            until(b'STARTUP-CODE:')
+            if history == 'focus':
+                os.write(master, b'\x1dr')
+                until(b'Remote terminal.')
+            # Give the supervisor several polling cycles. Only the user's
+            # answer should reach the post-authentication startup prompt.
+            time.sleep(.2)
+            os.write(master, b'startup\r')
+            if history in ('manual', 'focus'):
+                until(b'FIXTURE-BASH>')
+                os.write(master, b'printf "%s%s\\n" STILL- SSH\r')
+                until(b'STILL-SSH')
+                os.write(master, b'\x1dc')
+            if history != 'empty':
+                until(b'Fixture conversation')
+                os.write(master, b'q\x1dc')
+            until(b'FRESH-ASSISTANT')
+            os.write(master, b'\r')
+            self.assertEqual(process.wait(timeout=5), 0)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=10)
+            os.close(master)
 
 
 class MountTests(unittest.TestCase):

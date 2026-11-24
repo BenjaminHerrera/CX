@@ -234,3 +234,7 @@ Run `CX_NATIVE_MCP=1 node tests/native-history.mjs` to verify that real Codex
 and Claude binaries discover and call `ssh_status` through the source adapter.
 The test uses disposable homes, a loopback model simulator and a Unix-socket
 bridge fixture. Set `CX_NATIVE_CODEX` or `CX_NATIVE_CLAUDE` to select binaries.
+
+Run `CX_NATIVE_CONNECTION=1 node tests/native-history.mjs` for the connection
+diagnostic with native binaries and loopback providers. The fixture exercises
+both providers and uses synthetic credentials with disposable history.

@@ -86,3 +86,11 @@ Use the [issue forms](https://github.com/BenjaminHerrera/CX/issues/new/choose).
 Include the command, expected/actual result, CX/native CLI versions, host OS,
 terminal and local/SSH/Slurm mode. Redact output. Do not attach account homes,
 SSH keys, MFA codes, full portable data trees or unreviewed conversation files.
+
+
+## Provider Connection Check
+
+Use `cx test_connection` to distinguish CLI startup, authentication and
+provider reachability for your managed profiles. Resolve a missing or ambiguous
+profile with `cx accounts add` or `cx accounts default`. For credentials that
+have expired, sign in to that profile again. See [connection check behavior](USAGE.md#test-both-provider-connections).

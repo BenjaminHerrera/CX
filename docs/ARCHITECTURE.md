@@ -164,8 +164,13 @@ at its container mountpoint. Canonical credential paths are rejected.
 
 The Python 3.11+ supervisor owns separate PTYs for host OpenSSH and the
 Docker/Codex launcher. Keyboard input reaches only the selected terminal.
-Users complete authentication directly; terminal handoff uses Ctrl-] r and
-Ctrl-] c. Remote commands run serially in one Bash shell and return combined
+Users complete authentication directly. For an eligible initial connection,
+OpenSSH requests an interactive Bash login shell with a one-time
+`PROMPT_COMMAND` hook. The hook performs setup and emits a randomized status
+marker after the login files finish. The bridge consumes the marker and opens
+Sessions without sending keystrokes to the remote PTY. Custom SSH commands and
+shell configurations that replace the hook can use Ctrl-] c at a Bash prompt.
+Remote commands run serially in one Bash shell and return combined
 terminal output and status using randomized start/completion markers. Echoed
 internal command text is excluded from results, and each command restores
 its starting remote TTY settings on normal completion.
@@ -181,9 +186,9 @@ Clicks, drags, out-of-bounds events, and reports received with wheel capture
 disabled are discarded. Shift-drag preserves native terminal selection;
 Ctrl-] m disables capture for plain dragging. Bracketed paste bypasses shortcut
 interpretation; enhanced keyboard releases are not treated as new keypresses.
-Switching to an existing terminal does not inject shell text during password
-or MFA entry. The initial Ctrl-] c still performs shell setup and must be used
-only after reaching a Bash prompt. The display layer keeps an independent normal and alternate terminal screen
+Switching to an existing terminal only changes input routing. The initial
+manual Ctrl-] c performs shell setup at a Bash prompt. The display layer keeps
+an independent normal and alternate terminal screen
 for each PTY. It draws only the active screen, never replays raw background
 output, and reserves a full-width top row: green for SSH, blue for CODEX.
 Notices stay in this row. Child PTY dimensions exclude it. The enclosing
