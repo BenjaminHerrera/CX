@@ -43,7 +43,7 @@ use the [account authentication flow](ACCOUNTS.md#authentication).
 | Expected conversation absent | Clear search, change CLI/status filters, and use F2 for internal reviewer/subagent records |
 | No active `*` on a new chat | Native/new identity is not guessed from recent activity; explicit UUID selection establishes known identity |
 | Resume failed | Read the saved error, verify CLI/account access, then reopen Sessions; CX does not retry automatically |
-| Claude removal blocked | Exit all managed Claude writers, including saved background sessions. Retry: dead leases recover after host PID and Docker checks. If still blocked, inspect stale leases or deletion gates before removing them manually |
+| Claude removal blocked | Update CX and restart its supervisor. Idle rows can be removed while another Claude runs, with disk cleanup queued until all Claude writers exit. Dead leases recover after host PID and Docker checks. Failed cleanup stays queued for the next maintenance call |
 | Import rejected SQLite history | Use the updated importer; complete paginated rollouts are supported. Read specific missing/truncated-file diagnostics |
 
 See [Sessions](SESSIONS.md) for keys and deletion rules, and

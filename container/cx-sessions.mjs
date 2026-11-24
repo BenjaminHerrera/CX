@@ -87,11 +87,12 @@ function exactLookupGuards(root,ids,transcripts,guards){
     }
   }
 }
-function claudeSession(root,id){
+function claudeSession(root,id,{defer=false}={}){
   if(!root)return null;
   directory(root);
   const live=path.join(root,'cx-live');
-  if(directory(live)&&fs.readdirSync(live).length)throw new Error('A Claude instance may still be writing shared history. Exit Claude cleanly before deleting; inspect stale cx-live leases manually.');
+  const writing=directory(live)&&fs.readdirSync(live).length>0;
+  if(writing&&!defer)throw new Error('A Claude instance may still be writing shared history. Exit Claude cleanly before deleting; inspect stale cx-live leases manually.');
   const projects=path.join(root,'projects'),transcripts=[],trees=[],edits=[];
   if(!directory(projects))return null;
   for(const name of fs.readdirSync(projects)){
@@ -104,6 +105,7 @@ function claudeSession(root,id){
         const tree=path.join(project,entry);files(tree);trees.push(tree);
       }
     }
+    if(writing)continue; // A live Claude may be replacing this shared index.
     const index=path.join(project,'sessions-index.json');
     const value=stat(index);if(!value)continue;
     if(!value.isFile())throw new Error('Invalid Claude session index.');
@@ -172,7 +174,7 @@ async function codexSession(root,id,home,createClient){
   }catch(error){await client.close();throw error;}
 }
 
-export async function removeSession({id,agent,codexRoot,claudeRoot,codexHome,createClient=historyClient}){
+export async function removeSession({id,agent,codexRoot,claudeRoot,codexHome,deferClaude=false,createClient=historyClient}){
   if(!uuid.test(id))throw new Error('Use the full session UUID.');
   id=id.toLowerCase();
   if(agent&&!['codex','claude'].includes(agent))throw new Error('Invalid --agent.');
@@ -182,7 +184,7 @@ export async function removeSession({id,agent,codexRoot,claudeRoot,codexHome,cre
   try{
     // Complete discovery and validation before deleting anything. A collision
     // across CLIs must never implicitly remove both conversations.
-    const claude=agent==='codex'?null:claudeSession(claudeRoot,id);
+    const claude=agent==='codex'?null:claudeSession(claudeRoot,id,{defer:deferClaude});
     codex=agent==='claude'?null:await codexSession(codexRoot,id,codexHome,createClient);
     if(codex&&claude)throw new Error('Session ID exists for both CLIs; specify --agent codex or --agent claude.');
     if(!codex&&!claude)throw new Error(`Unknown session: ${id}`);
@@ -192,7 +194,19 @@ export async function removeSession({id,agent,codexRoot,claudeRoot,codexHome,cre
       fs.mkdirSync(lock,{mode:0o700});
       claudeLock=lock;
       const live=path.join(claudeRoot,'cx-live');
-      if(directory(live)&&fs.readdirSync(live).length)throw new Error('A Claude instance may still be writing shared history; exit it cleanly before deletion.');
+      if(directory(live)&&fs.readdirSync(live).length) {
+        if(!deferClaude)throw new Error('A Claude instance may still be writing shared history; exit it cleanly before deletion.');
+        const pending=path.join(claudeRoot,'cx-pending-delete');
+        directory(pending);fs.mkdirSync(pending,{recursive:true,mode:0o700});
+        const file=path.join(pending,id+'.json');stat(file);
+        // Publish the exact request atomically before hiding it from CX.
+        const temporary=path.join(pending,'.'+randomUUID()+'.tmp');
+        try {
+          fs.writeFileSync(temporary,JSON.stringify({id})+'\n',{flag:'wx',mode:0o600});
+          fs.renameSync(temporary,file);
+        } finally {fs.rmSync(temporary,{force:true});}
+        return 'claude';
+      }
     }
     for(const edit of selected.edits){
       const temporary=edit.file+`.cx-remove-${randomUUID()}`;
@@ -219,10 +233,46 @@ export async function removeSession({id,agent,codexRoot,claudeRoot,codexHome,cre
   }
 }
 
+export function pendingClaudeRemovals(root) {
+  if(!root)return [];
+  const pending=path.join(root,'cx-pending-delete');
+  if(!directory(pending))return [];
+  return fs.readdirSync(pending).filter(name=>uuid.test(name.slice(0,-5))&&name.endsWith('.json')).map(name=>{
+    const file=path.join(pending,name);stat(file);
+    const value=JSON.parse(fs.readFileSync(file,'utf8'));
+    if(value.id!==name.slice(0,-5))throw Error('Invalid queued Claude deletion.');
+    return value.id;
+  });
+}
+
+export async function cleanupClaudeRemovals(root) {
+  if(!root)return;
+  const live=path.join(root,'cx-live');
+  if(directory(live)&&fs.readdirSync(live).length)return;
+  for(const id of pendingClaudeRemovals(root)) {
+    try {
+      await removeSession({id,agent:'claude',claudeRoot:root});
+    } catch(error) {
+      // A previous attempt may have deleted the last transcript before exiting.
+      // Keep the request on every other failure, including new live writers.
+      if(error.message!==`Unknown session: ${id}`)throw error;
+    }
+    directory(path.join(root,'cx-names'));
+    fs.rmSync(path.join(root,'cx-names',id+'.json'),{force:true});
+    fs.unlinkSync(path.join(root,'cx-pending-delete',id+'.json'));
+  }
+}
+
 async function main(){
   const args=process.argv.slice(2);
+  if(args[0]==='cleanup'&&args.length===1) {
+    await cleanupClaudeRemovals(process.env.CX_SESSION_CLAUDE_HISTORY);return;
+  }
   if(args[0]!=='remove'||![2,4].includes(args.length)||(args.length===4&&args[2]!=='--agent'))throw new Error('Usage: cx sessions remove ID [--agent codex|claude]');
-  const agent=await removeSession({id:args[1],agent:args[3],codexRoot:process.env.CX_SESSION_CODEX_HISTORY,claudeRoot:process.env.CX_SESSION_CLAUDE_HISTORY,codexHome:process.env.CODEX_HOME});
+  const agent=await removeSession({id:args[1],agent:args[3],codexRoot:process.env.CX_SESSION_CODEX_HISTORY,claudeRoot:process.env.CX_SESSION_CLAUDE_HISTORY,codexHome:process.env.CODEX_HOME,deferClaude:true});
+  if(agent==='claude'&&pendingClaudeRemovals(process.env.CX_SESSION_CLAUDE_HISTORY).includes(args[1].toLowerCase())) {
+    console.log('Removed from CX. Claude disk cleanup is queued until all Claude assistants exit.');return;
+  }
   console.log(`Removed ${agent} session ${args[1]}. This affects shared history for all ${agent} accounts.`);
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){

@@ -51,6 +51,24 @@ def relative_time(value, now=None):
         return 'unknown time'
 
 
+def prepare_claude_session(launcher):
+    # Assign an identity only to an ordinary fresh launch. Native pickers,
+    # continue/fork modes and unfamiliar arguments keep native selection.
+    values = {'--agent', '--account', '--add-dir', '--add-file', '--model', '-m',
+              '--settings', '--setting-sources', '--permission-mode', '--effort',
+              '--name', '-n', '--append-system-prompt', '--system-prompt'}
+    arguments = launcher[2:]
+    while arguments:
+        option = arguments[0].split('=', 1)[0]
+        if option not in values:
+            return
+        count = 1 if '=' in arguments[0] else 2
+        if len(arguments) < count:
+            return
+        arguments = arguments[count:]
+    launcher.extend(['--session-id', str(uuid.uuid4())])
+
+
 class SessionMenu:
     def __init__(self, bridge):
         self.bridge = bridge
@@ -70,13 +88,21 @@ class SessionMenu:
         self.queued = None
         self.worker = None
         self.lease = None
+        self.deferred_notice = False
         self.decoder = codecs.getincrementaldecoder('utf-8')('replace')
         self.pasting = False
         self.cx_escape = False
         self.data_home = Path(os.environ['CX_DATA_HOME'])
+        agent = os.environ.get('CX_AGENT', 'codex')
+        if agent == 'claude':
+            prepare_claude_session(bridge.launcher)
         for index, arg in enumerate(bridge.launcher[2:], 2):
-            if arg in ('resume', '--resume', '-r') and index+1 < len(bridge.launcher) and re.fullmatch(r'[0-9a-fA-F-]{36}', bridge.launcher[index+1]):
-                self.active = (os.environ.get('CX_AGENT', 'codex'), bridge.launcher[index+1].lower())
+            if arg in ('resume', '--resume', '-r', '--session-id') and index+1 < len(bridge.launcher) and re.fullmatch(r'[0-9a-fA-F-]{36}', bridge.launcher[index+1]):
+                self.active = (agent, bridge.launcher[index+1].lower())
+            elif agent == 'claude' and arg.startswith(('--resume=', '--session-id=')):
+                value = arg.split('=', 1)[1]
+                if re.fullmatch(r'[0-9a-fA-F-]{36}', value):
+                    self.active = (agent, value.lower())
 
     def key(self, row):
         return row['agent'], row['id']
@@ -178,6 +204,9 @@ class SessionMenu:
                 raise ValueError(response.get('error', 'History operation failed.'))
             self.message = ''
             if self.operation == 'list':
+                if self.deferred_notice:
+                    self.message = 'Removed from CX. Disk cleanup is queued until all Claude assistants exit.'
+                    self.deferred_notice = False
                 rows = response['rows']
                 if not isinstance(rows, list):
                     raise ValueError('Invalid history list.')
@@ -190,6 +219,7 @@ class SessionMenu:
                         self.bridge.start_local()
                         return
             else:
+                self.deferred_notice = bool(response.get('deferred'))
                 self.request('list')  # Discovery only; mutations are never replayed.
         except (ValueError, KeyError, TypeError):
             self.message = clean(response.get('error', 'History operation failed; refresh before another action.') if 'response' in locals() else 'Invalid history response; outcome unknown. No automatic retry.')
@@ -279,6 +309,7 @@ class SessionMenu:
         saved = self.saved.pop(key)
         if saved['lease']:
             saved['lease'].unlink(missing_ok=True)
+            self.cleanup_claude_removals()
         if saved['row'].get('local_only'):
             self.all_rows = [row for row in (self.all_rows or self.rows) if self.key(row) != key]
         self.message = 'Background assistant exited'+(' with an error' if status else '')+'. No command was replayed.'
@@ -388,12 +419,24 @@ class SessionMenu:
         if self.lease:
             self.lease.unlink(missing_ok=True)
             self.lease = None
+        self.cleanup_claude_removals()
+
+    def cleanup_claude_removals(self):
+        root = self.data_home / 'history' / 'claude'
+        live = root / 'cx-live'
+        if any((root / 'cx-pending-delete').glob('*.json')) and (not live.exists() or not any(live.iterdir())):
+            try:
+                subprocess.run([self.bridge.launcher[0], 'sessions', 'cleanup-claude', '--agent', 'claude'],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=30, check=False)
+            except (OSError, subprocess.TimeoutExpired):
+                pass  # Persist the request for the next maintenance call.
 
     def shutdown(self):
-        self.release()
         for saved in self.saved.values():
             if saved['lease']:
                 saved['lease'].unlink(missing_ok=True)
+        self.release()
         if self.worker:
             self.worker.terminate()
             self.worker.stdout.close()

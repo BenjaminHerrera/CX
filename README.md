@@ -31,9 +31,9 @@ with that pair or select it in the account picker. The
 [Getting Started guide](docs/GETTING-STARTED.md) walks through both choices.
 
 The `v2` integration is now on `main`. Use `main` for installs and new work;
-the package version is **2.2.0**. This release adds `cx-watch`, GitHub CLI access,
-automatic SSH session selection, provider connection checks, and session
-deletion fixes. Update the program and rebuild the image; see
+the package version is **2.2.1**. This release fixes Claude session deletion
+while another assistant is open and restores running Claude sessions when
+selecting their history rows. Update the program and rebuild the image; see
 [upgrading](docs/UPGRADING.md) for the steps.
 
 ## Everyday Use

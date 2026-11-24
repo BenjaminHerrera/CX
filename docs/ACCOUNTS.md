@@ -450,8 +450,10 @@ content are rewritten by CX. Removal uses the existing native/reference-aware
 backend and never falls back to database merging.
 
 Each supervisor holds active selection in its own process. Resume by an explicit
-UUID is marked active immediately; a native new session or native picker is
-identified as native/new until CX has an explicit selected UUID. CX never guesses
+UUID is marked active immediately. Ordinary fresh Claude launches receive a
+native `--session-id` UUID before startup, so their history rows match the
+saved running processes. Native pickers, continue modes, and launches whose
+identity is unknown keep a temporary running row. CX never guesses
 active identity from the newest message, which could belong to another instance.
 The current CLI/account is always shown; moving the cursor changes neither.
 Native account checks can reject a resume even though the shared history is visible.
@@ -460,9 +462,15 @@ Deletion confirmation identifies the name, CLI and full UUID and warns that all
 accounts of that CLI share the result. The current selected session cannot be
 deleted while its assistant is open. Native Codex writer/reference checks remain
 in force. Claude has no corresponding offline deletion API: each managed Claude
-interactive or exec/print launch creates a `history/claude/cx-live/INSTANCE.json` lease. Deletion refuses
-while any Claude lease exists, even for another row, rather than guessing which
-file a native client may write next. Exit all Claude instances cleanly first.
+interactive or exec/print launch creates a `history/claude/cx-live/INSTANCE.json`
+lease. While another Claude writer is open, confirmed deletion hides the row
+from CX and records an exact UUID request in `history/claude/cx-pending-delete/`.
+Transcripts and shared indexes stay on disk until all Claude writers exit.
+Cleanup then rereads the current indexes and preserves updates made by other
+sessions. Requests survive crashes and are also processed during the next
+session maintenance call. Failed cleanup keeps the request for a later attempt.
+Claude's native history can still show queued conversations until cleanup
+finishes. Avoid resuming them while deletion is queued.
 An atomic `cx-delete-lock` directory also prevents new managed Claude writers
 from starting during deletion. Unmanaged/legacy clients are outside this guard;
 stop them before deletion too.

@@ -6,7 +6,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
 import {spawn,spawnSync} from 'node:child_process';
-import {removeSession} from '../container/cx-sessions.mjs';
+import {removeSession,pendingClaudeRemovals,cleanupClaudeRemovals} from '../container/cx-sessions.mjs';
 import {historyClient} from '../container/cx-codex-resume.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -85,6 +85,49 @@ await check('Claude removal includes subagent transcripts and every matching pro
     const index=JSON.parse(fs.readFileSync(path.join(f.claudeRoot,'projects',name,'sessions-index.json')));
     assert.deepEqual(index,{version:1,originalPath:'/project',entries:[{sessionId:other,summary:id}]});
   }
+});
+await check('queued Claude deletion hides the row and preserves live history until writers exit',async()=>{
+  const f=fixture(),file=claudeTranscript(f),kept=claudeTranscript(f,other),project=path.dirname(file);
+  const live=path.join(f.claudeRoot,'cx-live');fs.mkdirSync(live);
+  const lease=path.join(live,'active.json');fs.writeFileSync(lease,'{}');
+  const index=path.join(project,'sessions-index.json');
+  const original=JSON.stringify({entries:[{sessionId:id},{sessionId:other}]});
+  fs.writeFileSync(index,original);
+  const result=spawnSync(process.execPath,[path.join(root,'container/cx-session-menu.mjs')],{
+    input:JSON.stringify({op:'remove',agent:'claude',id}),
+    env:{...process.env,CX_SESSION_CODEX_HISTORY:'',CX_SESSION_CLAUDE_HISTORY:f.claudeRoot},encoding:'utf8',timeout:5000,
+  });
+  assert.equal(result.status,0,result.stdout+result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout),{ok:true,deferred:true});
+  assert.deepEqual(pendingClaudeRemovals(f.claudeRoot),[id]);
+  assert.ok(fs.existsSync(file));assert.ok(fs.existsSync(kept));
+  assert.equal(fs.readFileSync(index,'utf8'),original);
+  const {listSessions}=await import('../container/cx-session-menu.mjs');
+  assert.deepEqual((await listSessions({claudeRoot:f.claudeRoot})).map(row=>row.id),[other]);
+  await cleanupClaudeRemovals(f.claudeRoot);
+  assert.ok(fs.existsSync(file));
+  // A different writer's update must survive delayed cleanup.
+  fs.writeFileSync(index,JSON.stringify({entries:[{sessionId:id},{sessionId:other,customTitle:'updated'}]}));
+  fs.unlinkSync(lease);
+  await cleanupClaudeRemovals(f.claudeRoot);
+  assert.equal(fs.existsSync(file),false);assert.ok(fs.existsSync(kept));
+  assert.deepEqual(JSON.parse(fs.readFileSync(index,'utf8')).entries,[{sessionId:other,customTitle:'updated'}]);
+  assert.deepEqual(pendingClaudeRemovals(f.claudeRoot),[]);
+  await cleanupClaudeRemovals(f.claudeRoot);
+});
+await check('queued Claude cleanup retains requests on validation failure and refuses symlinks',async()=>{
+  const f=fixture(),file=claudeTranscript(f),live=path.join(f.claudeRoot,'cx-live');
+  fs.mkdirSync(live);const lease=path.join(live,'active.json');fs.writeFileSync(lease,'{}');
+  await removeSession({...f,id,agent:'claude',deferClaude:true});
+  fs.unlinkSync(lease);
+  const index=path.join(path.dirname(file),'sessions-index.json');fs.writeFileSync(index,'broken');
+  await assert.rejects(cleanupClaudeRemovals(f.claudeRoot));
+  assert.ok(fs.existsSync(file));assert.deepEqual(pendingClaudeRemovals(f.claudeRoot),[id]);
+  fs.unlinkSync(index);
+  const marker=path.join(f.claudeRoot,'cx-pending-delete',id+'.json');
+  fs.unlinkSync(marker);fs.symlinkSync(file,marker);
+  await assert.rejects(cleanupClaudeRemovals(f.claudeRoot),/symlink/);
+  assert.ok(fs.existsSync(file));
 });
 await check('cross-CLI ID collisions fail without deletion and --agent disambiguates',async()=>{
   const f=fixture(),codex=transcript(f),claude=claudeTranscript(f),client=native(codex);

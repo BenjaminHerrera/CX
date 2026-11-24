@@ -175,6 +175,42 @@ class MenuTests(unittest.TestCase):
         self.assertIn('UNSENT DRAFT', '\n'.join(pane.screen.display))
         self.bridge.spawn.assert_called_once()
 
+    def test_new_claude_history_row_restores_running_process(self):
+        os.environ['CX_AGENT'] = 'claude'
+        (self.menu.data_home / 'profiles' / 'claude' / 'work').mkdir(parents=True)
+        self.bridge.launcher = ['/cx', '/project', '--agent', 'claude', '--account', 'work']
+        with patch('cx_sessions.uuid.uuid4', return_value=ID):
+            self.menu = self.bridge.menu = SessionMenu(self.bridge)
+        self.menu.request = Mock()
+        native_id = ID
+        old = self.bridge.local
+        self.bridge.terminal.display.feed(old, b'CLAUDE UNSENT DRAFT')
+        row = dict(agent='claude', id=native_id, name='Native Claude conversation', updated=1)
+        self.menu.replace([row])
+        self.menu.open()
+        self.menu.choose(dict(row, id=OTHER), 'work')
+        self.assertIn(('claude', native_id), self.menu.saved)
+        self.menu.open()
+        self.menu.replace([row, dict(row, id=OTHER)])
+        self.menu.cursor = 0
+        self.menu.activate_selected()
+        self.assertIs(self.bridge.local, old)
+        self.assertEqual(self.menu.active, ('claude', native_id))
+        self.assertEqual(self.bridge.spawn.call_count, 1)
+        self.assertIn('CLAUDE UNSENT DRAFT',
+                      '\n'.join(self.bridge.terminal.display.pane(old).screen.display))
+
+    def test_claude_native_selection_arguments_keep_their_identity(self):
+        os.environ['CX_AGENT'] = 'claude'
+        for native in (['--resume', ID], ['--session-id', ID], ['--continue'], ['--resume']):
+            with self.subTest(native=native):
+                self.bridge.launcher = ['/cx', '/project', '--agent', 'claude', '--account', 'work'] + native
+                original = self.bridge.launcher[:]
+                menu = SessionMenu(self.bridge)
+                self.assertEqual(self.bridge.launcher, original)
+                expected = ('claude', ID) if len(native) == 2 else None
+                self.assertEqual(menu.active, expected)
+
     def test_unsafe_switch_keeps_original_process_and_clear_reason(self):
         old = self.bridge.local
         for ready, focus, pending in [(False, 'local', None), (True, 'remote', None),
@@ -201,6 +237,26 @@ class MenuTests(unittest.TestCase):
         self.assertFalse(lease.exists())
         self.assertFalse(self.menu.saved)
         self.assertIn('No command was replayed', self.menu.message)
+
+    def test_last_claude_lease_release_runs_queued_cleanup(self):
+        root = self.menu.data_home / 'history' / 'claude'
+        live = root / 'cx-live'
+        live.mkdir(parents=True)
+        (root / 'cx-pending-delete').mkdir()
+        (root / 'cx-pending-delete' / (ID + '.json')).write_text('{}')
+        lease = live / 'instance.json'
+        other = live / 'other.json'
+        lease.write_text('{}')
+        other.write_text('{}')
+        self.menu.lease = lease
+        with patch('cx_sessions.subprocess.run') as cleanup:
+            self.menu.release()
+            cleanup.assert_not_called()
+            other.unlink()
+            self.menu.cleanup_claude_removals()
+            cleanup.assert_called_once()
+            self.assertEqual(cleanup.call_args.args[0][1:],
+                             ['sessions', 'cleanup-claude', '--agent', 'claude'])
 
     def test_resize_includes_background_ptys(self):
         self.menu.choose(self.menu.rows[0], 'work')
