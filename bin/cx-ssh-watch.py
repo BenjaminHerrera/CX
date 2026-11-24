@@ -28,8 +28,10 @@ def run(client, host, control, seconds, command):
     wrapper = 'sh -c "$1"; printf "\\036%s:%s\\037" ' + token + ' "$?" >&2'
     remote = f'timeout --kill-after=1s {seconds:.3f}s sh -c ' + shlex.quote(wrapper) + ' sh ' + shlex.quote(command)
     args = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
-            '-o', 'RemoteCommand=none', '-o', 'SessionType=default', '-o', 'ControlMaster=no', '-S', control,
+            '-o', 'RemoteCommand=none', '-o', 'SessionType=default', '-o', 'ControlMaster=no',
             '-o', 'ConnectTimeout=' + str(max(1, min(15, int(seconds)))), '--', host, remote]
+    if control:
+        args[1:1] = ['-S', control]
     try:
         proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, start_new_session=True)
@@ -81,7 +83,7 @@ def run(client, host, control, seconds, command):
             if b'permission denied' in detail or b'host key verification failed' in detail:
                 return fail('SSH needs interactive login or host-key confirmation. Start cx --ssh ' + host + ' first.')
             if b'could not resolve hostname' in detail or b'bad configuration option' in detail:
-                return fail('OpenSSH could not resolve or load the configured host alias.')
+                return fail('Unknown SSH alias or invalid OpenSSH configuration.')
             return fail('SSH connection dropped or could not be established.', retry=True)
         if status in (124, 137):
             return fail('Remote command timed out.', retry=True)

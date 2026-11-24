@@ -276,7 +276,7 @@ check('managed data cannot be exposed through an environment store or unexpected
 });
 check('fresh portable and installed editions select their managed data defaults',()=>{
   const bundle=path.join(temp,'portable');fs.mkdirSync(path.join(bundle,'bin'),{recursive:true});fs.mkdirSync(path.join(bundle,'container'));
-  for(const name of ['cx','VERSION','bin/cx','bin/cx-accounts.sh','container/cx-sessions.mjs','container/cx-codex-resume.mjs','config'])fs.cpSync(path.join(root,name),path.join(bundle,name),{recursive:true});
+  for(const name of ['cx','VERSION','bin/cx','bin/cx-watch-launch.py','bin/cx-ssh-watch.py','bin/cx-accounts.sh','container/cx-sessions.mjs','container/cx-codex-resume.mjs','config'])fs.cpSync(path.join(root,name),path.join(bundle,name),{recursive:true});
   const portable=(args)=>spawnSync('bash',[path.join(bundle,'cx'),...args],{cwd:project,env:{...env,CX_DATA_HOME:''},encoding:'utf8'});
   let r=portable(['accounts','add','--agent','codex','--account','fresh','--auth','subscription']);assert.equal(r.status,0,r.stderr);
   clear();r=portable(['--agent','codex','--account','fresh',project]);assert.equal(r.status,0,r.stderr);

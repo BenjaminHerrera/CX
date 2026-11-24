@@ -38,8 +38,10 @@ a running watch, and backoff for rate-limit and transient responses.
 
 ## Wait for a Remote Result
 
-Launch CX with `--ssh ALIAS` and complete the interactive SSH login. In that CX
-session, start this command in the background monitor.
+Use an alias from the host's OpenSSH configuration. Local and SSH-mode CX
+sessions can watch any configured alias. The host launcher provides a private
+socket for independent batch SSH polls. Host Python 3 and OpenSSH are required.
+Start this command in the background monitor.
 
 ```bash
 cx-watch file --host ALIAS --path /remote/project/results.json \
@@ -48,9 +50,9 @@ cx-watch file --host ALIAS --path /remote/project/results.json \
 
 To track output from a read-only command, use `cx-watch remote --host ALIAS
 --cmd 'your read-only command'`. Each poll uses a separate batch SSH channel
-for the session's alias and can run while the interactive shell is busy.
+for the requested alias and can run while the interactive shell is busy.
 OpenSSH uses the host's existing configuration and can reuse the authenticated
-CX connection. Remote commands start in the remote login directory. Remote
+CX connection for the current alias or the requested alias's configured control socket. Remote commands start in the remote login directory. Remote
 file watches use GNU `stat`, `tail`, and `head`. Remote commands use the
 server's `timeout` utility. If batch authentication requires interaction,
 complete login in CX before restarting the watch.
@@ -70,7 +72,9 @@ The first successful poll emits one `baseline` line. For GitHub,
 poll. Subsequent polls are quiet until something changes. Events include
 `pr_opened`, `head`, `state`, `review`, `review_comment`, `comment`, `ci`,
 `changed`, `appeared`, `disappeared`, and `line`. CI emits at most one
-pending event and one final event per PR head. A transient failure emits one
+pending event and one final event for each observed set of workflow runs and
+attempts. A rerun on the same head starts another cycle. Changed conclusions
+and additional workflows also produce an updated aggregate event. A transient failure emits one
 `warn` per streak, followed by `recovered` when polling succeeds again.
 
 Text output is one UTC timestamp, source, target, event, and key/value fields

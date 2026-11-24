@@ -155,6 +155,14 @@ die() {
 
 source "$CX_ROOT/bin/cx-accounts.sh"
 
+run_with_watch() {
+    if command -v python3 >/dev/null && command -v ssh >/dev/null; then
+        python3 -B "$CX_ROOT/bin/cx-watch-launch.py" docker "$@"
+    else
+        docker "$@"
+    fi
+}
+
 require_docker() {
     command -v docker >/dev/null 2>&1 ||
         die "Docker is not installed or is not in PATH."
@@ -620,7 +628,7 @@ run_container() {
             die "Claude history deletion is in progress; retry launch after it completes."
         fi
     fi
-    if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
+    if run_with_watch run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
         "${ssh_args[@]}" \
         "${github_mount[@]}" \
         --name "cx-$(date +%s)-$$" \
@@ -790,7 +798,7 @@ run_shell() {
     done
 
     local docker_status
-    if docker run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
+    if run_with_watch run --rm "${DOCKER_TERMINAL_ARGS[@]}" \
         --user "${uid}:${gid}" \
         --workdir /workspace \
         --mount "type=bind,src=${workspace},dst=/workspace/main" \

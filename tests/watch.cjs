@@ -220,3 +220,89 @@ test('remote file watch reads a quoted path and detects matching new lines', asy
     assert.deepEqual(events.map(item => item.event), ['appeared','line','end']);
     assert.equal(events[1].data.text, 'ready');
 });
+
+test('same-head failed CI, rerun attempts and later workflows emit changes across restarts', async t => {
+    const state = path.join(temporary(t), 'state');
+    let phase = 0;
+    const base = await server(t, (req, res) => {
+        const resource = new URL(req.url, 'http://localhost').pathname.replace('/repos/owner/repo', '');
+        const status = phase === 1 ? 'in_progress' : 'completed';
+        const conclusion = phase === 0 ? 'failure' : 'success';
+        let data;
+        if (resource === '') data = {};
+        else if (resource === '/pulls/5') data = {head: {sha: a}, state: 'open'};
+        else if (resource === '/actions/runs') {
+            data = {workflow_runs: [{id: 10, run_attempt: phase ? 2 : 1, status},
+                ...(phase >= 3 ? [{id: 11, run_attempt: 1, status: 'completed'}] : [])]};
+        } else if (resource.includes('/jobs')) {
+            data = {jobs: [{name: resource.includes('/11/') ? 'Later workflow' : 'Build', status, conclusion}]};
+        } else if (resource.endsWith('/check-runs')) data = {check_runs: []};
+        else data = [];
+        res.end(JSON.stringify(data));
+    });
+    const args = ['github', '--repo', 'owner/repo', '--pr', '5', '--json', '--once', '--state', state];
+    async function statuses() {
+        const result = await run(args, {base, env: {GH_TOKEN: token}});
+        assert.equal(result.status, 0, result.stdout);
+        return result.events.map(item => item.event === 'ci' ? item.data.status : item.event);
+    }
+    assert.deepEqual(await statuses(), ['baseline']);
+    assert.deepEqual(await statuses(), []);
+    phase = 1;
+    assert.deepEqual(await statuses(), ['pending']);
+    assert.deepEqual(await statuses(), []);
+    phase = 2;
+    assert.deepEqual(await statuses(), ['success']);
+    assert.deepEqual(await statuses(), []);
+    phase = 3;
+    assert.deepEqual(await statuses(), ['pending', 'success']);
+    assert.deepEqual(await statuses(), []);
+    // A completion can change between polls without an observed pending phase.
+    phase = 0;
+    assert.deepEqual(await statuses(), ['pending', 'failure']);
+    phase = 2;
+    assert.deepEqual(await statuses(), ['pending', 'success']);
+});
+
+test('host service supports two SSH aliases from local and SSH launches and rejects an unknown host', async t => {
+    const folder = fs.mkdtempSync(path.join(__dirname, '../.cx-test-watch-host-'));
+    t.after(() => fs.rmSync(folder, {force: true, recursive: true}));
+    const python = process.env.CX_TEST_PYTHON || 'python3';
+    const hostLauncher = path.resolve(__dirname, '../bin/cx-watch-launch.py');
+    const scripts = path.join(folder, 'bin');
+    fs.mkdirSync(scripts);
+    fs.writeFileSync(path.join(scripts, 'ssh'), '#!/bin/sh\n' +
+        'while [ "$1" != -- ]; do shift; done\nshift\nhost="$1"; shift\n' +
+        'case "$host" in alpha|beta) exec /bin/sh -c "$1" ;;\n' +
+        '*) echo "Could not resolve hostname" >&2; exit 255 ;; esac\n', {mode: 0o755});
+    const docker = path.join(scripts, 'docker');
+    fs.writeFileSync(docker, '#!' + process.execPath + '\n' + `
+const path = require('node:path');
+const {main} = require(${JSON.stringify(watch)});
+const mount = process.argv.find(arg => arg.startsWith('type=bind,src=') && arg.includes('dst=/cx-watch-host,'));
+process.env.CX_WATCH_SOCKET = mount.match(/src=([^,]+)/)[1] + '/watch.sock';
+(async () => {
+    for (const host of ['alpha','beta','unknown']) {
+        const code = await main(['remote','--host',host,'--cmd','printf ready','--json','--once',
+            '--state',path.join(process.env.FIXTURE, host + '.json')]);
+        if (code !== (host === 'unknown' ? 1 : 0)) process.exitCode = 5;
+    }
+})();
+`, {mode: 0o755});
+    for (const host of ['', 'alpha']) {
+        const child = spawn(python, ['-B', hostLauncher, 'docker', 'run'], {
+            env: {...process.env, PATH: scripts + ':' + process.env.PATH, FIXTURE: folder,
+                CX_SSH_HOST: host, CX_SSH_BRIDGE_DIR: ''},
+            stdio: ['ignore','pipe','pipe'],
+        });
+        let output = '', stderr = '';
+        child.stdout.on('data', chunk => { output += chunk; });
+        child.stderr.on('data', chunk => { stderr += chunk; });
+        const [status] = await once(child, 'close');
+        assert.equal(status, 0, stderr + output);
+        const events = output.trim().split('\n').map(line => JSON.parse(line));
+        if (!host) assert.deepEqual(events.map(event => event.event), ['baseline','baseline','error']);
+        else assert.deepEqual(events.map(event => event.event), ['error']);
+        assert.match(events.at(-1).data.message, /unknown SSH alias/i);
+    }
+});

@@ -152,13 +152,19 @@ async function ciStatus(api, base, sha) {
     }
     const checks = await api.list(base + '/commits/' + sha + '/check-runs', 'check_runs', {optional: true});
     const actionIds = new Set(jobs.map(job => job.check_run_url?.split('/').at(-1)).filter(Boolean));
-    jobs.push(...checks.filter(check => !actionIds.has(String(check.id))));
+    const independent = checks.filter(check => !actionIds.has(String(check.id)));
+    jobs.push(...independent);
+    const generation = JSON.stringify({
+        runs: runs.map(run => [run.id, run.run_attempt || 1]).sort(),
+        checks: independent.map(check => check.id).sort(),
+    });
     if (!jobs.length) return null;
-    if (jobs.some(job => job.status !== 'completed')) return {status: 'pending'};
+    if (jobs.some(job => job.status !== 'completed')) return {status: 'pending', generation};
     const passing = new Set(['success', 'neutral', 'skipped']);
     const failures = jobs.filter(job => !passing.has(job.conclusion) && job.conclusion !== 'cancelled');
     const cancelled = jobs.filter(job => job.conclusion === 'cancelled');
     return {
+        generation,
         status: failures.length ? 'failure' : cancelled.length ? 'cancelled' : 'success',
         counts: (jobs.length - failures.length - cancelled.length) + '/' + jobs.length,
         failing: [...new Set([...failures, ...cancelled].map(job => job.name))],
@@ -224,10 +230,16 @@ async function githubPoll(api, options, snapshot, report, redact) {
             target, 'review_comment', first, options.since, report, redact);
         const ci = await ciStatus(api, base, sha);
         const phases = old?.phases || {};
-        if (ci && phases[sha] !== 'done') {
-            if (!first && !phases[sha]) report(target, 'ci', {sha: short(sha), status: 'pending'});
-            if (!first && ci.status !== 'pending') report(target, 'ci', {sha: short(sha), ...ci});
-            phases[sha] = ci.status === 'pending' ? 'pending' : 'done';
+        const previousCI = phases[sha];
+        if (ci && JSON.stringify(previousCI) !== JSON.stringify(ci)) {
+            if (!first) {
+                if (!previousCI || previousCI.generation !== ci.generation ||
+                        ci.status === 'pending' && previousCI.status !== 'pending') {
+                    report(target, 'ci', {sha: short(sha), generation: ci.generation, status: 'pending'});
+                }
+                if (ci.status !== 'pending') report(target, 'ci', {sha: short(sha), ...ci});
+            }
+            phases[sha] = ci;
         }
         if (ci && ci.status !== 'pending') ciDone ||= target;
         if (state === options.until || (options.until === 'any' && ['closed', 'merged'].includes(state))) end ||= {reason: state, target};
