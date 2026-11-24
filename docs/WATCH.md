@@ -4,6 +4,18 @@ Rebuild the CX image before using `cx-watch` from Codex, Claude, or a CX
 container shell. The watcher polls in the background and writes an event only
 when something changes. Use `cx-watch --help` for command options.
 
+The default Codex instructions and Claude startup prompt explain when to use
+the watcher, how to select a source, and how to preserve state across monitor
+restarts. SSH launches also append the current watcher guidance when the host
+retains an older configuration. Rebuild the image and start a new assistant
+session to load the updated guidance. For local Codex installations that keep
+an older customized `config.toml`, merge the watcher paragraph from the current
+default configuration into `developer_instructions` as well.
+
+The owner confirmed the requested integration test passed before authorizing
+the CX-18 merge. See the [validation record](MAINTAINING.md#cx-18-watcher-and-session-maintenance-validation)
+for automated coverage and the distinction between owner and container checks.
+
 ## Follow a Pull Request and CI
 
 Start the following command in the harness's background monitor. It follows the

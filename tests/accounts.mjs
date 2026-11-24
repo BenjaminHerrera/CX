@@ -15,6 +15,14 @@ Object.assign(env,{HOME:home,CX_DATA_HOME:data,PATH:`${bin}:${process.env.PATH}`
 fs.writeFileSync(path.join(bin,'docker'),`#!/usr/bin/env node
 const fs=require('node:fs');const args=process.argv.slice(2);
 fs.appendFileSync(process.env.CX_TEST_LOG,JSON.stringify(args)+'\\n');
+if(args[0]==='ps'){
+  if(process.env.CX_TEST_DOCKER_PS_FAIL)process.exit(1);
+  if(process.env.CX_TEST_CONTAINER_STATE)console.log('a'.repeat(64));
+}
+if(args[0]==='inspect'){
+  if(process.env.CX_TEST_DOCKER_INSPECT_FAIL)process.exit(1);
+  console.log(process.env.CX_TEST_CONTAINER_STATE+'\\n'+process.env.CX_TEST_CONTAINER_MOUNT);
+}
 if(args[0]==='image'&&args.includes('--format'))console.log(args.some(a=>a.includes('io.cx.ssh-agents'))?(process.env.CX_TEST_OLD_SSH_IMAGE?'1':'2'):(process.env.CX_TEST_OLD_IMAGE?'0':'1'));
 if(args.includes('/opt/cx-mcp-check.mjs')&&process.env.CX_TEST_PREFLIGHT_FAIL){console.error('adapter_permission: EACCES fixture');process.exit(31);}
 if(args.includes('/cx-connection')&&args.includes('CX_AGENT='+process.env.CX_TEST_CONNECTION_FAIL))process.exit(31);
@@ -363,6 +371,10 @@ check('Claude exec translates print mode, forwards resume, streams stdin and ret
   assert.equal(r.status,19,r.stderr);assert.match(r.stdout,/piped task/);
   const d=JSON.parse(r.stdout.split('\n')[0]);assert.ok(d.args.includes('--print'));assert.ok(d.args.includes('fixture-id'));
   assert.equal(d.args[d.args.indexOf('--system-prompt-snapshot')+1],'off');assert.equal(d.key,null);assert.equal(d.openai,null);
+  const guidance=d.args[d.args.indexOf('--append-system-prompt')+1];
+  assert.match(guidance,/cx-watch github --repo/);assert.match(guidance,/cx-watch remote --host/);
+  assert.match(guidance,/local container shell/);assert.match(guidance,/--state PATH/);
+  assert.match(guidance,/--once/);assert.match(guidance,/--max-runtime 1700/);
   r=adapter(['--cx-session','--model','exec','literal']);assert.equal(r.status,0,r.stderr);assert.equal(JSON.parse(r.stdout).args.includes('--print'),false);
   r=adapter(['--cx-session','--','exec']);assert.equal(JSON.parse(r.stdout).args.includes('--print'),false);
   r=adapter(['--cx-session','--add-dir','/other','exec','a task']);assert.equal(r.status,0,r.stderr);assert.ok(JSON.parse(r.stdout).args.includes('--print'));
@@ -430,6 +442,42 @@ check('managed Claude exec holds a writer lease and deletion gates refuse new wr
     const refused=run(pair('claude','work','exec','fixture'));assert.notEqual(refused.status,0);assert.match(refused.stderr,/deletion is in progress/);
     assert.equal(calls().some(x=>x[0]==='run'),false);assert.deepEqual(fs.readdirSync(live),[]);
   } finally {fs.rmdirSync(lock);}
+});
+check('dead Claude leases recover only after host and Docker checks, including menu launches',()=>{
+  const history=path.join(data,'history/claude'),live=path.join(history,'cx-live'),lease=path.join(live,'stale.json');
+  const dead=JSON.stringify({pid:999999999,account:'work'});
+  assert.equal(fs.existsSync('/proc/999999999'),false);
+  const remove=['sessions','remove','01234567-89ab-cdef-0123-456789abcdef','--agent','claude'];
+  for(const args of [remove,['sessions','menu-backend']]){
+    fs.writeFileSync(lease,dead);clear();ok(args);
+    assert.equal(fs.existsSync(lease),false);
+    assert.ok(calls().some(args=>args[0]==='ps'));
+    assert.equal(fs.existsSync(path.join(history,'cx-delete-lock')),false);
+  }
+  try {
+    for(const state of ['running','paused','restarting','created','removing','unknown']){
+      fs.writeFileSync(lease,dead);ok(remove,{CX_TEST_CONTAINER_STATE:state,CX_TEST_CONTAINER_MOUNT:history});
+      assert.equal(fs.readFileSync(lease,'utf8'),dead,state);
+    }
+    for(const mount of [data,path.join(history,'projects'),'/']){
+      ok(remove,{CX_TEST_CONTAINER_STATE:'running',CX_TEST_CONTAINER_MOUNT:mount});assert.ok(fs.existsSync(lease));
+    }
+    const alias=path.join(temp,'history mount alias');fs.symlinkSync(history,alias);
+    ok(remove,{CX_TEST_CONTAINER_STATE:'running',CX_TEST_CONTAINER_MOUNT:alias});assert.ok(fs.existsSync(lease));
+    for(const extra of [{CX_TEST_DOCKER_PS_FAIL:'1'},{CX_TEST_CONTAINER_STATE:'running',CX_TEST_DOCKER_INSPECT_FAIL:'1'}]){
+      ok(remove,extra);assert.ok(fs.existsSync(lease));
+    }
+    fs.writeFileSync(lease,JSON.stringify({pid:process.pid,account:'work'}));clear();ok(remove);
+    assert.ok(fs.existsSync(lease));assert.equal(calls().some(args=>args[0]==='ps'),false);
+    fs.writeFileSync(lease,'{}');ok(remove);assert.ok(fs.existsSync(lease));
+    fs.unlinkSync(lease);const target=path.join(temp,'lease-target');fs.writeFileSync(target,dead);fs.symlinkSync(target,lease);
+    ok(remove);assert.equal(fs.readFileSync(target,'utf8'),dead);assert.ok(fs.lstatSync(lease).isSymbolicLink());fs.unlinkSync(lease);
+    fs.writeFileSync(lease,dead);fs.mkdirSync(path.join(history,'cx-delete-lock'));ok(remove);assert.ok(fs.existsSync(lease));fs.rmdirSync(path.join(history,'cx-delete-lock'));
+    for(const state of ['exited','dead']){
+      fs.writeFileSync(lease,dead);ok(remove,{CX_TEST_CONTAINER_STATE:state,CX_TEST_CONTAINER_MOUNT:history});assert.equal(fs.existsSync(lease),false);
+    }
+    fs.writeFileSync(lease,dead);ok(remove,{CX_TEST_CONTAINER_STATE:'running',CX_TEST_CONTAINER_MOUNT:path.join(data,'history/codex')});assert.equal(fs.existsSync(lease),false);
+  } finally {fs.rmSync(lease,{force:true});}
 });
 check('API-key auth is selected privately and never supplied as native arguments',()=>{
   fs.writeFileSync(ca+'/api-key','selected-fixture');

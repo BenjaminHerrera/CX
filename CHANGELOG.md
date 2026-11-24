@@ -2,8 +2,23 @@
 
 ## Unreleased
 
+- Teach Codex and Claude startup prompts when and how to use `cx-watch`,
+  including independent remote polling, background monitors and restart state.
+
+- Recover stale Claude writer leases during session maintenance after verifying
+  the host process has exited and no active Docker container can write that
+  history. Keep deletion blocked when ownership or container status is uncertain.
+
+- Fix Codex chat deletion from Sessions failing with `ENOENT` for
+  `/codex-home/sessions`. Recreate shared history links at the same stable
+  Codex home used by listing before invoking native deletion.
+
 - Add `cx-watch` for change-driven GitHub, command, and file monitoring
-  with persistent state and independent SSH polling. Rebuild the image to use it.
+  with persistent state and independent SSH polling. Track same-head CI reruns
+  and watch configured aliases from local or SSH sessions. The owner confirmed
+  the requested integration test passed; see the
+  [validation record](docs/MAINTAINING.md#cx-18-watcher-and-session-maintenance-validation)
+  and [watcher guide](docs/WATCH.md). Rebuild the image and restart CX to use it.
 
 - Open Sessions automatically after the first Bash prompt and successful setup
   in managed interactive SSH launches. Start the selected assistant if history

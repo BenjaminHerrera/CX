@@ -182,7 +182,9 @@ async function main() {
   const work=fs.mkdtempSync(path.join(os.tmpdir(),'cx-menu-'));let client;
   try {
     if(req.op==='remove') {
-      await removeSession({id:req.id,agent:req.agent,codexRoot,claudeRoot,codexHome:path.join(work,'remove')});
+      // Each helper has a fresh tmpfs. Recreate history links at the stable
+      // home used by listing and native SQLite paths before resolving a thread.
+      await removeSession({id:req.id,agent:req.agent,codexRoot,claudeRoot,codexHome:process.env.CX_SESSION_CODEX_HOME || path.join(work,'remove')});
       const root=req.agent==='codex'?codexRoot:claudeRoot;if(root&&validId(req.id))fs.rmSync(names(root,req.id).file,{force:true});
     } else {
       if(codexRoot)client=await codexClient(codexRoot,process.env.CX_SESSION_CODEX_HOME || path.join(codexRoot,'cx-menu-home'));

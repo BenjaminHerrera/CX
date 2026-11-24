@@ -1,14 +1,14 @@
 // Menu history discovery/names in disposable stores; never uses account homes.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {DatabaseSync} from 'node:sqlite';
 import {zstdCompressSync} from 'node:zlib';
 import {codexClient,listSessions,renameSession,clean,repairMenuPaths} from '../container/cx-session-menu.mjs';
 import {removeSession} from '../container/cx-sessions.mjs';
-const root=fs.mkdtempSync(path.join(os.tmpdir(),'cx-menu-test-'));
+const root=fs.mkdtempSync(path.join(path.dirname(fileURLToPath(import.meta.url)),'../.cx-test-menu-'));
 const id='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
 let count=0;const test=async(name,fn)=>{await fn();console.log(`ok ${++count} - ${name}`);};
 try {
@@ -71,6 +71,49 @@ try {
     await assert.rejects(removeSession({id,agent:'claude',claudeRoot}));assert.ok(fs.existsSync(lock));assert.ok(fs.existsSync(transcript));
     fs.rmdirSync(lock);await removeSession({id,agent:'claude',claudeRoot});assert.equal(fs.existsSync(transcript),false);
     assert.equal(fs.existsSync(lock),false);
+  });
+  await test('menu deletion restores stable Codex paths in a fresh helper for active and archived sessions',async()=>{
+    const store=path.join(root,'remove-history'),home=path.join(root,'remove-home'),bin=path.join(root,'remove-bin');
+    fs.mkdirSync(bin);
+    for(const name of ['sessions','archived_sessions','sqlite','thread-writer-locks'])fs.mkdirSync(path.join(store,name),{recursive:true});
+    for(const name of ['history.jsonl','session_index.jsonl'])fs.writeFileSync(path.join(store,name),'');
+    const relative=(uuid,archived)=>`${archived?'archived_sessions':'sessions'}/rollout-2026-11-15T00-00-00-${uuid}.jsonl`;
+    const active=relative(id,false),archived=relative(other,true);
+    for(const file of [active,archived])fs.writeFileSync(path.join(store,file),'fixture\n');
+    const rows=[{id,path:active,archived:false},{id:other,path:archived,archived:true}];
+    fs.writeFileSync(path.join(bin,'codex'),'#!'+process.execPath+'\n'+`
+const fs=require('node:fs'),path=require('node:path'),readline=require('node:readline');
+const rows=JSON.parse(process.env.CX_TEST_ROWS),home=process.env.CX_TEST_STABLE_HOME;
+readline.createInterface({input:process.stdin}).on('line',line=>{
+  const message=JSON.parse(line);if(!message.id)return;
+  fs.appendFileSync(process.env.CX_TEST_CALLS,JSON.stringify({method:message.method,params:message.params,home:process.env.CODEX_HOME})+'\\n');
+  const row=rows.find(row=>row.id===message.params.threadId);
+  let result={};
+  if(message.method==='thread/list')result={data:rows.filter(row=>row.archived===message.params.archived).map(row=>({id:row.id,cwd:'/',updatedAt:1})),nextCursor:null};
+  if(message.method==='thread/read')result={thread:{id:row.id,path:path.join(home,row.path)}};
+  if(message.method==='thread/delete')fs.unlinkSync(path.join(home,row.path));
+  console.log(JSON.stringify({id:message.id,result}));
+});\n`,{mode:0o755});
+    const env={...process.env,PATH:bin+path.delimiter+process.env.PATH,CX_SESSION_CODEX_HISTORY:store,
+      CX_SESSION_CLAUDE_HISTORY:'',CX_SESSION_CODEX_HOME:home,CX_TEST_STABLE_HOME:home,CX_TEST_ROWS:JSON.stringify(rows),CX_TEST_CALLS:path.join(root,'remove-calls')};
+    const request=req=>{
+      const result=spawnSync(process.execPath,['container/cx-session-menu.mjs'],{
+        input:JSON.stringify(req)+'\n',encoding:'utf8',env,timeout:5000,
+      });
+      assert.equal(result.status,0,result.stdout+result.stderr);
+      return JSON.parse(result.stdout);
+    };
+    assert.equal(request({op:'list'}).rows.length,2,fs.existsSync(env.CX_TEST_CALLS)?fs.readFileSync(env.CX_TEST_CALLS,'utf8'):'Fixture CLI was not called');
+    for(const row of rows){
+      // Every menu operation starts a new container with an empty /codex-home tmpfs.
+      fs.rmSync(home,{recursive:true});fs.mkdirSync(home);
+      assert.deepEqual(request({op:'remove',agent:'codex',id:row.id}),{ok:true});
+      assert.equal(fs.existsSync(path.join(store,row.path)),false);
+      if(row.id===id)assert.ok(fs.existsSync(path.join(store,archived)));
+    }
+    const deletes=fs.readFileSync(env.CX_TEST_CALLS,'utf8').trim().split('\n').map(line=>JSON.parse(line)).filter(call=>call.method==='thread/delete');
+    assert.deepEqual(deletes.map(call=>call.params.threadId),[id,other]);
+    assert.ok(deletes.every(call=>call.home===home));
   });
   await test('repair skips corrupt or truncated rollouts and requires a verified full ID',async()=>{
     const store=path.join(root,'repair'),home=path.join(root,'stable'),dir=path.join(store,'archived_sessions');
@@ -165,6 +208,46 @@ try {
       launch();launch();
       assert.equal(read.get(other).rollout_path,corruptPath);
     } finally {db.close();}
+  });
+  if(process.env.CX_NATIVE_HISTORY==='1')await test('native menu deletion removes active and archived chats after a fresh helper launch',async()=>{
+    for(const archived of [false,true]) {
+      const store=path.join(root,`native-remove-${archived}`),home=path.join(root,`native-remove-home-${archived}`);
+      for(const name of ['sessions','archived_sessions','sqlite','thread-writer-locks'])fs.mkdirSync(path.join(store,name),{recursive:true});
+      for(const name of ['history.jsonl','session_index.jsonl'])fs.writeFileSync(path.join(store,name),'');
+      const relative=uuid=>`${archived?'archived_sessions':'sessions'}/rollout-2026-11-15T00-00-00-${uuid}.jsonl`;
+      const timestamp='2026-11-15T00:00:00Z';
+      for(const uuid of [id,other])fs.writeFileSync(path.join(store,relative(uuid)),[
+        {timestamp,type:'session_meta',payload:{id:uuid,timestamp,cwd:root,originator:'codex-tui',cli_version:'0.169.0',source:'cli',model_provider:'openai'}},
+        {timestamp,type:'event_msg',payload:{type:'user_message',message:'Disposable deletion fixture',images:[],local_images:[],text_elements:[]}},
+        {timestamp,type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text:'Disposable deletion fixture'}]}}
+      ].map(row=>JSON.stringify(row)).join('\n')+'\n');
+      const env={PATH:process.env.PATH,HOME:home,CODEX_HOME:home,CODEX_SQLITE_HOME:path.join(store,'sqlite'),
+        CX_SESSION_CODEX_HISTORY:store,CX_SESSION_CODEX_HOME:home,
+        HTTP_PROXY:'http://127.0.0.1:9',HTTPS_PROXY:'http://127.0.0.1:9',ALL_PROXY:'http://127.0.0.1:9'};
+      const request=req=>{
+        const result=spawnSync(process.execPath,['container/cx-session-menu.mjs'],{
+          input:JSON.stringify(req)+'\n',encoding:'utf8',env,timeout:15000,
+        });
+        assert.equal(result.status,0,result.stdout+result.stderr);
+        return JSON.parse(result.stdout);
+      };
+      const rows=request({op:'list'}).rows;
+      assert.ok(rows.some(row=>row.id===id&&row.archived===archived));
+      const state=path.join(store,'sqlite',fs.readdirSync(path.join(store,'sqlite')).find(file=>/^state_\d+\.sqlite$/.test(file)));
+      const storedPath=()=>{
+        const db=new DatabaseSync(state,{readOnly:true});
+        try{return db.prepare('SELECT rollout_path FROM threads WHERE id=?').get(id)?.rollout_path;}
+        finally{db.close();}
+      };
+      assert.equal(storedPath(),path.join(home,relative(id)));
+      // The next Docker helper has an empty tmpfs at the very same home path.
+      fs.rmSync(home,{recursive:true});fs.mkdirSync(home);
+      assert.deepEqual(request({op:'remove',agent:'codex',id}),{ok:true});
+      assert.equal(fs.existsSync(path.join(store,relative(id))),false);
+      assert.equal(storedPath(),undefined);
+      assert.ok(fs.existsSync(path.join(store,relative(other))));
+      assert.ok(request({op:'list'}).rows.some(row=>row.id===other));
+    }
   });
   console.log(`${count} menu backend checks passed; no provider calls.`);
 } finally {fs.rmSync(root,{recursive:true,force:true});}

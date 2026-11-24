@@ -538,6 +538,11 @@ class MCPRegistrationTests(unittest.TestCase):
                 bridge.start_local()
                 args = bridge.spawn.call_args.args[0]
                 self.assertIn('mcp_servers.cx_ssh.command="node"', args)
+                instructions = json.loads(args[3].split('=', 1)[1])
+                self.assertIn('Use cx-watch ', instructions)
+                self.assertIn('local container shell', instructions)
+                self.assertIn('--state PATH', instructions)
+                self.assertIn('--once', instructions)
                 self.assertEqual(config.read_bytes(), original)
                 bridge.local = None
                 config.write_text('[mcp_servers.cx_ssh]\ncommand="existing"\n')
@@ -567,6 +572,8 @@ class MCPRegistrationTests(unittest.TestCase):
                 self.assertIn('/current/path', env['CX_SSH_INSTRUCTIONS'])
                 self.assertIn('Never replay', env['CX_SSH_INSTRUCTIONS'])
                 self.assertIn('ssh_interactive_start', env['CX_SSH_INSTRUCTIONS'])
+                self.assertIn('Use cx-watch ', env['CX_SSH_INSTRUCTIONS'])
+                self.assertIn('--max-runtime 1700', env['CX_SSH_INSTRUCTIONS'])
                 bridge.terminal.switch.assert_called_with(bridge.local, 'CLAUDE / work')
                 bridge.local = None
                 os.environ['CX_SSH_MCP'] = '0'

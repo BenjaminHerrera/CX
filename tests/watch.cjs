@@ -25,7 +25,8 @@ function temporary(t) {
 async function run(args, {base, env = {}} = {}) {
     const code = "require(process.argv[1]).main(process.argv.slice(3), {apiBase: process.argv[2]}).then(value => process.exitCode = value)";
     const child = spawn(process.execPath, base ? ['-e', code, watch, base, ...args] : [watch, ...args], {
-        env: {...process.env, GH_TOKEN: '', GITHUB_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe'],
+        env: {...process.env, GH_TOKEN: '', GITHUB_TOKEN: '', CX_WATCH_SOCKET: '',
+            CX_SSH_SOCKET: '', CX_SSH_HOST: '', ...env}, stdio: ['ignore', 'pipe', 'pipe'],
     });
     const collect = async stream => {
         const chunks = [];
