@@ -97,6 +97,10 @@ only the selected assistant receives your keyboard input. Esc/`q` returns to
 the prior assistant; after a failed resume it restores the saved assistant.
 When switching CLIs, choose an existing compatible account in the menu.
 
+Ordinary fresh Claude launches receive a native session UUID before startup.
+When that conversation appears in history, selecting its row restores the saved
+running process and draft.
+
 An assistant whose native ID is unknown appears as `Running Codex session` or
 `Running Claude session` when saved. This is a temporary PTY identity within
 this CX instance, not a guessed native conversation ID. Use that row to return;
@@ -127,8 +131,12 @@ describe the native metadata and CX name records.
 
 Deletion is permanent for every account sharing that CLI's history. Read the
 name, CLI and full UUID in the confirmation. A running active conversation
-cannot be deleted. Claude deletion waits for all managed Claude writers to
-stop; Codex retains native writer and history-reference checks.
+cannot be deleted. If another Claude assistant is open, deletion removes the
+selected row from CX immediately and queues its disk cleanup. CX finishes the
+cleanup after all managed Claude writers exit, or on the next session
+maintenance call. Codex retains native writer and history-reference checks.
+Queued Claude transcripts can still appear in Claude's native history until
+disk cleanup finishes.
 
 For removal by a known full UUID, close relevant sessions and run on the host:
 

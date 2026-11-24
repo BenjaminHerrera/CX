@@ -8,7 +8,7 @@ import {createInterface} from 'node:readline';
 import {DatabaseSync} from 'node:sqlite';
 import {createZstdDecompress} from 'node:zlib';
 import {historyClient, listParams} from './cx-codex-resume.mjs';
-import {removeSession} from './cx-sessions.mjs';
+import {removeSession,pendingClaudeRemovals,cleanupClaudeRemovals} from './cx-sessions.mjs';
 
 export const validId = id => /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id);
 export const clean = value => String(value ?? '').replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, ' ').slice(0, 240);
@@ -136,6 +136,7 @@ export async function listSessions({codexRoot,claudeRoot,client,includeInternal=
     }
   }
   if(claudeRoot) {
+    const pending=new Set(pendingClaudeRemovals(claudeRoot));
     const projects=path.join(claudeRoot,'projects');safe(projects);
     for(const dir of fs.existsSync(projects)?fs.readdirSync(projects):[]) {
       const project=path.join(projects,dir);if(!safe(project)?.isDirectory())continue;
@@ -153,6 +154,7 @@ export async function listSessions({codexRoot,claudeRoot,client,includeInternal=
           if(!line.includes('"custom-title"'))continue;
           try {const meta=JSON.parse(line);if(meta.type==='custom-title'&&meta.sessionId?.toLowerCase()===id.toLowerCase())title=meta.customTitle;}catch {}
         }
+        if(pending.has(id.toLowerCase()))continue;
         const row={agent:'claude',id:id.toLowerCase(),name:title,project:clean(entry?.projectPath??index.originalPath??dir),updated:stat.mtimeMs/1000};
         row.name=name(claudeRoot,row);
         add(row);
@@ -179,12 +181,13 @@ async function main() {
     if(!['codex','claude'].includes(req.agent)||!validId(req.id))throw Error('Mutations require an explicit CLI and full session UUID.');
     req.id=req.id.toLowerCase();
   }
+  await cleanupClaudeRemovals(claudeRoot);
   const work=fs.mkdtempSync(path.join(os.tmpdir(),'cx-menu-'));let client;
   try {
     if(req.op==='remove') {
       // Each helper has a fresh tmpfs. Recreate history links at the stable
       // home used by listing and native SQLite paths before resolving a thread.
-      await removeSession({id:req.id,agent:req.agent,codexRoot,claudeRoot,codexHome:process.env.CX_SESSION_CODEX_HOME || path.join(work,'remove')});
+      await removeSession({id:req.id,agent:req.agent,codexRoot,claudeRoot,codexHome:process.env.CX_SESSION_CODEX_HOME || path.join(work,'remove'),deferClaude:true});
       const root=req.agent==='codex'?codexRoot:claudeRoot;if(root&&validId(req.id))fs.rmSync(names(root,req.id).file,{force:true});
     } else {
       if(codexRoot)client=await codexClient(codexRoot,process.env.CX_SESSION_CODEX_HOME || path.join(codexRoot,'cx-menu-home'));
@@ -193,7 +196,8 @@ async function main() {
       if(req.op!=='rename')throw Error('Unknown menu operation.');
       await renameSession({...req,root:req.agent==='codex'?codexRoot:claudeRoot,client,rows});
     }
-    console.log(JSON.stringify({ok:true}));
+    const deferred=req.agent==='claude'&&pendingClaudeRemovals(claudeRoot).includes(req.id);
+    console.log(JSON.stringify({ok:true,...(deferred?{deferred:true}:{})}));
   } finally {if(client)await client.close();fs.rmSync(work,{recursive:true,force:true});}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href) {

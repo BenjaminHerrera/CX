@@ -7,7 +7,7 @@
 The multi-CLI and session-menu work formerly developed on `v2` is now merged
 into `main`. New installations and upgrades should use `main`. The branch name
 did not itself assign a semantic release number. The current package version
-is **2.2.0**. No published release archive is required to
+is **2.2.1**. No published release archive is required to
 install from source.
 
 1. Exit running CX sessions and stop other writers before moving/backing up data.
@@ -19,7 +19,7 @@ git switch main
 git pull --ff-only
 ./install.sh
 cx --version
-# Expected: cx 2.2.0
+# Expected: cx 2.2.1
 cx --doctor
 ```
 
@@ -30,6 +30,12 @@ Restart CX afterwards. Host files and image contents are separate updates;
 `./install.sh --no-build` updates only the host program. Build the image before
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
+
+Version 2.2.1 fixes Claude session switching and queues disk cleanup when
+deleting a conversation while another Claude assistant is open. Update the host
+program and restart CX. Queued conversations disappear from CX immediately;
+physical cleanup waits for all Claude writers to exit. See
+[Sessions](SESSIONS.md#rename-or-delete).
 
 Version 2.2.0 needs both the updated host program and rebuilt image for
 `cx-watch`, its SSH transport, GitHub CLI access, and the refreshed CLI prompts.

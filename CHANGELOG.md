@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 2.2.1 — 2026-11-24
+
+- Match ordinary fresh Claude sessions to their history rows using a native
+  session UUID, so switching back restores the running process and draft.
+
+- Fix deletion of idle Claude conversations while another
+  Claude assistant is open. Remove the selected row from CX immediately, queue
+  disk cleanup until Claude writers exit, and preserve updates to shared indexes.
+
 ## 2.2.0 — 2026-11-23
 
 - Teach Codex and Claude startup prompts when and how to use `cx-watch`,

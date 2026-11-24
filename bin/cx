@@ -666,6 +666,10 @@ run_container() {
     # Leave a conservative marker after a forced/crashed launcher; clear only
     # after Docker has returned normally, including a native nonzero exit.
     [[ -z "$writer_lease" ]] || rm -f -- "$writer_lease"
+    if [[ -n "$writer_lease" ]] && compgen -G "$DATA_HOME/history/claude/cx-pending-delete/*.json" >/dev/null; then
+        "$CX_ROOT/bin/cx" sessions cleanup-claude --agent claude >/dev/null 2>&1 ||
+            printf 'cx: Claude cleanup remains queued; retry session maintenance after closing Claude.\n' >&2
+    fi
     return "$docker_status"
 }
 
@@ -948,7 +952,7 @@ sessions_command() {
         exec env CX_SESSION_OPEN=1 "$CX_ROOT/bin/cx" "$@"
     fi
     local action="${1:-}" session_id=""
-    [[ "$action" == remove || "$action" == menu-backend ]] || die "Usage: cx sessions select [PROJECT] [--agent CLI --account NAME] | cx sessions remove ID [--agent CLI]"
+    [[ "$action" == remove || "$action" == menu-backend || "$action" == cleanup-claude ]] || die "Usage: cx sessions select [PROJECT] [--agent CLI --account NAME] | cx sessions remove ID [--agent CLI]"
     shift
     account_options "$@"
     local cli directory destination found=false
@@ -982,7 +986,9 @@ sessions_command() {
     local -a selection=()
     [[ -z "$AGENT" ]] || selection=(--agent "$AGENT")
     local -a utility_args=() utility_terminal=()
-    if [[ "$action" == menu-backend ]]; then
+    if [[ "$action" == cleanup-claude ]]; then
+        utility_args=(/opt/cx-session-tools/cx-sessions.mjs cleanup)
+    elif [[ "$action" == menu-backend ]]; then
         utility_terminal=(-i)
         utility_args=(/opt/cx-session-tools/cx-session-menu.mjs)
     else
