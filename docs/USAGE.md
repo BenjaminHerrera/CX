@@ -296,6 +296,7 @@ permission gate. A human running shell commands controls those changes directly.
 | `CX_CODEX_VERSION` | `latest` | npm package version for builds only |
 | `CX_CLAUDE_VERSION` | `2.1.323` | Claude npm version for builds only |
 | `CX_DATA_HOME` | `~/.local/share/cx/data` | Managed profiles, shared native history and automation default |
+| `CX_GH_TOKEN_FILE` | Unset | Host token file mounted read-only for `gh` in assistant containers. See [GitHub CLI access](ACCOUNTS.md#github-cli-access). |
 | `CX_CODEX_HOME` | Unset | Explicit legacy Codex home; bypasses managed accounts/history |
 | `CX_ENV_HOME` | `~/.local/share/cx/environments` | Workspace environment stores |
 | `CX_ENV_NAME` | Saved selection, else `default` | Session environment override |

@@ -31,6 +31,14 @@ Restart CX afterwards. Host files and image contents are separate updates;
 using features that require updated container adapters. `cx --rebuild` also
 refreshes cached image layers and CLI packages.
 
+## GitHub CLI Access From Main
+
+To use `gh` from Codex or Claude, update the host program and rebuild the
+image. The installer builds the image by default. If you updated with
+`./install.sh --no-build`, run `cx --rebuild`. For a portable bundle, run
+`./cx --rebuild` from the updated bundle. Then start a new assistant session
+with a [GitHub token file](ACCOUNTS.md#github-cli-access).
+
 ## CX-15 Codex Sessions History Fix in v2.1.3
 
 After updating, open Sessions to restore entries whose old temporary menu path

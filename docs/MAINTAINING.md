@@ -205,6 +205,15 @@ fresh guidance and native ownership failures on an integrated host before releas
 Claude writer leases cover interactive supervision and managed exec/print launches;
 inspect stale leases/gates only with the related writers and maintenance stopped.
 
+## CX-18 GitHub CLI Validation
+
+The maintainer confirmed Docker verification and live GitHub authentication
+for the GitHub CLI change in PR #19. The Docker verifier checks `gh` availability
+in both packaged editions. The live authentication check confirms the token
+works against GitHub. For setup and the authentication command, see
+[GitHub CLI access](ACCOUNTS.md#github-cli-access) and
+[PR #19](https://github.com/BenjaminHerrera/CX/pull/19).
+
 ## CX-13 Validation (Target v2.1.2)
 
 The fix merged into `main` in [PR #14](https://github.com/BenjaminHerrera/CX/pull/14)
